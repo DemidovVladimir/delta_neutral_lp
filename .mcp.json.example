@@ -1,0 +1,50 @@
+{
+  "mcpServers": {
+    "solanaMcp": {
+      "command": "npx",
+      "args": [
+        "mcp-remote",
+        "https://mcp.solana.com/mcp"
+      ],
+      "disabled": false,
+      "autoApprove": []
+    },
+    "sequential-thinking": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-sequential-thinking"
+      ],
+      "disabled": false,
+      "autoApprove": [
+        "sequentialthinking"
+      ]
+    },
+    "Context7": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@upstash/context7-mcp",
+        "--api-key",
+        "YOUR_CONTEXT7_API_KEY_HERE"
+      ],
+      "env": {},
+      "disabled": false,
+      "autoApprove": [
+        "resolve-library-id",
+        "get-library-docs"
+      ]
+    },
+    "solana-mcp": {
+      "command": "npx",
+      "args": ["solana-mcp"],
+      "env": {
+        "RPC_URL": "YOUR_HELIUS_RPC_URL_HERE",
+        "SOLANA_PRIVATE_KEY": "YOUR_SOLANA_PRIVATE_KEY_HERE",
+        "OPENAI_API_KEY": "YOUR_OPENAI_API_KEY_HERE"
+      },
+      "disabled": false,
+      "autoApprove": []
+    }
+  }
+}
