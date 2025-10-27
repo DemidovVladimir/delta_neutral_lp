@@ -8,18 +8,23 @@ This document summarizes the improvements integrated from the [meteora-lp-army-b
 
 ## 🎯 Completed Integrations
 
-### 1. **Jupiter API v6 Upgrade**
+### 1. **Jupiter API v6 Upgrade (Migrated to Lite API v3 in Session 7)**
 - **Files**: [src/core/priceOracle.ts](src/core/priceOracle.ts), [src/types/index.ts](src/types/index.ts)
 - **Changes**:
-  - Upgraded from Jupiter API v4 → v6
+  - Upgraded from Jupiter API v4 → v6 (Session 6)
+  - **NEW (Session 7):** Migrated to Jupiter Lite API v3 (`lite-api.jup.ag/price/v3`)
+  - **Reason for migration:** DNS resolution issues with `price.jup.ag` on Node.js v24/macOS
+  - Uses `undici` fetch for better DNS resolution
   - Added `fetchTokenPricesFromJupiter()` for multi-token fetching
   - Added `getMultiTokenPrices()` to fetch SOL + USDC in one call
   - Supports `vsToken` parameter for direct SOL/USDC exchange rate
   - Backward compatible - existing `getSolPrice()` function still works
 - **Benefits**:
+  - Fixes DNS resolution failures on macOS/Node.js v24
+  - Better DNS reliability with lite-api.jup.ag endpoint
   - More efficient API usage (fewer calls)
   - Direct access to SOL/USDC exchange rate
-  - Uses latest Jupiter API version
+  - Uses Jupiter Lite API v3 (stable and maintained)
 
 ### 2. **Meteora DLMM API Integration**
 - **Files**: [src/utils/meteoraUtils.ts](src/utils/meteoraUtils.ts), [src/modules/meteoraAdapter.ts](src/modules/meteoraAdapter.ts)
@@ -55,20 +60,30 @@ This document summarizes the improvements integrated from the [meteora-lp-army-b
   - Reusable utilities for bin math
   - Better logging with formatted numbers
 
-### 5. **Jito Dynamic Tip Escalation**
+### 5. **Jito Dynamic Tip Escalation (Enhanced in Session 7)**
 - **Files**: [src/utils/jitoUtils.ts](src/utils/jitoUtils.ts)
 - **Features**:
-  - `createJitoTipInstruction()` with attempt-based escalation:
-    - 1st attempt: 4,000 lamports (~$0.0008)
-    - 2nd-3rd attempts: 6,000 lamports (~$0.0012)
-    - 4+ attempts: 8,000 lamports (~$0.0016)
+  - **NEW:** `createEnhancedJitoTipInstruction()` with real-time dynamic pricing
+  - Fetches tip percentiles from Jito Bundle Tips API (`bundles-api-rest.jito.wtf`)
+  - 5-second cache (TIP_CACHE_TTL_MS = 5000) to prevent stale data
+  - Priority-based tip selection (low/normal/high/urgent/critical):
+    - low → p25, normal → p50, high → p75, urgent → p95, critical → p99
+  - Exponential retry escalation: 1.0x → 1.5x → 2.25x → 3.38x (Math.pow(1.5, attempt))
+  - Cost-aware capping based on transaction value (maxTipBps)
+  - Conservative fallback tips when API unavailable:
+    - p25: 1,000 lamports (~$0.0002 at $200/SOL)
+    - p50: 5,000 lamports (~$0.001)
+    - p75: 10,000 lamports (~$0.002)
+    - p95: 50,000 lamports (~$0.01)
+    - p99: 100,000 lamports (~$0.02)
   - `sendJitoTransaction()` for bundle submission
-  - `calculateRecommendedTip()` for priority-based tips
   - Uses correct Jito tip account: `ADaUMid9yfUytqMBgopwjb2DTLSokTSzL1zt6iGPaS49`
 - **Benefits**:
-  - Higher transaction landing rate with dynamic tips
-  - Proven tip escalation strategy from production bot
-  - Cost-effective (starts low, escalates only on retry)
+  - Adaptive tip pricing based on real-time network conditions
+  - Cost efficiency: don't overpay in quiet periods
+  - Higher landing rates: pay more when network congested
+  - Proven exponential escalation strategy from production bot
+  - Cost-aware capping prevents runaway tips
 
 ### 6. **Enhanced MeteoraAdapter**
 - **Files**: [src/modules/meteoraAdapter.ts](src/modules/meteoraAdapter.ts)
@@ -219,5 +234,41 @@ Consider these enhancements:
 
 ---
 
-**Generated**: 2025-10-27
+## 🆕 Session 7 Updates (2025-10-28)
+
+### Enhanced Jito Dynamic Tipping
+- Replaced static tip escalation with real-time dynamic pricing from Jito API
+- 5-second cache for tip data (TIP_CACHE_TTL_MS = 5000)
+- Priority-based selection: low/normal/high/urgent/critical → p25/p50/p75/p95/p99
+- Exponential retry escalation: 1.0x → 1.5x → 2.25x → 3.38x
+- Conservative fallback tips (p99: 100k lamports) when API unavailable
+- Cost-aware capping prevents runaway tips
+
+**Benefits:**
+- Adaptive to network conditions (pay less when quiet, more when congested)
+- Higher transaction landing rates during high network activity
+- Cost efficiency: only pay what's needed
+- Proven strategy from meteora-lp-army-bot production
+
+### Jupiter Lite API v3 Migration
+- Fixed DNS resolution failures with `price.jup.ag` on Node.js v24/macOS
+- Migrated to `lite-api.jup.ag/price/v3` (better DNS reliability)
+- Uses `undici` for more robust HTTP fetch
+- Updated response parsing for v3 API format
+- Maintains all v6 features (multi-token, vsToken parameter)
+
+**Root Cause of DNS Issue:**
+- Node.js v24 native fetch uses different DNS resolver than system DNS
+- `curl` works fine (uses system DNS), but Node fetch() fails
+- Issue specific to macOS environment
+- lite-api.jup.ag resolves correctly where price.jup.ag doesn't
+
+**Test Results:**
+- ✅ SOL price fetched successfully: $198.72
+- ✅ Jito tip API fetching: Working
+- ✅ 5-second cache: Functional
+
+---
+
+**Generated**: 2025-10-28 (Updated)
 **Status**: ✅ All integrations complete and tested

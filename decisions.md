@@ -755,6 +755,229 @@ Implement **comprehensive JSDoc documentation standards**:
 
 ---
 
+## ADR-010: Dynamic Jito Tipping with 5-Second Cache
+
+**Date:** 2025-10-28
+**Status:** Accepted
+**Deciders:** Team
+**Related:** Epic N (Transaction Execution), jitoUtils.ts
+
+### Context
+
+The bot was using static Jito tip escalation (4k→6k→8k lamports) for bundle submissions. This approach had limitations:
+- Tips not adjusted to current network conditions
+- May overpay when network is quiet
+- May underpay when network is congested (lower landing rate)
+- No visibility into current tip market
+
+Jito provides a Bundle Tips API that exposes real-time tip floor percentiles (p25/p50/p75/p95/p99) based on recently landed bundles.
+
+We needed to decide:
+1. Whether to use dynamic tipping vs static
+2. How long to cache tip data
+3. What fallback values to use when API unavailable
+
+### Decision
+
+Implement **dynamic Jito tipping with 5-second cache**:
+- Fetch real-time tip percentiles from Jito Bundle Tips API
+- Cache for 5 seconds (TIP_CACHE_TTL_MS = 5000)
+- Priority-based tip selection (low/normal/high/urgent/critical)
+- Exponential escalation on retry (1.0x → 1.5x → 2.25x → 3.38x)
+- Cost-aware capping based on transaction value
+- Conservative fallback tips when API unavailable
+
+### Alternatives Considered
+
+1. **Keep static tips (4k→6k→8k lamports)**
+   - Pro: Simple, no API dependency
+   - Pro: Predictable costs
+   - Con: Not adaptive to network conditions
+   - Con: May waste money or get low landing rate
+   - Con: No visibility into tip market
+
+2. **Longer cache (30-60 seconds)**
+   - Pro: Fewer API calls
+   - Con: Stale data in fast-changing network
+   - Con: May use outdated tip floors
+   - Con: Solana blocks every ~400ms, 30s+ is too stale
+
+3. **No caching (fetch every time)**
+   - Pro: Always fresh data
+   - Con: Excessive API calls
+   - Con: Rate limiting risk
+   - Con: Added latency on every transaction
+
+4. **Use Helius priority fee API instead**
+   - Pro: Alternative data source
+   - Con: Different metric (priority fees vs Jito tips)
+   - Con: Not specific to Jito bundles
+   - Con: Extra dependency
+
+### Rationale
+
+**5-second cache chosen because:**
+1. **Network freshness:** 5s = ~10-12 Solana slots, reasonable freshness for tip market
+2. **API rate limits:** Prevents excessive calls to Jito API
+3. **Performance:** Reduces latency for multiple txs within same operation
+4. **User feedback:** User explicitly requested "5 seconds caching at max"
+
+**Dynamic tipping benefits:**
+1. **Cost efficiency:** Pay appropriate tips for network conditions (lower when quiet)
+2. **Landing rate:** Higher tips when network congested (better bundle success)
+3. **Market awareness:** Visibility into current tip environment
+4. **Proven strategy:** Based on meteora-lp-army-bot production experience
+
+**Exponential escalation (1.5x per retry):**
+- Start conservative (p50 or p75)
+- Escalate aggressively on failure (1.5x, 2.25x, 3.38x)
+- Signals urgency to validators
+- Proven effective in production
+
+### Consequences
+
+**Positive:**
+- Adaptive tip pricing based on real-time network conditions
+- Better cost efficiency (don't overpay in quiet periods)
+- Higher landing rates (pay more when needed)
+- Visibility into Jito tip market via API
+- Cost-aware capping prevents runaway tips
+
+**Negative:**
+- Dependency on Jito Bundle Tips API
+- Slightly more complex code than static tips
+- Need to handle API failures with fallbacks
+- Cache adds state management
+
+**Mitigation:**
+- Conservative fallback tips (p99: 100k lamports = $0.02) when API unavailable
+- 5-second cache prevents API rate limiting
+- Clear logging of tip amounts and sources
+- Cost-aware capping prevents excessive tips
+
+**Implementation Notes:**
+- API: `https://bundles-api-rest.jito.wtf/api/v1/bundles/tip_floor`
+- Priority mapping: `low→p25, normal→p50, high→p75, urgent→p95, critical→p99`
+- Fallback tips researched from Jito's 1k minimum + real-world usage
+- See [src/utils/jitoUtils.ts](src/utils/jitoUtils.ts) for implementation
+
+---
+
+## ADR-011: Jupiter Lite API v3 Migration
+
+**Date:** 2025-10-28
+**Status:** Accepted
+**Deciders:** Team
+**Related:** Epic K (Price Oracle), priceOracle.ts
+
+### Context
+
+The bot was using Jupiter API v6 endpoint (`price.jup.ag/v6/price`) for SOL/USD price fetching. During testing, we encountered DNS resolution failures:
+
+```
+Error: fetch failed
+Cause: queryA ENODATA price.jup.ag
+```
+
+**Key findings:**
+- `curl` successfully resolves and fetches from price.jup.ag
+- Node.js v24 native fetch() fails with DNS error
+- Issue specific to Node.js DNS resolver on macOS
+- System DNS (used by curl) works fine, but Node DNS resolver doesn't
+
+Jupiter provides multiple API endpoints:
+1. `price.jup.ag/v6/price` - Main Jupiter Price API v6
+2. `lite-api.jup.ag/price/v3` - Jupiter Lite API v3 (alternative endpoint)
+
+### Decision
+
+Migrate to **Jupiter Lite API v3** (`lite-api.jup.ag/price/v3`):
+- Switch endpoint from price.jup.ag to lite-api.jup.ag
+- Use undici's fetch for more reliable DNS resolution
+- Update response parsing for v3 API format
+- Add technical documentation about DNS issue
+
+### Alternatives Considered
+
+1. **Fix DNS resolution on user's system**
+   - Pro: Fixes root cause
+   - Con: Not under our control
+   - Con: May affect other users with same macOS/Node v24 setup
+   - Con: Not a robust solution
+
+2. **Implement Pyth on-chain oracle**
+   - Pro: On-chain price feeds, no DNS dependency
+   - Con: Much higher complexity (SDK integration, feed addresses)
+   - Con: Higher latency (on-chain queries)
+   - Con: Attempted but Pyth feeds returned garbage data
+   - Con: Overkill for DNS issue
+
+3. **Use Switchboard on-chain oracle**
+   - Pro: Alternative on-chain oracle
+   - Con: Similar complexity to Pyth
+   - Con: Attempted but feeds returned incorrect data
+   - Con: Overkill for simple API endpoint issue
+
+4. **Downgrade to Jupiter v4**
+   - Pro: Older endpoint might work
+   - Con: Loses v6 features (multi-token, vsToken)
+   - Con: v4 may be deprecated soon
+   - Con: Doesn't solve DNS issue (same domain)
+
+### Rationale
+
+**lite-api.jup.ag works because:**
+1. Different DNS record with better resolution
+2. Node.js DNS resolver can resolve lite-api.jup.ag
+3. User confirmed it works: `fetch('https://lite-api.jup.ag/price/v3?ids=So1...')` succeeded
+
+**Undici chosen because:**
+1. More robust HTTP client than Node's native fetch
+2. Better DNS handling and error recovery
+3. Widely used in Node.js ecosystem
+4. Small dependency (~200KB)
+
+**Simpler than on-chain oracles:**
+- Jupiter Lite API is still fast and reliable
+- No complex SDK integration needed
+- Maintains existing architecture
+- On-chain oracles add complexity without benefit for this case
+
+### Consequences
+
+**Positive:**
+- Fixes DNS resolution issue on macOS/Node v24
+- Better DNS reliability overall
+- Maintains fast off-chain price fetching
+- Simple migration (endpoint + response parsing change)
+- Keeps multi-token support and vsToken parameter
+
+**Negative:**
+- Dependency on lite-api.jup.ag endpoint availability
+- API v3 format differs from v6 (minor parsing changes)
+- Need to document the DNS issue for future reference
+- Added undici dependency (~200KB)
+
+**Mitigation:**
+- Keep Pyth oracle fallback in code (for future implementation)
+- Document DNS issue in priceOracle.ts file-level docstring
+- Monitor lite-api.jup.ag uptime
+- Can switch back to price.jup.ag if DNS issues resolved
+
+**Implementation Notes:**
+- Old URL: `https://price.jup.ag/v6/price?ids={mints}&vsToken={vsToken}`
+- New URL: `https://lite-api.jup.ag/price/v3?ids={mints}&vsToken={vsToken}`
+- Response format change: Direct object `{mintAddress: {...}}` instead of `{data: {mintAddress: {...}}}`
+- Price field: `tokenData.usdPrice || tokenData.price` (v3 uses `usdPrice`)
+- DNS issue documented in priceOracle.ts lines 30-31
+
+**Future Considerations:**
+- Monitor if price.jup.ag DNS resolution improves in future Node.js versions
+- Consider implementing Pyth on-chain oracle as true fallback
+- Track lite-api.jup.ag stability and uptime
+
+---
+
 ## Decision Index
 
 - ADR-001: Use solana-agent-kit for Transaction Execution
@@ -766,12 +989,14 @@ Implement **comprehensive JSDoc documentation standards**:
 - ADR-007: Jupiter API v6 Upgrade
 - ADR-008: Meteora Pool Analytics Caching Strategy (2.5s TTL)
 - ADR-009: Documentation Standards
+- ADR-010: Dynamic Jito Tipping with 5-Second Cache
+- ADR-011: Jupiter Lite API v3 Migration
 
 ---
 
 ## Decision Status
 
-- **Accepted:** 9
+- **Accepted:** 11
 - **Proposed:** 0
 - **Deprecated:** 0
 - **Superseded:** 0

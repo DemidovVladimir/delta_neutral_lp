@@ -11,10 +11,11 @@
  * - **Multi-source Validation**: Compares prices across sources for accuracy
  *
  * Price Sources (in order of preference):
- * 1. Jupiter API v6 (https://price.jup.ag/v6/price)
+ * 1. Jupiter Lite API v3 (https://lite-api.jup.ag/price/v3)
  *    - Multi-token price fetching in single request
+ *    - Better DNS reliability than price.jup.ag endpoint
  *    - Direct SOL/USDC exchange rate via vsToken parameter
- *    - Better rate limiting and error handling
+ *    - Fast and accurate price data
  * 2. Pyth Oracle (on-chain price feeds)
  *    - Decentralized oracle network
  *    - High-frequency updates
@@ -24,6 +25,9 @@
  * - Default TTL: 30 seconds (configurable via PRICE_ORACLE_CONFIG)
  * - Separate cache for SOL/USD and multi-token prices
  * - Cache invalidation on errors or stale data
+ *
+ * Technical Notes:
+ * - Uses undici's fetch for reliable DNS resolution (Node v24's native fetch has DNS issues on macOS)
  *
  * @example
  * ```typescript
@@ -38,6 +42,7 @@
  * ```
  */
 
+import { fetch } from 'undici';
 import { log } from '../utils/logger.js';
 import { Price, OracleError, TokenPrice, MultiTokenPriceResult } from '../types/index.js';
 import { PRICE_ORACLE_CONFIG } from '../config/constants.js';
@@ -60,7 +65,8 @@ const priceCache: PriceCache = {
 };
 
 /**
- * Fetch multiple token prices from Jupiter API v6
+ * Fetch multiple token prices from Jupiter Lite API v3
+ * Uses lite-api.jup.ag which has better DNS reliability than price.jup.ag
  */
 async function fetchTokenPricesFromJupiter(
   mints: string[],
@@ -68,12 +74,13 @@ async function fetchTokenPricesFromJupiter(
 ): Promise<Record<string, TokenPrice>> {
   try {
     const ids = mints.join(',');
-    let url = `https://price.jup.ag/v6/price?ids=${ids}`;
+    // Use lite-api v3 endpoint (more reliable DNS resolution)
+    let url = `https://lite-api.jup.ag/price/v3?ids=${ids}`;
     if (vsToken) {
       url += `&vsToken=${vsToken}`;
     }
 
-    log.debug('Fetching token prices from Jupiter v6', { url, mints, vsToken });
+    log.debug('Fetching token prices from Jupiter Lite API v3', { url, mints, vsToken });
 
     const response = await fetch(url);
 
@@ -83,38 +90,39 @@ async function fetchTokenPricesFromJupiter(
 
     const data = (await response.json()) as any;
 
-    if (!data.data) {
-      throw new Error('Invalid response from Jupiter API v6');
+    // Lite API v3 has different response format - direct object with mint keys
+    if (!data || typeof data !== 'object') {
+      throw new Error('Invalid response from Jupiter Lite API v3');
     }
 
     const result: Record<string, TokenPrice> = {};
     const timestamp = Date.now();
 
     for (const mint of mints) {
-      const tokenData = data.data[mint];
+      const tokenData = data[mint];
       if (!tokenData) {
         log.warn(`Token ${mint} not found in Jupiter response`);
         continue;
       }
 
       result[mint] = {
-        id: tokenData.id || mint,
-        mintSymbol: tokenData.mintSymbol || 'UNKNOWN',
-        vsToken: tokenData.vsToken,
-        vsTokenSymbol: tokenData.vsTokenSymbol,
-        price: tokenData.price,
+        id: mint,
+        mintSymbol: mint === SOL_MINT ? 'SOL' : mint === USDC_MINT ? 'USDC' : 'UNKNOWN',
+        vsToken: vsToken,
+        vsTokenSymbol: vsToken === USDC_MINT ? 'USDC' : undefined,
+        price: tokenData.usdPrice || tokenData.price,
         timestamp,
       };
     }
 
-    log.debug('Fetched token prices from Jupiter v6', {
+    log.debug('Fetched token prices from Jupiter Lite API v3', {
       tokens: Object.keys(result).length,
       prices: result
     });
 
     return result;
   } catch (error) {
-    log.error('Failed to fetch token prices from Jupiter v6', {
+    log.error('Failed to fetch token prices from Jupiter Lite API v3', {
       error: error instanceof Error ? error.message : String(error),
       mints,
       vsToken,

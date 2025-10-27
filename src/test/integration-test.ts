@@ -2,11 +2,11 @@
  * Integration Test for New Utilities
  *
  * Tests the improvements from meteora-lp-army-bot integration:
- * - Jupiter API v6 multi-token price fetching
+ * - Jupiter Lite API v3 multi-token price fetching (updated from v6)
  * - Meteora DLMM API pool analytics
  * - Position composition calculations
  * - Meteora price utilities
- * - Jito dynamic tips
+ * - Jito dynamic tips (enhanced with real-time pricing)
  *
  * Usage:
  *   NODE_ENV=mainnet npx tsx src/test/integration-test.ts
@@ -59,7 +59,7 @@ async function initializeTest() {
 }
 
 async function testJupiterV6() {
-  console.log('\n🧪 Testing Jupiter API v6...\n');
+  console.log('\n🧪 Testing Jupiter Lite API v3...\n');
 
   try {
     // Test single token price (backward compatible)
@@ -79,7 +79,7 @@ async function testJupiterV6() {
 
     return true;
   } catch (error) {
-    console.error('❌ Jupiter v6 test failed:', error);
+    console.error('❌ Jupiter Lite API v3 test failed:', error);
     return false;
   }
 }

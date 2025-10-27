@@ -20,12 +20,16 @@
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",
     "@meteora-ag/dlmm": "^1.7.5",
+    "@pythnetwork/client": "^2.22.1",
+    "@pythnetwork/pyth-solana-receiver": "^0.12.0",
     "@solana/web3.js": "^1.95.8",
+    "@switchboard-xyz/on-demand": "^3.1.2",
     "bn.js": "^5.2.2",
     "bs58": "^6.0.0",
     "decimal.js": "^10.6.0",
     "dotenv": "^16.4.5",
     "solana-agent-kit": "^2.0.10",
+    "undici": "^7.16.0",
     "winston": "^3.17.0"
   },
   "devDependencies": {

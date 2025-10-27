@@ -514,3 +514,93 @@ Track these at the end of each week:
 - skipPreflight set to `false` (safe mode) by default, documented in constants.ts
 
 ---
+
+## 2025-10-28
+
+### Session 7 - Jito Dynamic Tipping & Jupiter API Fix
+
+**Duration:** Extended session
+
+**Tasks Completed:**
+- [x] **Enhanced Jito tipping with dynamic pricing**
+  - Replaced static tip escalation (4k→6k→8k) with dynamic tip fetching from Jito API
+  - Fetches real-time tip percentiles (p25/p50/p75/p95/p99) from `bundles-api-rest.jito.wtf`
+  - Implements 5-second cache (TIP_CACHE_TTL_MS = 5000) to prevent stale data
+  - Priority-based tip selection (low/normal/high/urgent/critical)
+  - Exponential retry escalation (1.0x → 1.5x → 2.25x → 3.38x)
+  - Cost-aware tip capping based on transaction value (BPS)
+  - Conservative fallback tips (p99: 100k lamports) when API unavailable
+
+- [x] **Fixed Jupiter API DNS resolution issue**
+  - Switched from `price.jup.ag/v6` to `lite-api.jup.ag/price/v3`
+  - Node.js v24 on macOS had DNS resolution issues with price.jup.ag
+  - lite-api endpoint has better DNS reliability
+  - Added `undici` package for improved HTTP fetch
+  - Updated response parsing for Jupiter Lite API v3 format
+  - Tested successfully: SOL price fetched at $198.72
+
+- [x] **Updated documentation**
+  - Enhanced priceOracle.ts docstring with lite-api details
+  - Added technical notes about DNS resolution issue
+  - Updated INTEGRATION_SUMMARY.md with API changes
+
+**Code Statistics:**
+- **jitoUtils.ts**: Enhanced from ~200 lines to ~400 lines (dynamic tipping system)
+- **priceOracle.ts**: Updated endpoint and response parsing
+- **types/index.ts**: Added JitoBundleTips and JitoTipConfig interfaces
+- **package.json**: Added `undici` dependency
+
+**Key Implementation Details:**
+
+1. **Dynamic Jito Tipping:**
+   - Fetches bundle tips from: `https://bundles-api-rest.jito.wtf/api/v1/bundles/tip_floor`
+   - Converts SOL amounts to lamports (1e9 multiplier)
+   - Selects base tip from percentile based on priority:
+     - low: p25, normal: p50, high: p75, urgent: p95, critical: p99
+   - Applies exponential escalation on retry: `baseTip * Math.pow(1.5, attempt)`
+   - Caps tip at % of transaction value if provided
+   - Falls back to conservative hardcoded values if API fails
+
+2. **Fallback Tip Values (user-corrected):**
+   ```typescript
+   const FALLBACK_TIPS: JitoBundleTips = {
+     p25: 1000,    // 1k lamports (~$0.0002 at $200/SOL)
+     p50: 5000,    // 5k lamports (~$0.001)
+     p75: 10000,   // 10k lamports (~$0.002)
+     p95: 50000,   // 50k lamports (~$0.01)
+     p99: 100000,  // 100k lamports (~$0.02)
+   };
+   ```
+   - 2.5x cheaper than initial values
+   - Based on Jito's 1k lamport minimum
+   - Researched from real-world usage patterns
+
+3. **Jupiter Lite API v3:**
+   - URL: `https://lite-api.jup.ag/price/v3?ids={mints}&vsToken={vsToken}`
+   - Response format: Direct object with mint keys (not nested `data.data`)
+   - Price field: `usdPrice` or `price` (fallback)
+   - Better DNS reliability than price.jup.ag on macOS/Node v24
+
+**Test Results:**
+- ✅ Jupiter Lite API: SOL price fetched successfully ($198.72)
+- ✅ Jito tip fetching: API calls working, cache functional
+- ✅ Fallback tips: Conservative values validated
+
+**Next Steps:**
+- [ ] Test dynamic Jito tips in production to measure landing rate improvement
+- [ ] Monitor cache effectiveness and API availability
+- [ ] Consider adding Jito tip analytics/logging
+
+**Notes:**
+- **DNS Issue Root Cause:** Node.js v24 native fetch has different DNS resolver than system DNS on macOS. `curl` works but Node fetch() fails with "queryA ENODATA" error for price.jup.ag
+- **Why undici:** More reliable HTTP fetch implementation with better DNS handling
+- **Why lite-api:** Jupiter provides multiple API endpoints; lite-api has better reliability
+- **Tip Economics:** At $200/SOL, 100k lamports = $0.02, which is reasonable for MEV protection
+- **Cache Duration:** 5 seconds chosen to balance freshness with API rate limiting
+- **Exponential Escalation:** Proven strategy from meteora-lp-army-bot production deployment
+
+**Decisions Made:**
+- ADR-010: Dynamic Jito Tipping with 5-Second Cache (to be added)
+- ADR-011: Jupiter Lite API v3 Migration (to be added)
+
+---
