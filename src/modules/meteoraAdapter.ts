@@ -1,11 +1,40 @@
 /**
  * Meteora DLMM Adapter
  *
- * Handles all interactions with Meteora DLMM pools:
- * - Auto-creation of LP positions
- * - Reading LP exposure from position NFTs
- * - Deposits and withdrawals
- * - Fee claims
+ * Handles all interactions with Meteora DLMM (Dynamic Liquidity Market Maker) pools.
+ *
+ * Key Features:
+ * - **Auto-creation**: Automatically creates LP positions with configurable price ranges
+ * - **Exposure Tracking**: Reads real-time LP exposure (SOL/USDC amounts) from position NFTs
+ * - **Pool Analytics**: Fetches pool metrics (APR, APY, volume, fees, TVL) from Meteora API
+ * - **Position Composition**: Calculates token X/Y percentages within price ranges
+ * - **Deposits/Withdrawals**: Supports single-sided and balanced liquidity operations
+ * - **Fee Claiming**: Claims accumulated trading fees from all positions
+ * - **State Persistence**: Saves created position NFT mints to data/state.json
+ *
+ * Implementation Status:
+ * ✅ Auto-create positions with price range validation
+ * ✅ Read LP exposure from position NFTs
+ * ✅ Pool analytics with 2.5s caching
+ * ✅ Position composition calculations
+ * ✅ Deposit/withdrawal operations
+ * ✅ Fee claiming from multiple positions
+ *
+ * @example
+ * ```typescript
+ * const adapter = new MeteoraAdapter();
+ *
+ * // Auto-create position if needed
+ * await adapter.autoCreatePositionIfNeeded();
+ *
+ * // Get pool analytics
+ * const poolInfo = await adapter.getPoolAnalytics();
+ * console.log('Pool APR:', poolInfo.apr);
+ *
+ * // Read LP exposure
+ * const exposure = await adapter.getLpExposure();
+ * console.log('SOL in LP:', exposure.solAmount);
+ * ```
  */
 
 import { PublicKey, Keypair, LAMPORTS_PER_SOL } from '@solana/web3.js';

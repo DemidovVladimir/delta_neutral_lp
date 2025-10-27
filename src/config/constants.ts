@@ -1,20 +1,87 @@
 /**
- * System-wide constants for the delta-neutral LP bot
+ * System-wide Configuration Constants
+ *
+ * Centralized configuration for transaction execution, retry logic, RPC settings,
+ * and bot-wide parameters.
+ *
+ * Usage:
+ * - Import specific configs: `import { RPC_CONFIG, SLIPPAGE_BPS } from './constants.js'`
+ * - All values are immutable (readonly) via `as const`
+ * - Update values here rather than hardcoding in modules
+ *
+ * @module constants
  */
 
-// Transaction retry configuration
+/**
+ * Transaction Retry Configuration
+ *
+ * Controls retry behavior for failed transactions.
+ *
+ * Exponential backoff formula:
+ * - Delay = initialDelayMs * (backoffMultiplier ^ attempt)
+ * - Capped at maxDelayMs
+ *
+ * Example retry delays:
+ * - Attempt 1: 1000ms
+ * - Attempt 2: 2000ms
+ * - Attempt 3: 4000ms
+ */
 export const TX_RETRY_CONFIG = {
+  /** Maximum number of retry attempts before giving up */
   maxRetries: 3,
+  /** Initial retry delay in milliseconds */
   initialDelayMs: 1000,
+  /** Maximum retry delay (caps exponential backoff) */
   maxDelayMs: 10000,
+  /** Multiplier for exponential backoff (2 = double delay each retry) */
   backoffMultiplier: 2,
 } as const;
 
-// RPC configuration
+/**
+ * RPC Configuration
+ *
+ * Solana RPC client settings for transaction submission and confirmation.
+ *
+ * **skipPreflight Explanation**:
+ * - `true`: Skip transaction simulation before submission
+ *   - Pros: Faster submission (~100-200ms saved)
+ *   - Pros: Useful for time-sensitive txs (MEV, arbitrage)
+ *   - Cons: May submit invalid txs that fail on-chain (wasting fees)
+ *   - Cons: Less helpful error messages
+ * - `false`: Simulate transaction first (default, safer)
+ *   - Pros: Catches errors before submitting (saves SOL on failed txs)
+ *   - Pros: Better error diagnostics
+ *   - Cons: Slower submission
+ *   - Cons: Simulation can fail even if tx would succeed (false negatives)
+ *
+ * **Current Setting**: `false` (safe mode)
+ * - For production: Consider `true` for emergency exits and rebalancing
+ * - For testing: Keep `false` to catch errors early
+ *
+ * **Commitment Levels**:
+ * - `processed`: Fastest, but can be rolled back (use with caution)
+ * - `confirmed`: Default, good balance of speed and finality (~400ms)
+ * - `finalized`: Slowest but guaranteed finality (~13s)
+ */
 export const RPC_CONFIG = {
+  /** Timeout for transaction confirmation in milliseconds */
   confirmationTimeout: 60000, // 60s
+  /** Commitment level for transaction confirmation */
   commitment: 'confirmed' as const,
+  /**
+   * Skip transaction simulation before submission
+   *
+   * WARNING: Setting to `true` means transactions are submitted without
+   * validation, which can result in failed transactions and wasted SOL.
+   * Only enable for time-critical operations where speed > safety.
+   *
+   * Current: `false` (safe mode - simulates before submitting)
+   *
+   * Note: Some modules override this (e.g., meteoraAdapter.ts uses
+   * skipPreflight:false for position creation to catch errors early)
+   */
   skipPreflight: false,
+  /** Maximum transaction version supported (0 for legacy, undefined for all) */
   maxSupportedTransactionVersion: 0,
 } as const;
 

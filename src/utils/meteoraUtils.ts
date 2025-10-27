@@ -1,11 +1,49 @@
 /**
  * Meteora DLMM Utilities
  *
- * Helper functions for working with Meteora DLMM pools:
- * - Price calculations from bin IDs
- * - Active bin fetching
- * - Position composition analysis
- * - Pool analytics from Meteora API
+ * Helper functions for working with Meteora DLMM (Dynamic Liquidity Market Maker) pools.
+ *
+ * Key Functions:
+ * - **getPriceFromBinId**: Convert bin ID to price using DLMM formula
+ * - **getActiveBin**: Fetch current active bin and price from pool
+ * - **calculateTokenPercentages**: Calculate token X/Y composition in price range
+ * - **getMeteoraPairInfo**: Fetch pool analytics from Meteora API
+ *
+ * DLMM Bin Mechanics:
+ * - Bins are discrete price ranges in a DLMM pool
+ * - Each bin has a unique ID and corresponding price level
+ * - Price formula: `price = (1 + binStep/10000)^binId * 10^(decimalsX - decimalsY)`
+ * - Bin step determines price granularity (e.g., binStep=4 means 0.04% price steps)
+ *
+ * Position Composition:
+ * - When price is below range: 100% token X (SOL), 0% token Y (USDC)
+ * - When price is in range: Mix of both tokens
+ * - When price is above range: 0% token X, 100% token Y
+ *
+ * Meteora API:
+ * - Provides real-time pool analytics (APR, APY, volume, fees, TVL)
+ * - Endpoint: https://dlmm-api.meteora.ag/pair/{poolAddress}
+ * - Returns comprehensive pool metadata including reserves, bin data, and fee stats
+ *
+ * @example
+ * ```typescript
+ * // Get price from bin ID
+ * const price = getPriceFromBinId(12345, 4, 9, 6); // SOL (9 decimals), USDC (6 decimals)
+ * console.log('Price:', price.toNumber());
+ *
+ * // Get active bin from pool
+ * const activeBin = await getActiveBin(dlmmPool);
+ * console.log('Active bin ID:', activeBin.binId);
+ * console.log('Current price:', activeBin.pricePerToken);
+ *
+ * // Calculate token composition
+ * const composition = calculateTokenPercentages(120, 100, 150);
+ * console.log('SOL:', composition.tokenX + '%', 'USDC:', composition.tokenY + '%');
+ *
+ * // Fetch pool analytics
+ * const poolInfo = await getMeteoraPairInfo('5rCf1DM8LjKTw4YqhnoLcngyZYeNnQqztScTogYHAS6');
+ * console.log('Pool APR:', poolInfo.apr, 'Volume 24h:', poolInfo.trade_volume_24h);
+ * ```
  */
 
 import Decimal from 'decimal.js';

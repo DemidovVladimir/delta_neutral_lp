@@ -491,6 +491,270 @@ This approach is widely used in the Node.js ecosystem for handling mixed module 
 
 ---
 
+## ADR-007: Jupiter API v6 Upgrade
+
+**Date:** 2025-10-27
+**Status:** Accepted
+**Deciders:** Team
+**Related:** Epic K (Price Oracle), Integration improvements
+
+### Context
+
+The bot was using Jupiter API v4 for SOL/USD price fetching. Jupiter has since released v6 with improvements:
+- Multi-token price fetching in a single request
+- Direct token-to-token exchange rates via `vsToken` parameter
+- Better rate limiting and error handling
+- More efficient API usage
+
+We needed to decide whether to upgrade and how to maintain backward compatibility.
+
+### Decision
+
+Upgrade to **Jupiter API v6** while maintaining backward compatibility:
+- Add new `getMultiTokenPrices()` function for multi-token fetching
+- Keep existing `getSolPrice()` function unchanged (uses v6 internally)
+- Use `vsToken=So11111111111111111111111111111111111111112` for direct SOL/USDC rates
+- Add new `TokenPrice` and `MultiTokenPriceResult` types
+
+### Alternatives Considered
+
+1. **Stay on Jupiter v4**
+   - Pro: No migration work needed
+   - Con: Missing efficiency improvements
+   - Con: v4 may be deprecated in future
+
+2. **Breaking change to v6 only**
+   - Pro: Simpler codebase
+   - Con: Breaks existing code
+   - Con: Forces migration on all users
+
+3. **Use different price source (e.g., only Pyth)**
+   - Pro: On-chain price feeds
+   - Con: Higher latency
+   - Con: More complex setup
+
+### Rationale
+
+1. **Efficiency:** Multi-token fetching reduces API calls (2 calls → 1 call for SOL+USDC)
+2. **Accuracy:** Direct SOL/USDC rate via vsToken parameter more accurate than SOL/USD + USDC/USD
+3. **Backward Compatibility:** Existing code continues to work without changes
+4. **Future-Proof:** v6 is latest stable API, likely to be maintained longer
+
+### Consequences
+
+**Positive:**
+- More efficient API usage (fewer calls)
+- Direct SOL/USDC exchange rate for delta calculations
+- Backward compatible - no breaking changes
+- Better error handling in v6
+
+**Negative:**
+- Slightly more complex code (two functions instead of one)
+- Need to maintain both single and multi-token code paths
+
+**Implementation Notes:**
+- `fetchTokenPricesFromJupiter()` handles v6 API calls
+- URL format: `https://price.jup.ag/v6/price?ids=mint1,mint2&vsToken=mint3`
+- Response format changed - adapted in parser
+- See [src/core/priceOracle.ts](src/core/priceOracle.ts) for implementation
+
+---
+
+## ADR-008: Meteora Pool Analytics Caching Strategy
+
+**Date:** 2025-10-27
+**Status:** Accepted
+**Deciders:** Team
+**Related:** Epic L, Integration improvements
+
+### Context
+
+Meteora provides a REST API for pool analytics (APR, APY, volume, fees, TVL):
+- Endpoint: `https://dlmm-api.meteora.ag/pair/{poolAddress}`
+- Returns comprehensive pool metadata
+- Much faster than on-chain queries
+
+We needed to decide:
+1. Whether to use the API vs on-chain queries
+2. How long to cache the data
+
+### Decision
+
+Use **Meteora DLMM API with 2.5-second caching**:
+- Cache pool info in `MeteoraAdapter` instance
+- TTL: 2500ms (2.5 seconds)
+- Return cached data if still fresh
+- Fetch new data when cache expires
+
+### Alternatives Considered
+
+1. **On-chain queries only**
+   - Pro: Always accurate
+   - Pro: No API dependency
+   - Con: Much slower (multiple RPC calls)
+   - Con: Higher RPC costs
+   - Con: Some metrics not available on-chain (APR/APY)
+
+2. **Longer cache (30-60 seconds)**
+   - Pro: Fewer API calls
+   - Con: Stale data on Solana (slots change every ~400ms)
+   - Con: Risk using outdated pool state for decisions
+
+3. **No caching**
+   - Pro: Always fresh data
+   - Con: Excessive API calls
+   - Con: Rate limiting risk
+   - Con: Slower performance
+
+4. **Shorter cache (1 second)**
+   - Pro: Fresher data
+   - Con: Still may call API multiple times per second
+   - Con: Minimal benefit over 2.5s
+
+### Rationale
+
+**2.5-second cache chosen because:**
+1. **Solana block time:** ~400-500ms, so 2.5s = ~5-6 slots (reasonable freshness)
+2. **API rate limits:** Prevents excessive calls to Meteora API
+3. **Performance:** Reduces latency for repeated calls within same operation
+4. **User feedback:** Based on domain knowledge that "2.5 seconds and data is stale in solana"
+
+This balances freshness with efficiency. Pool analytics (APR, volume, fees) don't change drastically in 2.5s, so slight staleness is acceptable.
+
+### Consequences
+
+**Positive:**
+- Fast pool analytics without on-chain queries
+- Prevents API rate limiting
+- Good balance of freshness vs performance
+- Rich data (APR, APY, volume, fees, TVL)
+
+**Negative:**
+- Potential 2.5s stale data
+- Dependency on Meteora API availability
+- Need to handle API failures
+
+**Mitigation:**
+- Cache is instance-scoped (not global), so multiple bots don't share stale data
+- Clear logging of cache age
+- Fallback to on-chain if API fails (future enhancement)
+
+**Implementation Notes:**
+- Cache in `MeteoraAdapter`: `poolInfo` + `poolInfoLastFetched` timestamp
+- Check `Date.now() - poolInfoLastFetched < 2500` before returning cached data
+- See [src/modules/meteoraAdapter.ts:102-123](src/modules/meteoraAdapter.ts#L102-L123)
+
+---
+
+## ADR-009: Documentation Standards
+
+**Date:** 2025-10-27
+**Status:** Accepted
+**Deciders:** Team
+**Related:** All Epics (Documentation quality)
+
+### Context
+
+As the codebase grew, we needed consistent documentation standards for:
+- File-level module documentation
+- Function-level JSDoc comments
+- Type definitions
+- Configuration constants
+- README and guides
+
+Without standards, documentation becomes inconsistent, incomplete, or outdated.
+
+### Decision
+
+Implement **comprehensive JSDoc documentation standards**:
+
+1. **File-level docstrings** for every module with:
+   - Module overview
+   - Key features list
+   - Implementation details
+   - Usage examples
+   - Status (✅ implemented vs 🔜 planned)
+
+2. **Function-level JSDoc** with:
+   - Description of what function does
+   - `@param` tags for all parameters
+   - `@returns` tag for return value
+   - `@throws` tag if applicable
+   - `@example` for non-obvious usage
+
+3. **Type definitions** with:
+   - Interface purpose
+   - Field descriptions
+   - Units/precision notes
+   - Usage examples
+
+4. **Configuration constants** with:
+   - Inline comments explaining each value
+   - Trade-offs of different values
+   - Examples or formulas
+
+5. **Markdown docs** with:
+   - Clear structure and navigation
+   - Code examples
+   - Implementation status
+   - Links to related docs
+
+### Alternatives Considered
+
+1. **Minimal inline comments only**
+   - Pro: Less documentation overhead
+   - Con: Poor developer experience
+   - Con: Hard to onboard new developers
+   - Con: Code intent unclear
+
+2. **External wiki/docs site**
+   - Pro: Rich formatting options
+   - Pro: Searchable
+   - Con: Separate from code (gets out of sync)
+   - Con: Extra tooling needed
+
+3. **Auto-generated API docs (TypeDoc)**
+   - Pro: Always in sync with code
+   - Con: No examples or context
+   - Con: Still need manual docs for architecture
+
+### Rationale
+
+**Comprehensive inline docs chosen because:**
+1. **Discoverability:** Documentation lives with code in IDE
+2. **Maintainability:** Updated in same PR as code changes
+3. **Developer Experience:** IntelliSense shows docs on hover
+4. **Onboarding:** New developers can understand code faster
+5. **AI-Friendly:** Claude Code and other AI tools can read inline docs
+
+### Consequences
+
+**Positive:**
+- Better developer experience (IDE autocomplete with docs)
+- Easier onboarding for new contributors
+- Documentation stays in sync with code
+- Clear implementation status (what's done vs planned)
+- Examples prevent misuse of APIs
+
+**Negative:**
+- More upfront documentation work
+- Need to update docs when code changes
+- Can become verbose if over-documented
+
+**Mitigation:**
+- Use templates for consistency (see DOCUMENTATION_GUIDE.md)
+- Focus on "why" not "what" (code shows "what")
+- Keep examples concise and practical
+- Review docs in PR process
+
+**Implementation Notes:**
+- Created DOCUMENTATION_GUIDE.md with standards and templates
+- Updated all core modules with comprehensive docstrings
+- Added implementation status markers (✅ vs 🔜)
+- See commits from 2025-10-27 for examples
+
+---
+
 ## Decision Index
 
 - ADR-001: Use solana-agent-kit for Transaction Execution
@@ -499,12 +763,15 @@ This approach is widely used in the Node.js ecosystem for handling mixed module 
 - ADR-004: Emergency Flow Execution Strategy
 - ADR-005: Automatic Meteora Position Creation
 - ADR-006: DLMM SDK ESM/CommonJS Interop Strategy
+- ADR-007: Jupiter API v6 Upgrade
+- ADR-008: Meteora Pool Analytics Caching Strategy (2.5s TTL)
+- ADR-009: Documentation Standards
 
 ---
 
 ## Decision Status
 
-- **Accepted:** 6
+- **Accepted:** 9
 - **Proposed:** 0
 - **Deprecated:** 0
 - **Superseded:** 0

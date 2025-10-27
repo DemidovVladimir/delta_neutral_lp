@@ -1,3 +1,43 @@
+/**
+ * Price Oracle
+ *
+ * Multi-source price fetching with caching, fallbacks, and validation.
+ *
+ * Features:
+ * - **Jupiter API v6**: Primary price source with multi-token support
+ * - **Direct SOL/USDC Rate**: Uses vsToken parameter for accurate exchange rates
+ * - **Pyth Oracle**: Fallback price source for reliability
+ * - **Price Caching**: Configurable TTL to reduce API calls
+ * - **Multi-source Validation**: Compares prices across sources for accuracy
+ *
+ * Price Sources (in order of preference):
+ * 1. Jupiter API v6 (https://price.jup.ag/v6/price)
+ *    - Multi-token price fetching in single request
+ *    - Direct SOL/USDC exchange rate via vsToken parameter
+ *    - Better rate limiting and error handling
+ * 2. Pyth Oracle (on-chain price feeds)
+ *    - Decentralized oracle network
+ *    - High-frequency updates
+ *    - Fallback when Jupiter unavailable
+ *
+ * Caching Strategy:
+ * - Default TTL: 30 seconds (configurable via PRICE_ORACLE_CONFIG)
+ * - Separate cache for SOL/USD and multi-token prices
+ * - Cache invalidation on errors or stale data
+ *
+ * @example
+ * ```typescript
+ * // Get SOL price in USD
+ * const solPrice = await getSolPrice();
+ * console.log('SOL/USD:', solPrice.usd);
+ *
+ * // Get multiple token prices with direct SOL/USDC rate
+ * const prices = await getMultiTokenPrices();
+ * console.log('SOL/USDC rate:', prices.solUsdcRate);
+ * console.log('Source:', prices.source); // 'jupiter', 'pyth', or 'cached'
+ * ```
+ */
+
 import { log } from '../utils/logger.js';
 import { Price, OracleError, TokenPrice, MultiTokenPriceResult } from '../types/index.js';
 import { PRICE_ORACLE_CONFIG } from '../config/constants.js';

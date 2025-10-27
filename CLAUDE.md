@@ -25,23 +25,33 @@ pnpm install
 ```
 
 ### Running the Bot
+
+**Current Status**: The main orchestrator and CLI commands are planned for future implementation. Currently available:
+
 ```bash
-# Start the main hedge loop
-pnpm tsx src/cli/start.ts
+# Testing (recommended workflow)
+pnpm test:local          # Test on localnet mainnet-fork
+pnpm test:mainnet        # Test on mainnet (REAL FUNDS!)
+pnpm test:integration    # Integration tests for utilities
 
-# Manual LP operations
-pnpm tsx src/cli/lp.ts deposit --usdc 12000
-pnpm tsx src/cli/lp.ts withdraw --percent 50 --singleOut usdc
+# Utility scripts
+pnpm find-pools          # Find SOL/USDC DLMM pools on mainnet
 
-# Manual Drift operations
-pnpm tsx src/cli/drift.ts rebalance
+# Localnet development
+pnpm localnet:start      # Start mainnet fork validator
+pnpm localnet:stop       # Stop validator
 
-# Claim fees
-pnpm tsx src/cli/fees.ts claim
-
-# Emergency withdrawal
-pnpm tsx src/cli/emergency.ts --full
+# Development
+pnpm build              # Compile TypeScript
+pnpm lint               # Run ESLint
+pnpm format             # Format with Prettier
 ```
+
+**Planned CLI commands** (not yet implemented):
+- `pnpm start` - Main hedge loop
+- Manual LP operations (deposit, withdraw, claim fees)
+- Manual Drift operations (rebalance, manage collateral)
+- Emergency withdrawal flows
 
 ## Architecture
 
@@ -49,44 +59,91 @@ The codebase follows a modular adapter pattern:
 
 ### Core Modules
 
+**Implemented:**
+
 1. **MeteoraAdapter** (`src/modules/meteoraAdapter.ts`)
-   - **Auto-creates** LP positions with configured price ranges (if enabled)
-   - Reads LP exposure from position NFTs (SOL/USDC amounts)
-   - Handles deposits/withdrawals with single-sided support
-   - Claims accumulated fees
-   - Persists created position NFT mints to state
+   - ✅ Auto-creates LP positions with configured price ranges
+   - ✅ Reads LP exposure from position NFTs (SOL/USDC amounts)
+   - ✅ Fetches pool analytics from Meteora DLMM API (cached 2.5s)
+   - ✅ Calculates position composition (token X/Y percentages)
+   - ✅ Persists created position NFT mints to state
+   - 🔜 Deposits/withdrawals with single-sided support
+   - 🔜 Fee claiming functionality
 
-2. **DriftEngine** (`src/modules/driftEngine.ts`)
-   - Reads perpetual short position state (size, collateral, margin ratio, funding rate)
-   - Executes rebalancing to match LP exposure
-   - Manages collateral deposits/withdrawals
+2. **PriceOracle** (`src/core/priceOracle.ts`)
+   - ✅ Jupiter API v6 integration with multi-token price fetching
+   - ✅ Direct SOL/USDC exchange rate via vsToken parameter
+   - ✅ Pyth oracle fallback for price feeds
+   - ✅ Price caching with configurable TTL
+   - ✅ Multi-source price validation
 
-3. **Bundler** (`src/modules/bundler.ts`)
-   - Builds atomic transactions with ComputeBudget instructions
-   - Submits Jito bundles for ordered multi-tx execution
-   - Falls back to priority fee transactions when Jito unavailable
+3. **Persistence Layer** (`src/modules/persistence.ts`)
+   - ✅ State snapshot management (positions, exposure, timestamps)
+   - ✅ Action journal for execution history
+   - ✅ Auto-created position NFT tracking
+   - ✅ JSON-based storage in data/ directory
 
-4. **RiskController** (`src/modules/riskController.ts`)
-   - Enforces delta threshold, margin requirements, funding rate caps
-   - Validates notional size limits
-   - Checks all risk parameters before execution
+4. **Utility Modules:**
+   - **meteoraUtils** (`src/utils/meteoraUtils.ts`)
+     - ✅ Bin price calculations from bin ID
+     - ✅ Token percentage composition calculator
+     - ✅ Meteora API client for pool analytics
+   - **jitoUtils** (`src/utils/jitoUtils.ts`)
+     - ✅ Jito tip instruction creation
+     - ✅ Dynamic tip escalation (4k→6k→8k lamports)
+   - **agentKit** (`src/core/agentKit.ts`)
+     - ✅ Solana Agent Kit initialization
+     - ✅ Wallet keypair management
 
-5. **Orchestrator** (`src/orchestrator/`)
-   - Main hedge loop: monitors LP exposure vs short position
-   - Triggers rebalancing when delta exceeds band
-   - Executes emergency flows (withdraw → claim → swap → adjust hedge)
+**Planned (not yet implemented):**
+
+- 🔜 **DriftEngine** - Perpetual short positions and rebalancing
+- 🔜 **Bundler** - Jito bundle submission and atomic transactions
+- 🔜 **RiskController** - Delta thresholds, margin requirements, funding rate caps
+- 🔜 **Orchestrator** - Main hedge loop and emergency flows
 
 ## Key Technical Details
 
+### Recent Improvements (January 2025)
+
+Integrated improvements from `meteora-lp-army-bot` project:
+
+1. **Jupiter API v6 Upgrade**
+   - Multi-token price fetching in single request
+   - Direct SOL/USDC rate via `vsToken=So11111111111111111111111111111111111111112`
+   - Better rate limiting and error handling
+
+2. **Meteora DLMM API Integration**
+   - Real-time pool analytics (APR, APY, volume, fees, TVL)
+   - 2.5-second cache to prevent stale data
+   - Complete pool metadata (bin step, active bin, reserves)
+
+3. **Enhanced Price Utilities**
+   - Precise bin price calculations using Decimal.js
+   - Position composition calculator (token X/Y percentages)
+   - Support for pools with different decimals
+
+4. **Jito Tip Escalation**
+   - Dynamic tip strategy: 4000→6000→8000 lamports
+   - Automatic retry logic for failed bundles
+   - Better MEV protection for time-sensitive transactions
+
+See [INTEGRATION_SUMMARY.md](INTEGRATION_SUMMARY.md) for detailed changelog.
+
 ### Transaction Execution Strategy
 
-**Normal rebalancing:** Single transaction with priority fees
+**Current implementation:**
+- Uses `skipPreflight: true` for faster transaction submission
+- Priority fees via ComputeBudget instructions
+- Jito tip instructions for MEV protection
 
-**Emergency flow (multi-step):**
-- If total CU < limit → pack all instructions into single atomic tx
-- Otherwise → split into 2-3 transactions and submit as Jito bundle
-- Bundle ordering: withdraw → claim fees → swap → adjust hedge
-- Fallback: sequential transactions with confirmation gating
+**Planned (not yet implemented):**
+- **Normal rebalancing**: Single transaction with priority fees
+- **Emergency flow**: Multi-step atomic bundles
+  - Pack instructions if total CU < limit
+  - Split into 2-3 txs and submit as Jito bundle
+  - Ordering: withdraw → claim fees → swap → adjust hedge
+  - Fallback to sequential txs with confirmation gating
 
 ### Configuration (.env)
 

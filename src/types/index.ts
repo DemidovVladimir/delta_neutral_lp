@@ -1,5 +1,44 @@
 /**
- * Shared TypeScript types for the delta-neutral LP bot
+ * Type Definitions
+ *
+ * Shared TypeScript type definitions for the delta-neutral liquidity provision bot.
+ *
+ * Type Categories:
+ * - **Core Types**: Prices, token amounts, base data structures
+ * - **Meteora LP Types**: Position data, exposure tracking, pool analytics
+ * - **Drift Types**: Perpetual positions, collateral, margin (planned)
+ * - **Risk Types**: Delta thresholds, margin ratios, limits (planned)
+ * - **Transaction Types**: Bundle params, execution results
+ * - **State Types**: Persistence, snapshots, action journal
+ *
+ * Naming Conventions:
+ * - Interfaces use PascalCase (e.g., `LpExposure`, `CreatePositionParams`)
+ * - Params interfaces end with `Params` (e.g., `DepositParams`)
+ * - Result interfaces end with `Result` (e.g., `CreatePositionResult`)
+ * - Detail interfaces end with `Detail` (e.g., `PositionDetail`)
+ *
+ * Units and Precision:
+ * - **SOL amounts**: Human-readable decimals (e.g., 1.5 SOL, not lamports)
+ * - **USDC amounts**: Human-readable decimals (e.g., 1000 USDC, not micro-USDC)
+ * - **Prices**: USD denominated (e.g., 200.5 for SOL/USD)
+ * - **Basis Points**: Integer BPS (e.g., 50 = 0.5%, 10000 = 100%)
+ * - **Timestamps**: Unix milliseconds (Date.now())
+ *
+ * @example
+ * ```typescript
+ * // Creating a position
+ * const params: CreatePositionParams = {
+ *   poolAddress: '5rCf1DM8...',
+ *   solAmount: 10,
+ *   usdcAmount: 1000,
+ *   priceLower: 195,
+ *   priceUpper: 205,
+ * };
+ *
+ * // Reading LP exposure
+ * const exposure: LpExposure = await adapter.getLpExposure();
+ * console.log(`SOL: ${exposure.solAmount}, USDC: ${exposure.usdcAmount}`);
+ * ```
  */
 
 import { Transaction, VersionedTransaction } from '@solana/web3.js';

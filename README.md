@@ -109,22 +109,25 @@ PRIORITY_TIP_LAMPORTS=80000
 ### Running the Bot
 
 ```bash
-# Start the main hedge loop
-NODE_ENV=mainnet pnpm tsx src/cli/start.ts
+# Run tests (recommended for initial validation)
+pnpm test:local          # Test on localnet
+pnpm test:mainnet        # Test on mainnet (REAL FUNDS!)
+pnpm test:integration    # Integration tests for utilities
 
-# Manual LP operations
-pnpm tsx src/cli/lp.ts deposit --usdc 12000
-pnpm tsx src/cli/lp.ts withdraw --percent 50
+# Find available pools
+pnpm find-pools          # Find SOL/USDC DLMM pools on mainnet
 
-# Manual Drift operations
-pnpm tsx src/cli/drift.ts rebalance
+# Localnet management
+pnpm localnet:start      # Start mainnet fork for testing
+pnpm localnet:stop       # Stop validator
 
-# Claim fees
-pnpm tsx src/cli/fees.ts claim
-
-# Emergency withdrawal
-pnpm tsx src/cli/emergency.ts --full
+# Build and lint
+pnpm build              # Compile TypeScript
+pnpm lint               # Run ESLint
+pnpm format             # Format code with Prettier
 ```
+
+**Note**: The main hedge loop and CLI commands are planned for future implementation. Currently, you can test individual modules using the test scripts above.
 
 ## 📊 How It Works
 
@@ -155,7 +158,7 @@ When `|delta| > DELTA_THRESHOLD_SOL`, the bot rebalances the short position.
 
 Test all utilities and integrations:
 ```bash
-NODE_ENV=mainnet pnpm tsx src/test/integration-test.ts
+pnpm test:integration
 ```
 
 Tests include:
@@ -163,19 +166,43 @@ Tests include:
 - ✅ Meteora DLMM API pool analytics
 - ✅ Position composition calculations
 - ✅ Jito dynamic tip escalation
+- ✅ Price oracle utilities
+
+### Localnet Testing
+
+Test on a safe mainnet fork:
+```bash
+pnpm localnet:start     # Start validator
+pnpm test:local         # Run localnet tests
+pnpm localnet:stop      # Stop validator
+```
 
 ### Mainnet Test (REAL FUNDS)
 
 ⚠️ **WARNING**: This uses real funds!
 
 ```bash
-NODE_ENV=mainnet pnpm tsx src/test/mainnet-meteora-test.ts
+pnpm test:mainnet
 ```
 
 This will:
 1. Check wallet balances
 2. Create a real Meteora position
 3. Read LP exposure
+
+### Finding Pools
+
+Find available SOL/USDC DLMM pools:
+```bash
+pnpm find-pools
+```
+
+This script queries Meteora's API to find pools and displays:
+- Pool address
+- Token mints
+- Bin step
+- Current price
+- TVL
 
 ## 📚 Documentation
 
@@ -263,17 +290,20 @@ Contributions are welcome! Please:
 ### Development Workflow
 
 ```bash
-# Run tests
-pnpm test
+# Run unit tests
+pnpm test              # Run Vitest tests
+pnpm test:watch        # Run tests in watch mode
 
-# Type checking
-pnpm tsc --noEmit
+# Build and type check
+pnpm build             # Compile TypeScript (runs tsc)
 
-# Linting
-pnpm eslint src/
+# Code quality
+pnpm lint              # Run ESLint
+pnpm format            # Format with Prettier
 
-# Format
-pnpm prettier --write src/
+# Integration testing
+pnpm test:integration  # Test utilities
+pnpm test:local        # Test on localnet
 ```
 
 ## 📝 License
