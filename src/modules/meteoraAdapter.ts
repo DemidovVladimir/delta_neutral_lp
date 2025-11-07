@@ -37,7 +37,7 @@
  * ```
  */
 
-import { PublicKey, Keypair, LAMPORTS_PER_SOL } from '@solana/web3.js';
+import { PublicKey, Keypair, LAMPORTS_PER_SOL, ComputeBudgetProgram, Transaction } from '@solana/web3.js';
 import BN from 'bn.js';
 import DLMMModule from '@meteora-ag/dlmm';
 import { StrategyType } from '@meteora-ag/dlmm';
@@ -69,6 +69,8 @@ import {
   calculateTokenPercentages,
   getMeteoraPairInfo,
 } from '../utils/meteoraUtils.js';
+import { getTransactionFees, logTransactionFees, getBatchTransactionFees } from '../utils/transactionUtils.js';
+import { createEnhancedJitoTipInstruction, JitoTipConfig } from '../utils/jitoUtils.js';
 
 export class MeteoraAdapter {
   private config = getConfig();
@@ -80,7 +82,7 @@ export class MeteoraAdapter {
   constructor() {
     // Initialize position mints based on config mode
     if (this.config.autoCreatePositions) {
-      // Try to load positions from state.json
+      // Auto-create mode: Try to load positions from state.json
       const savedMints = loadCreatedPositionMints();
       if (savedMints.length > 0) {
         this.positionMints = savedMints;
@@ -92,17 +94,21 @@ export class MeteoraAdapter {
         log.info('MeteoraAdapter initialized in auto-create mode (no saved positions)');
       }
     } else {
-      // Use manually provided position mints from config
-      if (!this.config.meteoraPositionMints || this.config.meteoraPositionMints.length === 0) {
-        throw new Error(
-          'METEORA_POSITION_MINTS is required when AUTO_CREATE_POSITIONS=false'
-        );
+      // Manual mode: Check if user provided existing position mints
+      if (this.config.meteoraPositionMints && this.config.meteoraPositionMints.length > 0) {
+        // User has existing positions they want to track
+        this.positionMints = this.config.meteoraPositionMints;
+        log.info('MeteoraAdapter initialized with existing positions', {
+          count: this.positionMints.length,
+          mints: this.positionMints,
+        });
+      } else {
+        // User wants to start with zero positions and create them manually via UI
+        this.positionMints = [];
+        log.info('MeteoraAdapter initialized with no positions (manual creation mode)', {
+          note: 'Use the UI or API to create positions when ready',
+        });
       }
-      this.positionMints = this.config.meteoraPositionMints;
-      log.info('MeteoraAdapter initialized with existing positions', {
-        count: this.positionMints.length,
-        mints: this.positionMints,
-      });
     }
   }
 
@@ -122,6 +128,54 @@ export class MeteoraAdapter {
    */
   getPositionMints(): string[] {
     return this.positionMints;
+  }
+
+  /**
+   * Add priority fees and optional Jito tip to a transaction
+   *
+   * @param tx - Transaction to enhance
+   * @param jitoConfig - Optional Jito tip configuration
+   */
+  private async enhanceTransaction(tx: Transaction, jitoConfig?: JitoTipConfig): Promise<void> {
+    const wallet = getWalletKeypair();
+
+    // Check if transaction already has ComputeBudget instructions
+    const hasComputeBudgetInstructions = tx.instructions.some(
+      (ix) => ix.programId.equals(ComputeBudgetProgram.programId)
+    );
+
+    if (hasComputeBudgetInstructions) {
+      log.warn('Transaction already contains ComputeBudget instructions, skipping addition to avoid duplicates');
+    } else {
+      // 1. Add ComputeBudget instructions (priority fees)
+      const computeUnitPrice = ComputeBudgetProgram.setComputeUnitPrice({
+        microLamports: this.config.priorityFeeMicroLamports,
+      });
+
+      const computeUnitLimit = ComputeBudgetProgram.setComputeUnitLimit({
+        units: this.config.maxComputeUnits,
+      });
+
+      // Add at beginning of transaction (order matters!)
+      tx.instructions.unshift(computeUnitLimit);
+      tx.instructions.unshift(computeUnitPrice);
+
+      log.debug('Added priority fee instructions', {
+        priorityFeeMicroLamports: this.config.priorityFeeMicroLamports,
+        maxComputeUnits: this.config.maxComputeUnits,
+      });
+    }
+
+    // 2. Add Jito tip if enabled and config provided
+    if (this.config.useJito && jitoConfig) {
+      const jitoTipIx = await createEnhancedJitoTipInstruction(wallet.publicKey, jitoConfig);
+      tx.add(jitoTipIx);
+
+      log.debug('Added Jito tip instruction', {
+        priority: jitoConfig.priority,
+        attempt: jitoConfig.attempt || 0,
+      });
+    }
   }
 
   /**
@@ -227,12 +281,23 @@ export class MeteoraAdapter {
         slippage: SLIPPAGE_BPS.default / 10000, // Convert BPS to decimal (50 BPS = 0.005)
       });
 
+      // Add priority fees and Jito tip (normal priority for position creation)
+      await this.enhanceTransaction(tx, {
+        priority: 'normal',
+        attempt: 0,
+      });
+
       // Sign and send transaction
       tx.partialSign(wallet);
       tx.partialSign(positionKeypair);
       const signature = await connection.sendRawTransaction(tx.serialize(), {
         skipPreflight: false,
         preflightCommitment: 'confirmed',
+      });
+
+      log.info('Position creation transaction submitted', {
+        signature,
+        solscan: `https://solscan.io/tx/${signature}`,
       });
 
       // Wait for confirmation
@@ -242,13 +307,29 @@ export class MeteoraAdapter {
         ...latestBlockhash,
       });
 
-      log.info('Position created successfully', {
-        positionMint: positionKeypair.publicKey.toBase58(),
+      const positionMint = positionKeypair.publicKey.toBase58();
+
+      log.info('✅ Position created successfully', {
+        positionMint,
         signature,
+        solscan: `https://solscan.io/tx/${signature}`,
+      });
+
+      // Fetch and log transaction fees
+      const feeDetails = await getTransactionFees(connection, signature);
+      logTransactionFees(signature, feeDetails, 'Position Creation');
+
+      // Add to our position list and save to state
+      this.positionMints.push(positionMint);
+      saveCreatedPositionMints(this.positionMints);
+
+      log.info('Position mint saved to state', {
+        positionMint,
+        totalPositions: this.positionMints.length,
       });
 
       return {
-        positionMint: positionKeypair.publicKey.toBase58(),
+        positionMint,
         signature,
         solDeposited: params.solAmount,
         usdcDeposited: params.usdcAmount,
@@ -264,14 +345,15 @@ export class MeteoraAdapter {
 
   /**
    * Helper: Convert price to nearest bin ID
+   * Uses SDK's built-in getBinIdFromPrice() method for accuracy
    */
   private priceToNearestBinId(dlmmPool: any, price: number): number {
-    // Use DLMM's built-in method to convert price to bin ID
-    const binStep = dlmmPool.lbPair.binStep;
-    // Bin price formula: price = (1 + binStep / 10000) ^ binId
-    // Solving for binId: binId = log(price) / log(1 + binStep / 10000)
-    const stepSize = 1 + binStep / 10000;
-    const binId = Math.round(Math.log(price) / Math.log(stepSize));
+    // Convert human-readable price to lamport format
+    const pricePerLamport = dlmmPool.toPricePerLamport(price);
+
+    // Use SDK method to calculate bin ID (false = don't round up)
+    const binId = dlmmPool.getBinIdFromPrice(pricePerLamport, false);
+
     return binId;
   }
 
@@ -325,11 +407,20 @@ export class MeteoraAdapter {
     const adjustedMinBinId = activeBinId - halfWidth;
     const adjustedMaxBinId = activeBinId + halfWidth;
 
-    // Convert bin IDs back to prices
-    const binStep = dlmmPool.lbPair.binStep;
-    const stepSize = 1 + binStep / 10000;
-    const adjustedLower = Math.pow(stepSize, adjustedMinBinId);
-    const adjustedUpper = Math.pow(stepSize, adjustedMaxBinId);
+    // Convert bin IDs back to prices using our utility
+    // Note: SDK doesn't provide binIdToPrice(), so we use our getPriceFromBinId utility
+    const adjustedLower = getPriceFromBinId(
+      adjustedMinBinId,
+      dlmmPool.lbPair.binStep,
+      DECIMALS.SOL,
+      DECIMALS.USDC
+    ).toNumber();
+    const adjustedUpper = getPriceFromBinId(
+      adjustedMaxBinId,
+      dlmmPool.lbPair.binStep,
+      DECIMALS.SOL,
+      DECIMALS.USDC
+    ).toNumber();
 
     log.info('Adjusted price range to fit within limits', {
       original: { priceLower, priceUpper, width: requestedWidth },
@@ -619,11 +710,22 @@ export class MeteoraAdapter {
         slippage: SLIPPAGE_BPS.default / 10000,
       });
 
+      // Add priority fees and Jito tip (normal priority for deposits)
+      await this.enhanceTransaction(tx, {
+        priority: 'normal',
+        attempt: 0,
+      });
+
       // Sign and send
       tx.partialSign(wallet);
       const signature = await connection.sendRawTransaction(tx.serialize(), {
         skipPreflight: false,
         preflightCommitment: 'confirmed',
+      });
+
+      log.info('Deposit transaction submitted', {
+        signature,
+        solscan: `https://solscan.io/tx/${signature}`,
       });
 
       const latestBlockhash = await connection.getLatestBlockhash();
@@ -632,7 +734,16 @@ export class MeteoraAdapter {
         ...latestBlockhash,
       });
 
-      log.info('Deposit successful', { signature, params });
+      log.info('✅ Deposit successful', {
+        signature,
+        solscan: `https://solscan.io/tx/${signature}`,
+        params,
+      });
+
+      // Fetch and log transaction fees
+      const feeDetails = await getTransactionFees(connection, signature);
+      logTransactionFees(signature, feeDetails, 'Deposit');
+
       return signature;
     } catch (error) {
       log.error('Failed to deposit to LP', {
@@ -695,11 +806,24 @@ export class MeteoraAdapter {
 
       // Sign and send all transactions
       const signatures: string[] = [];
-      for (const tx of txs) {
+      for (let i = 0; i < txs.length; i++) {
+        const tx = txs[i];
+
+        // Add priority fees and Jito tip (high priority for withdrawals)
+        await this.enhanceTransaction(tx, {
+          priority: 'high',
+          attempt: 0,
+        });
+
         tx.partialSign(wallet);
         const signature = await connection.sendRawTransaction(tx.serialize(), {
           skipPreflight: false,
           preflightCommitment: 'confirmed',
+        });
+
+        log.info(`Withdrawal transaction ${i + 1}/${txs.length} submitted`, {
+          signature,
+          solscan: `https://solscan.io/tx/${signature}`,
         });
 
         const latestBlockhash = await connection.getLatestBlockhash();
@@ -712,10 +836,23 @@ export class MeteoraAdapter {
       }
 
       const finalSignature = signatures[signatures.length - 1];
-      log.info('Withdrawal successful', {
+
+      log.info('✅ Withdrawal successful', {
+        transactionCount: signatures.length,
         signatures,
         finalSignature,
+        viewOnSolscan: signatures.map(sig => `https://solscan.io/tx/${sig}`),
         params,
+      });
+
+      // Calculate total transaction fees for all withdrawal transactions
+      const batchFees = await getBatchTransactionFees(connection, signatures);
+      log.info('💰 Total transaction fees - Withdrawal', {
+        transactionCount: signatures.length,
+        totalFeeLamports: batchFees.totalFeeLamports,
+        totalFeeSol: batchFees.totalFeeSol.toFixed(6),
+        totalFeeUsd: (batchFees.totalFeeSol * 163).toFixed(4),
+        totalComputeUnits: batchFees.totalComputeUnits,
       });
 
       return finalSignature;
@@ -723,6 +860,95 @@ export class MeteoraAdapter {
       log.error('Failed to withdraw from LP', {
         error: error instanceof Error ? error.message : String(error),
         params,
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Close an empty position to reclaim position NFT rent (~0.057 SOL)
+   *
+   * IMPORTANT: Only the position NFT rent is recoverable.
+   * Bin array rent (~0.14 SOL) is NON-REFUNDABLE as bin arrays are shared pool infrastructure.
+   *
+   * NOTE: Position must be fully withdrawn (0 liquidity) before closing
+   */
+  async closePosition(positionMint: string): Promise<string> {
+    log.info('Closing position and reclaiming rent', { positionMint });
+
+    try {
+      const connection = getConnection();
+      const wallet = getWalletKeypair();
+
+      const positionPubkey = new PublicKey(positionMint);
+      const poolPubkey = new PublicKey(this.config.meteoraPoolAddress!);
+      const dlmmPool = await DLMM.create(connection, poolPubkey);
+
+      // Get position data to verify it's empty
+      const { userPositions } = await dlmmPool.getPositionsByUserAndLbPair(wallet.publicKey);
+      const position = userPositions.find((p: any) => p.publicKey.equals(positionPubkey));
+
+      if (!position) {
+        throw new Error('Position not found');
+      }
+
+      // Check if position is empty (no liquidity left)
+      const hasLiquidity = position.positionData.liquidityShares?.gt(new BN(0));
+      if (hasLiquidity) {
+        throw new Error('Cannot close position with liquidity. Please withdraw 100% first.');
+      }
+
+      // Close position using the SDK's closePosition method
+      // The position parameter needs to be an LbPosition object with publicKey and positionData
+      const closeTx = await dlmmPool.closePosition({
+        owner: wallet.publicKey,
+        position, // Pass the full position object, not just the public key
+      });
+
+      // Add priority fees (low priority for closing, just reclaiming rent)
+      await this.enhanceTransaction(closeTx, {
+        priority: 'low',
+        attempt: 0,
+      });
+
+      // Sign and send transaction
+      closeTx.partialSign(wallet);
+      const signature = await connection.sendRawTransaction(closeTx.serialize(), {
+        skipPreflight: false,
+        preflightCommitment: 'confirmed',
+      });
+
+      log.info('Close position transaction submitted', {
+        signature,
+        solscan: `https://solscan.io/tx/${signature}`,
+      });
+
+      // Wait for confirmation
+      const latestBlockhash = await connection.getLatestBlockhash();
+      await connection.confirmTransaction({
+        signature,
+        ...latestBlockhash,
+      });
+
+      log.info('✅ Position closed successfully, rent reclaimed (~0.057 SOL)', {
+        positionMint,
+        signature,
+        solscan: `https://solscan.io/tx/${signature}`,
+      });
+
+      // Fetch and log transaction fees
+      const feeDetails = await getTransactionFees(connection, signature);
+      logTransactionFees(signature, feeDetails, 'Close Position');
+
+      // Remove from our position list
+      this.positionMints = this.positionMints.filter(mint => mint !== positionMint);
+      saveCreatedPositionMints(this.positionMints);
+
+      return signature;
+    } catch (error) {
+      log.error('Failed to close position', {
+        error: error instanceof Error ? error.message : String(error),
+        positionMint,
       });
       throw error;
     }
@@ -779,11 +1005,24 @@ export class MeteoraAdapter {
 
       // Sign and send all claim transactions
       const signatures: string[] = [];
-      for (const tx of claimTxs) {
+      for (let i = 0; i < claimTxs.length; i++) {
+        const tx = claimTxs[i];
+
+        // Add priority fees (low priority for fee claims, not time-sensitive)
+        await this.enhanceTransaction(tx, {
+          priority: 'low',
+          attempt: 0,
+        });
+
         tx.partialSign(wallet);
         const signature = await connection.sendRawTransaction(tx.serialize(), {
           skipPreflight: false,
           preflightCommitment: 'confirmed',
+        });
+
+        log.info(`Fee claim transaction ${i + 1}/${claimTxs.length} submitted`, {
+          signature,
+          solscan: `https://solscan.io/tx/${signature}`,
         });
 
         const latestBlockhash = await connection.getLatestBlockhash();
@@ -792,16 +1031,38 @@ export class MeteoraAdapter {
           ...latestBlockhash,
         });
 
+        log.info(`Fee claim transaction ${i + 1}/${claimTxs.length} confirmed`, {
+          signature,
+        });
+
         signatures.push(signature);
       }
 
       const finalSignature = signatures[signatures.length - 1];
 
-      log.info('Fees claimed successfully', {
+      // Calculate total transaction fees for all claim transactions
+      const batchFees = await getBatchTransactionFees(connection, signatures);
+
+      log.info('✅ Fees claimed successfully', {
         sol: totalClaimableSol,
         usdc: totalClaimableUsdc,
+        transactionCount: signatures.length,
         signatures,
         finalSignature,
+        viewOnSolscan: signatures.map(sig => `https://solscan.io/tx/${sig}`),
+      });
+
+      log.info('💰 Total transaction fees - Fee Claiming', {
+        transactionCount: signatures.length,
+        totalFeeLamports: batchFees.totalFeeLamports,
+        totalFeeSol: batchFees.totalFeeSol.toFixed(6),
+        totalFeeUsd: (batchFees.totalFeeSol * 163).toFixed(4), // Approximate
+        totalComputeUnits: batchFees.totalComputeUnits,
+        breakdown: batchFees.breakdown.map(b => ({
+          signature: b.signature,
+          feeSol: b.feeSol.toFixed(6),
+          computeUnits: b.computeUnitsConsumed,
+        })),
       });
 
       return {

@@ -45,6 +45,7 @@ export interface BotConfig {
   jitoRelayUrl?: string;
   priorityTipLamports: number;
   maxComputeUnits: number;
+  priorityFeeMicroLamports: number;
 
   // Loop parameters
   hedgeLoopIntervalMs: number;
@@ -159,13 +160,25 @@ export function loadConfig(): BotConfig {
       }
     }
   } else {
-    // Manual mode: require existing position details
-    lpOwner = parseEnvString('LP_OWNER', true);
-    meteoraPositionMints = parseEnvStringArray('METEORA_POSITION_MINTS', true);
+    // Manual mode: optionally use existing positions
+    // If LP_OWNER and METEORA_POSITION_MINTS are provided, use them
+    // Otherwise, start with zero positions (user will create via UI)
+    lpOwner = parseEnvString('LP_OWNER', false, '');
+    meteoraPositionMints = parseEnvStringArray('METEORA_POSITION_MINTS', false, []);
 
-    // Validate public keys
-    validatePublicKey('LP_OWNER', lpOwner);
-    validatePublicKeys('METEORA_POSITION_MINTS', meteoraPositionMints);
+    // Validate public keys only if provided
+    if (lpOwner) {
+      validatePublicKey('LP_OWNER', lpOwner);
+    }
+    if (meteoraPositionMints && meteoraPositionMints.length > 0) {
+      validatePublicKeys('METEORA_POSITION_MINTS', meteoraPositionMints);
+    }
+
+    // Note: Pool address still needed for UI to work
+    meteoraPoolAddress = parseEnvString('METEORA_POOL_ADDRESS', false, '');
+    if (meteoraPoolAddress) {
+      validatePublicKey('METEORA_POOL_ADDRESS', meteoraPoolAddress);
+    }
   }
 
   // Parse risk parameters with defaults from PRD
@@ -178,7 +191,8 @@ export function loadConfig(): BotConfig {
   const useJito = parseEnvBoolean('USE_JITO', true);
   const jitoRelayUrl = parseEnvString('JITO_RELAY_URL', false, '');
   const priorityTipLamports = parseEnvNumber('PRIORITY_TIP_LAMPORTS', 80000);
-  const maxComputeUnits = parseEnvNumber('MAX_COMPUTE_UNITS', 1200000);
+  const maxComputeUnits = parseEnvNumber('MAX_COMPUTE_UNITS', 200000);
+  const priorityFeeMicroLamports = parseEnvNumber('PRIORITY_FEE_MICRO_LAMPORTS', 1000); // 1 microlamport per CU
 
   // Parse loop parameters
   const hedgeLoopIntervalMs = parseEnvNumber('HEDGE_LOOP_INTERVAL_MS', 15000); // 15s default
@@ -223,6 +237,7 @@ export function loadConfig(): BotConfig {
     jitoRelayUrl: jitoRelayUrl || undefined,
     priorityTipLamports,
     maxComputeUnits,
+    priorityFeeMicroLamports,
     hedgeLoopIntervalMs,
     maxRetries,
   };

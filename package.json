@@ -15,7 +15,10 @@
     "localnet:start": "./scripts/start-localnet-mainnet-fork.sh",
     "localnet:stop": "pkill solana-test-validator",
     "lint": "eslint src --ext .ts",
-    "format": "prettier --write \"src/**/*.ts\""
+    "format": "prettier --write \"src/**/*.ts\"",
+    "api": "bun run src/api/hono-server.ts",
+    "ui": "cd ui && bun run server.ts",
+    "dev": "concurrently \"npm run api\" \"npm run ui\" --names \"API,UI\" --prefix-colors \"cyan,magenta\""
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",
@@ -28,6 +31,7 @@
     "bs58": "^6.0.0",
     "decimal.js": "^10.6.0",
     "dotenv": "^16.4.5",
+    "hono": "^4.10.4",
     "solana-agent-kit": "^2.0.10",
     "undici": "^7.16.0",
     "winston": "^3.17.0"
@@ -39,6 +43,7 @@
     "@types/winston": "^2.4.4",
     "@typescript-eslint/eslint-plugin": "^8.18.2",
     "@typescript-eslint/parser": "^8.18.2",
+    "concurrently": "^9.2.1",
     "eslint": "^9.17.0",
     "prettier": "^3.4.2",
     "tsx": "^4.19.2",

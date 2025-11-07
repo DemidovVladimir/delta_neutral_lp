@@ -4,22 +4,33 @@
  * Multi-source price fetching with caching, fallbacks, and validation.
  *
  * Features:
- * - **Jupiter API v6**: Primary price source with multi-token support
+ * - **Dual-Source Fetching**: Queries both Pyth and Jupiter in parallel
+ * - **Price Comparison**: Logs divergence when prices differ significantly (>0.5%)
+ * - **Pyth Hermes API**: Primary price source with decentralized oracle data
+ * - **Jupiter API v6**: Secondary source for validation and fallback
  * - **Direct SOL/USDC Rate**: Uses vsToken parameter for accurate exchange rates
- * - **Pyth Oracle**: Fallback price source for reliability
  * - **Price Caching**: Configurable TTL to reduce API calls
- * - **Multi-source Validation**: Compares prices across sources for accuracy
+ * - **Multi-source Validation**: Automatic price sanity checks and divergence detection
  *
- * Price Sources (in order of preference):
- * 1. Jupiter Lite API v3 (https://lite-api.jup.ag/price/v3)
+ * Price Fetching Strategy:
+ * - **Parallel Fetching**: Queries both Pyth and Jupiter simultaneously
+ * - **Primary Source**: Pyth Hermes API (used when both succeed)
+ * - **Fallback**: Jupiter Lite API v3 (used when Pyth fails)
+ * - **Comparison**: Logs price divergence between sources
+ * - **Validation**: Warns when difference exceeds 0.5%
+ *
+ * Price Sources:
+ * 1. Pyth Hermes API (https://hermes.pyth.network)
+ *    - Decentralized oracle network with off-chain price aggregation
+ *    - High-frequency updates (sub-second) from 95+ data providers
+ *    - REST API for easy integration without on-chain account parsing
+ *    - SOL/USD feed ID: 0xef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d
+ *    - Same feed ID used by Drift Protocol and other major DeFi protocols
+ * 2. Jupiter Lite API v3 (https://lite-api.jup.ag/price/v3)
  *    - Multi-token price fetching in single request
  *    - Better DNS reliability than price.jup.ag endpoint
  *    - Direct SOL/USDC exchange rate via vsToken parameter
- *    - Fast and accurate price data
- * 2. Pyth Oracle (on-chain price feeds)
- *    - Decentralized oracle network
- *    - High-frequency updates
- *    - Fallback when Jupiter unavailable
+ *    - Serves as validation and fallback source
  *
  * Caching Strategy:
  * - Default TTL: 30 seconds (configurable via PRICE_ORACLE_CONFIG)
@@ -28,12 +39,15 @@
  *
  * Technical Notes:
  * - Uses undici's fetch for reliable DNS resolution (Node v24's native fetch has DNS issues on macOS)
+ * - Pyth Hermes provides off-chain aggregated prices from 95+ first-party data sources
+ * - Hermes API is simpler than on-chain Pyth Lazer account parsing (which requires Drift IDL)
  *
  * @example
  * ```typescript
  * // Get SOL price in USD
  * const solPrice = await getSolPrice();
  * console.log('SOL/USD:', solPrice.usd);
+ * console.log('Source:', solPrice.source); // 'pyth', 'jupiter', or 'cached'
  *
  * // Get multiple token prices with direct SOL/USDC rate
  * const prices = await getMultiTokenPrices();
@@ -154,20 +168,59 @@ async function fetchPriceFromJupiter(): Promise<number> {
 }
 
 /**
- * Fetch SOL/USD price from Pyth via solana-agent-kit
- * Note: This is a placeholder implementation
- * The actual implementation depends on solana-agent-kit's Pyth integration
+ * Fetch SOL/USD price from Pyth Hermes API
+ * Uses Pyth's off-chain price service for easier integration
+ * Feed ID: 0xef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d
  */
 async function fetchPriceFromPyth(): Promise<number> {
   try {
-    // TODO: Implement Pyth price fetching via agent-kit
-    // This will depend on agent-kit's API for Pyth integration
-    // For now, we'll use a placeholder
+    const PYTH_HERMES_URL = 'https://hermes.pyth.network';
+    const SOL_USD_FEED_ID = '0xef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d';
 
-    log.debug('Pyth integration not yet implemented, using Jupiter fallback');
-    throw new Error('Pyth integration pending');
+    const url = `${PYTH_HERMES_URL}/v2/updates/price/latest?ids[]=${SOL_USD_FEED_ID}`;
+
+    log.debug('Fetching SOL/USD price from Pyth Hermes API', {
+      url,
+      feedId: SOL_USD_FEED_ID,
+    });
+
+    const response = await fetch(url);
+
+    if (!response.ok) {
+      throw new Error(`Pyth Hermes API returned ${response.status}`);
+    }
+
+    const data = (await response.json()) as any;
+
+    if (!data.parsed || !Array.isArray(data.parsed) || data.parsed.length === 0) {
+      throw new Error('Invalid response from Pyth Hermes API');
+    }
+
+    const priceData = data.parsed[0].price;
+
+    if (!priceData || typeof priceData.price !== 'string' || typeof priceData.expo !== 'number') {
+      throw new Error('Invalid price data structure from Pyth');
+    }
+
+    // Convert price: price * 10^expo
+    const priceValue = parseFloat(priceData.price);
+    const expo = priceData.expo;
+    const price = priceValue * Math.pow(10, expo);
+
+    log.debug('Fetched SOL/USD price from Pyth Hermes', {
+      price,
+      conf: priceData.conf,
+      expo,
+      publishTime: priceData.publish_time,
+    });
+
+    if (price <= 0) {
+      throw new Error(`Invalid SOL price from Pyth: ${price}`);
+    }
+
+    return price;
   } catch (error) {
-    log.debug('Pyth price fetch failed', {
+    log.error('Failed to fetch SOL price from Pyth Hermes', {
       error: error instanceof Error ? error.message : String(error),
     });
     throw error;
@@ -214,8 +267,8 @@ async function fetchPriceWithRetry(
 
 /**
  * Get current SOL/USD price
- * Uses cache if available and not stale
- * Falls back from Jupiter -> Pyth -> cached
+ * Fetches from both Pyth and Jupiter, compares them, and uses the primary source
+ * Logs price divergence if difference exceeds threshold
  */
 export async function getSolPrice(): Promise<Price> {
   const now = Date.now();
@@ -225,90 +278,130 @@ export async function getSolPrice(): Promise<Price> {
     log.debug('Using cached price', {
       price: priceCache.price.usd,
       age: now - priceCache.price.timestamp,
+      source: priceCache.price.source,
     });
     return priceCache.price;
   }
 
-  // Try Jupiter first (primary source)
-  try {
-    const price = await fetchPriceWithRetry(fetchPriceFromJupiter, 'jupiter');
+  // Fetch from both sources in parallel for comparison
+  const results = await Promise.allSettled([
+    fetchPriceWithRetry(fetchPriceFromPyth, 'pyth'),
+    fetchPriceWithRetry(fetchPriceFromJupiter, 'jupiter'),
+  ]);
 
-    // Update cache
-    priceCache.price = price;
-    priceCache.expiresAt = now + PRICE_ORACLE_CONFIG.staleThresholdMs;
+  const pythResult = results[0];
+  const jupiterResult = results[1];
 
-    log.info('Fetched SOL price', {
-      price: price.usd,
-      source: price.source,
+  // Extract successful prices
+  const pythPrice = pythResult.status === 'fulfilled' ? pythResult.value : null;
+  const jupiterPrice = jupiterResult.status === 'fulfilled' ? jupiterResult.value : null;
+
+  // If both succeeded, compare prices and log divergence
+  if (pythPrice && jupiterPrice) {
+    const priceDiff = Math.abs(pythPrice.usd - jupiterPrice.usd);
+    const priceDiffPct = (priceDiff / pythPrice.usd) * 100;
+
+    log.info('Fetched prices from both sources', {
+      pyth: pythPrice.usd,
+      jupiter: jupiterPrice.usd,
+      diffUsd: priceDiff.toFixed(4),
+      diffPct: priceDiffPct.toFixed(4),
     });
 
-    return price;
-  } catch (jupiterError) {
-    log.warn('Jupiter price fetch failed, trying Pyth', {
-      error: jupiterError instanceof Error ? jupiterError.message : String(jupiterError),
-    });
-
-    // Try Pyth as fallback
-    try {
-      const price = await fetchPriceWithRetry(fetchPriceFromPyth, 'pyth');
-
-      // Update cache
-      priceCache.price = price;
-      priceCache.expiresAt = now + PRICE_ORACLE_CONFIG.staleThresholdMs;
-
-      log.info('Fetched SOL price from Pyth fallback', {
-        price: price.usd,
-        source: price.source,
-      });
-
-      return price;
-    } catch (pythError) {
-      log.error('All price sources failed', {
-        jupiterError: jupiterError instanceof Error ? jupiterError.message : String(jupiterError),
-        pythError: pythError instanceof Error ? pythError.message : String(pythError),
-      });
-
-      // Last resort: use stale cached price if available
-      if (priceCache.price) {
-        const age = now - priceCache.price.timestamp;
-        log.warn('Using stale cached price', {
-          price: priceCache.price.usd,
-          age,
-          staleness: age - PRICE_ORACLE_CONFIG.staleThresholdMs,
-        });
-
-        return {
-          ...priceCache.price,
-          source: 'cached',
-        };
-      }
-
-      // For local testing, use a fallback price if configured
-      const fallbackPrice = process.env.FALLBACK_SOL_PRICE;
-      if (fallbackPrice) {
-        const price = parseFloat(fallbackPrice);
-        if (!isNaN(price) && price > 0) {
-          log.warn('Using fallback SOL price for local testing', { price });
-          const fallbackPriceData: Price = {
-            usd: price,
-            source: 'fallback',
-            timestamp: Date.now(),
-          };
-
-          // Cache the fallback price (5 minute TTL)
-          priceCache.price = fallbackPriceData;
-          priceCache.expiresAt = Date.now() + 300000; // 5 minutes
-
-          return fallbackPriceData;
-        }
-      }
-
-      throw new OracleError('All price sources failed and no cached price available', {
-        jupiterError: jupiterError instanceof Error ? jupiterError.message : String(jupiterError),
-        pythError: pythError instanceof Error ? pythError.message : String(pythError),
+    // Warn if price divergence exceeds 0.5%
+    if (priceDiffPct > 0.5) {
+      log.warn('Price divergence detected between oracles', {
+        pyth: pythPrice.usd,
+        jupiter: jupiterPrice.usd,
+        diffPct: priceDiffPct.toFixed(4),
+        threshold: '0.5%',
       });
     }
+
+    // Use Pyth as primary source
+    priceCache.price = pythPrice;
+    priceCache.expiresAt = now + PRICE_ORACLE_CONFIG.staleThresholdMs;
+
+    return pythPrice;
   }
+
+  // If only Pyth succeeded
+  if (pythPrice) {
+    log.warn('Jupiter price fetch failed, using Pyth only', {
+      price: pythPrice.usd,
+      jupiterError:
+        jupiterResult.status === 'rejected' ? jupiterResult.reason.message : 'Unknown error',
+    });
+
+    priceCache.price = pythPrice;
+    priceCache.expiresAt = now + PRICE_ORACLE_CONFIG.staleThresholdMs;
+
+    return pythPrice;
+  }
+
+  // If only Jupiter succeeded
+  if (jupiterPrice) {
+    log.warn('Pyth price fetch failed, using Jupiter only', {
+      price: jupiterPrice.usd,
+      pythError:
+        pythResult.status === 'rejected' ? pythResult.reason.message : 'Unknown error',
+    });
+
+    priceCache.price = jupiterPrice;
+    priceCache.expiresAt = now + PRICE_ORACLE_CONFIG.staleThresholdMs;
+
+    return jupiterPrice;
+  }
+
+  // Both failed - try to use stale cache or fallback
+  log.error('All price sources failed', {
+    pythError:
+      pythResult.status === 'rejected' ? pythResult.reason.message : 'Unknown error',
+    jupiterError:
+      jupiterResult.status === 'rejected' ? jupiterResult.reason.message : 'Unknown error',
+  });
+
+  // Last resort: use stale cached price if available
+  if (priceCache.price) {
+    const age = now - priceCache.price.timestamp;
+    log.warn('Using stale cached price', {
+      price: priceCache.price.usd,
+      age,
+      staleness: age - PRICE_ORACLE_CONFIG.staleThresholdMs,
+    });
+
+    return {
+      ...priceCache.price,
+      source: 'cached',
+    };
+  }
+
+  // For local testing, use a fallback price if configured
+  const fallbackPrice = process.env.FALLBACK_SOL_PRICE;
+  if (fallbackPrice) {
+    const price = parseFloat(fallbackPrice);
+    if (!isNaN(price) && price > 0) {
+      log.warn('Using fallback SOL price for local testing', { price });
+      const fallbackPriceData: Price = {
+        usd: price,
+        source: 'fallback',
+        timestamp: Date.now(),
+      };
+
+      // Cache the fallback price (5 minute TTL)
+      priceCache.price = fallbackPriceData;
+      priceCache.expiresAt = Date.now() + 300000; // 5 minutes
+
+      return fallbackPriceData;
+    }
+  }
+
+  throw new OracleError('All price sources failed and no cached price available', {
+    pythError:
+      pythResult.status === 'rejected' ? pythResult.reason.message : 'Unknown error',
+    jupiterError:
+      jupiterResult.status === 'rejected' ? jupiterResult.reason.message : 'Unknown error',
+  });
 }
 
 /**
