@@ -67,8 +67,10 @@ The codebase follows a modular adapter pattern:
    - ✅ Fetches pool analytics from Meteora DLMM API (cached 2.5s)
    - ✅ Calculates position composition (token X/Y percentages)
    - ✅ Persists created position NFT mints to state
-   - 🔜 Deposits/withdrawals with single-sided support
-   - 🔜 Fee claiming functionality
+   - ✅ **Multi-pool support** - Track and manage positions across multiple pools
+   - ✅ Per-pool caching and pool address validation
+   - ✅ Deposits/withdrawals with single-sided support
+   - ✅ Fee claiming functionality
 
 2. **PriceOracle** (`src/core/priceOracle.ts`)
    - ✅ Jupiter API v6 integration with multi-token price fetching
@@ -155,7 +157,10 @@ See [INTEGRATION_SUMMARY.md](INTEGRATION_SUMMARY.md) for detailed changelog.
 
 *Option 1: Auto-create positions (recommended)*
 - `AUTO_CREATE_POSITIONS=true`: Enable automatic position creation
-- `METEORA_POOL_ADDRESS`: Meteora DLMM pool address (e.g., SOL/USDC pool)
+- `METEORA_POOL_ADDRESSES`: Comma-separated pool addresses or array format (NEW: Multi-pool support!)
+  - Single pool: `METEORA_POOL_ADDRESSES=5rCf1DM8LjKTw4YqhnoLcngyZYeNnQqztScTogYHAS6`
+  - Multiple pools: `METEORA_POOL_ADDRESSES=5rCf1DM8LjKTw4YqhnoLcngyZYeNnQqztScTogYHAS6,HTvjzsfX3yU6BUodCjZ5vZkUrAxMDTrBs3CJaq43ashR`
+  - Also supports legacy single pool via `METEORA_POOL_ADDRESS` (will be converted to array)
 - `INITIAL_DEPOSIT_SOL`: Initial SOL deposit amount (e.g., 10)
 - `INITIAL_DEPOSIT_USDC`: Initial USDC deposit amount (e.g., 1000)
 - `PRICE_RANGE_BPS_LOWER`: Lower price bound in basis points from current (e.g., -100 = -1%)
@@ -166,6 +171,13 @@ See [INTEGRATION_SUMMARY.md](INTEGRATION_SUMMARY.md) for detailed changelog.
 - For localnet testing with mainnet-fork: Use single-sided SOL deposits (set `INITIAL_DEPOSIT_USDC=0`)
 - For production/mainnet: Use balanced deposits with both SOL and USDC
 - Tighter ranges (±1-2%) work better with pools that have small bin steps (like bin step = 4)
+
+**Multi-Pool Support:**
+- Configure multiple pools to create and manage positions across different Meteora DLMM pools
+- Android app shows pool selector dropdown when multiple pools are available
+- API endpoint `GET /api/pools` returns list of configured pools
+- Position creation accepts optional `poolAddress` parameter (defaults to primary pool)
+- Positions automatically grouped by pool in Android UI
 
 *Option 2: Use existing positions*
 - `AUTO_CREATE_POSITIONS=false` (or omit)

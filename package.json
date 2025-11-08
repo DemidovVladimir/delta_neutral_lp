@@ -7,18 +7,9 @@
   "scripts": {
     "build": "tsc",
     "test": "vitest",
-    "test:watch": "vitest --watch",
-    "test:local": "NODE_ENV=localnet tsx src/test/local-meteora-test.ts",
-    "test:mainnet": "NODE_ENV=mainnet tsx src/test/mainnet-meteora-test.ts",
-    "test:integration": "NODE_ENV=mainnet tsx src/test/integration-test.ts",
-    "find-pools": "NODE_ENV=mainnet tsx scripts/find-mainnet-pools.ts",
-    "localnet:start": "./scripts/start-localnet-mainnet-fork.sh",
-    "localnet:stop": "pkill solana-test-validator",
     "lint": "eslint src --ext .ts",
     "format": "prettier --write \"src/**/*.ts\"",
-    "api": "bun run src/api/hono-server.ts",
-    "ui": "cd ui && bun run server.ts",
-    "dev": "concurrently \"npm run api\" \"npm run ui\" --names \"API,UI\" --prefix-colors \"cyan,magenta\""
+    "api": "bun run src/api/hono-server.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",

@@ -91,6 +91,7 @@ export interface LpExposure {
 
 export interface PositionDetail {
   mint: string; // Position NFT mint
+  poolAddress?: string; // Meteora DLMM pool address (for multi-pool support)
   solAmount: number;
   usdcAmount: number;
   valueUsd: number;

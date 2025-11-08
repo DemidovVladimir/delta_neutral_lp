@@ -176,6 +176,108 @@ Copy this template for each new bug:
 
 ## Active Bugs
 
+None - All reported bugs have been resolved.
+
+## Fixed Bugs (Current Session)
+
+### BUG-002: BN Conversion Error in getLpExposure()
+**Status:** Fixed
+**Severity:** Critical
+**Fixed:** 2025-11-08
+**Related Epic/Task:** Epic L (Meteora Adapter), Session 8
+
+**Description:**
+Using `parseFloat()` on BN (BigNumber) objects in `MeteoraAdapter.getLpExposure()` caused runtime errors.
+
+**Error Message:**
+```
+"Failed to read LP exposure { "error": "undefined is not an object (evaluating 'value._bn')" }"
+```
+
+**Root Cause:**
+The @meteora-ag/dlmm SDK returns position amounts as BN (BigNumber) objects. `parseFloat()` expects a string or number, not an object, so it attempts to convert the object to a string first, which fails when accessing internal `_bn` property.
+
+**Reproduction Steps:**
+1. Run bot with multiple positions
+2. Call `getLpExposure()`
+3. See error when parsing position amounts
+
+**Resolution:**
+Changed from `parseFloat(pos.positionData.totalXAmount)` to `pos.positionData.totalXAmount.toNumber()` on lines 710-711 of `src/modules/meteoraAdapter.ts`.
+
+**Fixed Code:**
+```typescript
+// BEFORE (BROKEN)
+const solAmount = parseFloat(pos.positionData.totalXAmount) / 10 ** DECIMALS.SOL;
+const usdcAmount = parseFloat(pos.positionData.totalYAmount) / 10 ** DECIMALS.USDC;
+
+// AFTER (FIXED)
+const solAmount = pos.positionData.totalXAmount.toNumber() / 10 ** DECIMALS.SOL;
+const usdcAmount = pos.positionData.totalYAmount.toNumber() / 10 ** DECIMALS.USDC;
+```
+
+**Testing:**
+- ✅ Manual testing with multiple positions
+- ✅ Exposure values now correctly read from blockchain
+
+---
+
+### BUG-003: API Endpoints Using Old Config Property Name
+**Status:** Fixed
+**Severity:** High
+**Fixed:** 2025-11-08
+**Related Epic/Task:** Epic L (Meteora Adapter), Multi-Pool Support, Session 8
+
+**Description:**
+After updating config to support multiple pool addresses (`meteoraPoolAddresses` as array), several API endpoints continued referencing the old singular property name (`meteoraPoolAddress`), causing them to receive `undefined`.
+
+**Error Message:**
+```
+"Failed to fetch bin data { "error": {} }"
+(caused by attempting to access array length on undefined)
+```
+
+**Affected Endpoints:**
+- `GET /api/pool/bins` - Line 122 in hono-server.ts
+- `POST /api/positions/create` - Line 244 in hono-server.ts
+- Same issues in bun-server.ts
+
+**Root Cause:**
+Config refactoring changed property name from singular to plural, but endpoint code wasn't updated:
+```typescript
+// WRONG (old property no longer exists)
+const poolAddresses = config.meteoraPoolAddress;  // undefined
+
+// CORRECT (new property name)
+const poolAddresses = config.meteoraPoolAddresses;  // string[]
+```
+
+**Reproduction Steps:**
+1. Configure multiple pools via `METEORA_POOL_ADDRESSES`
+2. Call `GET /api/pool/bins`
+3. See error due to undefined array
+
+**Resolution:**
+Updated all endpoint references from `meteoraPoolAddress` to `meteoraPoolAddresses` in both:
+- `src/api/hono-server.ts` (lines 122, 244)
+- `src/api/bun-server.ts` (same lines)
+
+**Fixed Code:**
+```typescript
+// BEFORE
+const poolAddresses = config.meteoraPoolAddress;
+
+// AFTER
+const poolAddresses = config.meteoraPoolAddresses;
+```
+
+**Testing:**
+- ✅ `GET /api/pool/bins` now works with multiple pools
+- ✅ `POST /api/positions/create` accepts pool selection
+- ✅ Default pool selection works correctly
+
+---
+
 ### BUG-001: Empty Position Created Despite Successful Transaction
 **Status:** Won't Fix (Expected Behavior)
 **Severity:** Low

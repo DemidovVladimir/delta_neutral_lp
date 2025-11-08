@@ -74,9 +74,9 @@ import { createEnhancedJitoTipInstruction, JitoTipConfig } from '../utils/jitoUt
 
 export class MeteoraAdapter {
   private config = getConfig();
-  private positionMints: string[] = [];
-  private poolInfo: MeteoraPairInfo | null = null;
-  private poolInfoLastFetched: number = 0;
+  private positionMints: string[] = []; // All position mints (across all pools)
+  private positionToPoolMap: Map<string, string> = new Map(); // Maps position mint -> pool address
+  private poolInfoCache: Map<string, { info: MeteoraPairInfo; lastFetched: number }> = new Map();
   private readonly POOL_INFO_CACHE_MS = 2500; // Cache for 2.5 seconds
 
   constructor() {
@@ -131,6 +131,25 @@ export class MeteoraAdapter {
   }
 
   /**
+   * Get the pool address for a specific position
+   * Falls back to primary pool if mapping not found
+   */
+  getPoolAddressForPosition(positionMint: string): string {
+    // Check if we have a mapping for this position
+    if (this.positionToPoolMap.has(positionMint)) {
+      return this.positionToPoolMap.get(positionMint)!;
+    }
+
+    // Fall back to primary pool address
+    const poolAddresses = this.config.meteoraPoolAddresses || [];
+    if (poolAddresses.length === 0) {
+      throw new Error('No pool addresses configured');
+    }
+
+    return poolAddresses[0];
+  }
+
+  /**
    * Discover all positions owned by the wallet from the blockchain
    * Merges discovered positions with saved positions in state.json
    * This ensures positions are not lost if state.json is corrupted or deleted
@@ -141,27 +160,53 @@ export class MeteoraAdapter {
 
       const connection = getConnection();
       const wallet = getWalletKeypair();
-      const poolPubkey = new PublicKey(this.config.meteoraPoolAddress!);
-      const dlmmPool = await DLMM.create(connection, poolPubkey);
+      const poolAddresses = this.config.meteoraPoolAddresses || [];
 
-      // Query all positions for this wallet and pool
-      const { userPositions } = await dlmmPool.getPositionsByUserAndLbPair(wallet.publicKey);
-
-      if (!userPositions || userPositions.length === 0) {
-        log.info('No positions found on blockchain');
+      if (poolAddresses.length === 0) {
+        log.warn('No pool addresses configured for discovery');
         return [];
       }
 
-      // Extract position mints from discovered positions
-      const discoveredMints = userPositions.map((pos: any) => pos.publicKey.toBase58());
+      const allDiscoveredMints: string[] = [];
 
-      log.info('Positions discovered from blockchain', {
-        count: discoveredMints.length,
-        mints: discoveredMints,
-      });
+      // Discover positions from all configured pools
+      for (const poolAddress of poolAddresses) {
+        try {
+          log.info('Discovering positions for pool', { poolAddress });
+          const poolPubkey = new PublicKey(poolAddress);
+          const dlmmPool = await DLMM.create(connection, poolPubkey);
+
+          // Query all positions for this wallet and pool
+          const { userPositions } = await dlmmPool.getPositionsByUserAndLbPair(wallet.publicKey);
+
+          if (!userPositions || userPositions.length === 0) {
+            log.info('No positions found for pool', { poolAddress });
+            continue;
+          }
+
+          // Extract position mints and map them to this pool
+          const discoveredMints = userPositions.map((pos: any) => pos.publicKey.toBase58());
+          discoveredMints.forEach((mint: string) => {
+            this.positionToPoolMap.set(mint, poolAddress);
+            allDiscoveredMints.push(mint);
+          });
+
+          log.info('Positions discovered for pool', {
+            poolAddress,
+            count: discoveredMints.length,
+            mints: discoveredMints,
+          });
+        } catch (error) {
+          log.error('Failed to discover positions for pool', {
+            poolAddress,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          // Continue to next pool on error
+        }
+      }
 
       // Merge with saved positions (avoid duplicates)
-      const mergedMints = Array.from(new Set([...this.positionMints, ...discoveredMints]));
+      const mergedMints = Array.from(new Set([...this.positionMints, ...allDiscoveredMints]));
 
       // Update in-memory positions
       this.positionMints = mergedMints;
@@ -175,7 +220,7 @@ export class MeteoraAdapter {
         });
       }
 
-      return discoveredMints;
+      return allDiscoveredMints;
     } catch (error) {
       log.error('Failed to discover positions from blockchain', {
         error: error instanceof Error ? error.message : String(error),
@@ -251,28 +296,47 @@ export class MeteoraAdapter {
   /**
    * Get pool analytics from Meteora API (cached)
    * Returns pool info including volume, fees, APR/APY
+   * Uses the first pool address if multiple are configured
    */
   async getPoolAnalytics(): Promise<MeteoraPairInfo> {
+    const poolAddresses = this.config.meteoraPoolAddresses || [];
+    if (poolAddresses.length === 0) {
+      throw new Error('METEORA_POOL_ADDRESSES not configured');
+    }
+
+    // Use the first pool address for backwards compatibility
+    const primaryPoolAddress = poolAddresses[0];
+    return this.getPoolAnalyticsForAddress(primaryPoolAddress);
+  }
+
+  /**
+   * Get pool analytics for a specific pool address (cached)
+   */
+  async getPoolAnalyticsForAddress(poolAddress: string): Promise<MeteoraPairInfo> {
     const now = Date.now();
+    const cached = this.poolInfoCache.get(poolAddress);
 
     // Return cached data if still fresh
-    if (this.poolInfo && now - this.poolInfoLastFetched < this.POOL_INFO_CACHE_MS) {
+    if (cached && now - cached.lastFetched < this.POOL_INFO_CACHE_MS) {
       log.debug('Using cached pool info', {
-        age: now - this.poolInfoLastFetched,
+        poolAddress,
+        age: now - cached.lastFetched,
         cache: this.POOL_INFO_CACHE_MS,
       });
-      return this.poolInfo;
+      return cached.info;
     }
 
     // Fetch fresh data
-    if (!this.config.meteoraPoolAddress) {
-      throw new Error('METEORA_POOL_ADDRESS not configured');
-    }
+    log.info('Fetching fresh pool analytics', { poolAddress });
+    const poolInfo = await getMeteoraPairInfo(poolAddress);
 
-    this.poolInfo = await getMeteoraPairInfo(this.config.meteoraPoolAddress);
-    this.poolInfoLastFetched = now;
+    // Update cache
+    this.poolInfoCache.set(poolAddress, {
+      info: poolInfo,
+      lastFetched: now,
+    });
 
-    return this.poolInfo;
+    return poolInfo;
   }
 
   /**
@@ -643,8 +707,8 @@ export class MeteoraAdapter {
 
       const positionDetails = ourPositions.map((pos: any) => {
         // Convert BN amounts to numbers with proper decimals
-        const solAmount = parseFloat(pos.positionData.totalXAmount) / 10 ** DECIMALS.SOL;
-        const usdcAmount = parseFloat(pos.positionData.totalYAmount) / 10 ** DECIMALS.USDC;
+        const solAmount = pos.positionData.totalXAmount.toNumber() / 10 ** DECIMALS.SOL;
+        const usdcAmount = pos.positionData.totalYAmount.toNumber() / 10 ** DECIMALS.USDC;
         const claimableSol = pos.positionData.feeX.toNumber() / 10 ** DECIMALS.SOL;
         const claimableUsdc = pos.positionData.feeY.toNumber() / 10 ** DECIMALS.USDC;
 

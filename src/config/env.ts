@@ -24,7 +24,7 @@ export interface BotConfig {
   autoCreatePositions: boolean;
 
   // Auto-create mode (used if autoCreatePositions=true)
-  meteoraPoolAddress?: string;
+  meteoraPoolAddresses?: string[]; // Array of pool addresses (supports multiple pools)
   initialDepositSol?: number;
   initialDepositUsdc?: number;
   priceRangeBpsLower?: number;
@@ -123,7 +123,7 @@ export function loadConfig(): BotConfig {
   const autoCreatePositions = parseEnvBoolean('AUTO_CREATE_POSITIONS', false);
 
   // Conditional parsing based on mode
-  let meteoraPoolAddress: string | undefined;
+  let meteoraPoolAddresses: string[] | undefined;
   let initialDepositSol: number | undefined;
   let initialDepositUsdc: number | undefined;
   let priceRangeBpsLower: number | undefined;
@@ -132,12 +132,17 @@ export function loadConfig(): BotConfig {
   let meteoraPositionMints: string[] | undefined;
 
   if (autoCreatePositions) {
-    // Auto-create mode: pool address is optional (for testing)
-    meteoraPoolAddress = parseEnvString('METEORA_POOL_ADDRESS', false, '');
+    // Auto-create mode: parse pool addresses (supports both single and multiple)
+    // METEORA_POOL_ADDRESSES or METEORA_POOL_ADDRESS (comma-separated)
+    const poolAddressesStr = parseEnvString('METEORA_POOL_ADDRESSES', false, '');
+    const poolAddressSingle = parseEnvString('METEORA_POOL_ADDRESS', false, '');
 
-    // Only validate if provided
-    if (meteoraPoolAddress) {
-      validatePublicKey('METEORA_POOL_ADDRESS', meteoraPoolAddress);
+    // Support both METEORA_POOL_ADDRESSES and METEORA_POOL_ADDRESS for backward compatibility
+    const poolAddressInput = poolAddressesStr || poolAddressSingle;
+
+    if (poolAddressInput) {
+      meteoraPoolAddresses = poolAddressInput.split(',').map(s => s.trim()).filter(s => s.length > 0);
+      validatePublicKeys('METEORA_POOL_ADDRESSES', meteoraPoolAddresses);
     }
 
     initialDepositSol = parseEnvNumber('INITIAL_DEPOSIT_SOL', 0);
@@ -145,8 +150,8 @@ export function loadConfig(): BotConfig {
     priceRangeBpsLower = parseEnvNumber('PRICE_RANGE_BPS_LOWER', -500); // -5% default
     priceRangeBpsUpper = parseEnvNumber('PRICE_RANGE_BPS_UPPER', 500); // +5% default
 
-    // Validate deposits and price range only if pool address is provided
-    if (meteoraPoolAddress) {
+    // Validate deposits and price range only if pool addresses are provided
+    if (meteoraPoolAddresses && meteoraPoolAddresses.length > 0) {
       // Validate at least one deposit is specified
       if (initialDepositSol === 0 && initialDepositUsdc === 0) {
         throw new Error(
@@ -174,10 +179,14 @@ export function loadConfig(): BotConfig {
       validatePublicKeys('METEORA_POSITION_MINTS', meteoraPositionMints);
     }
 
-    // Note: Pool address still needed for UI to work
-    meteoraPoolAddress = parseEnvString('METEORA_POOL_ADDRESS', false, '');
-    if (meteoraPoolAddress) {
-      validatePublicKey('METEORA_POOL_ADDRESS', meteoraPoolAddress);
+    // Note: Pool addresses still needed for UI to work (support multiple)
+    const poolAddressesStr = parseEnvString('METEORA_POOL_ADDRESSES', false, '');
+    const poolAddressSingle = parseEnvString('METEORA_POOL_ADDRESS', false, '');
+    const poolAddressInput = poolAddressesStr || poolAddressSingle;
+
+    if (poolAddressInput) {
+      meteoraPoolAddresses = poolAddressInput.split(',').map(s => s.trim()).filter(s => s.length > 0);
+      validatePublicKeys('METEORA_POOL_ADDRESSES', meteoraPoolAddresses);
     }
   }
 
@@ -222,7 +231,7 @@ export function loadConfig(): BotConfig {
     privateKey,
     driftMarketSolPerp,
     autoCreatePositions,
-    meteoraPoolAddress,
+    meteoraPoolAddresses,
     initialDepositSol,
     initialDepositUsdc,
     priceRangeBpsLower,

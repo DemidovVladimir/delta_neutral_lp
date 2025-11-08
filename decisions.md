@@ -978,6 +978,174 @@ Migrate to **Jupiter Lite API v3** (`lite-api.jup.ag/price/v3`):
 
 ---
 
+## ADR-012: Multi-Pool Support Architecture
+
+**Date:** 2025-11-08
+**Status:** Accepted
+**Deciders:** Team
+**Related:** Epic L (Meteora Adapter), Android UI, API Design
+
+### Context
+
+Initially, the system supported only a single Meteora DLMM pool (via `METEORA_POOL_ADDRESS`). Users requested the ability to operate across multiple pools simultaneously:
+
+Example: `METEORA_POOL_ADDRESSES=[5rCf1DM8LjKTw4YqhnoLcngyZYeNnQqztScTogYHAS6, HTvjzsfX3yU6BUodCjZ5vZkUrAxMDTrBs3CJaq43ashR]`
+
+We needed to decide:
+1. How to configure multiple pools (backend)
+2. Which pool to use when creating positions
+3. How to track which pool owns which position
+4. How to present pool selection to users (Android UI)
+
+### Decision
+
+Implement **client-specified pool selection architecture**:
+- Backend accepts `METEORA_POOL_ADDRESSES` array in config (comma-separated or array format)
+- API endpoint `GET /api/pools` returns available pools to client
+- Position creation: Client specifies `poolAddress` in request, backend validates it's available
+- Backend defaults to primary pool (first in array) only if client doesn't specify
+- Positions track their pool address for grouping and pool-specific operations
+
+### Alternatives Considered
+
+1. **Backend always uses primary pool (hardcoded)**
+   - Pro: Simpler backend logic
+   - Con: Defeats purpose of multi-pool support
+   - Con: Can't create positions in non-primary pools
+   - Decision: REJECTED - User feedback: "This will always create position in the first pool. WTF?"
+
+2. **Backend selects pool based on some logic (liquidity, APR, etc.)**
+   - Pro: Intelligent pool selection
+   - Con: Backend makes decisions that should be user's choice
+   - Con: Reduces user control and transparency
+   - Con: Complex logic to maintain
+
+3. **Require explicit pool specification for all operations**
+   - Pro: No ambiguity
+   - Con: More verbose for single-pool users
+   - Con: Not backward compatible
+
+### Rationale
+
+**Client-specified architecture chosen because:**
+
+1. **User Control:** Users/clients decide which pool for their operations
+2. **Flexibility:** Supports auto-select (default) or explicit choice
+3. **Transparency:** Clear pool selection in UI/API
+4. **Backward Compatible:** Optional `poolAddress` parameter, defaults to primary if omitted
+5. **Scalability:** Can support dynamic pool addition in future
+6. **API Clarity:** Client explicitly states which pool, reducing ambiguity
+
+### Consequences
+
+**Positive:**
+- Users can create and manage positions across all available pools
+- Client decides pool strategy (not hardcoded by backend)
+- Backward compatible with single-pool setups
+- Clear error messages listing available pools if invalid
+- Positions grouped by pool in UI
+
+**Negative:**
+- More complex backend (multi-pool caching, validation)
+- UI must handle pool selection
+- Client must pass poolAddress in requests
+
+**Mitigation:**
+- API defaults to primary pool if not specified (backward compatible)
+- Comprehensive documentation of pool selection flow
+- Clear error messages help users understand available pools
+
+### Implementation Notes
+
+**Backend:**
+- Config: `METEORA_POOL_ADDRESSES` comma-separated or array format
+- API: New `GET /api/pools` returns `{ pools: [addr1, addr2, ...], count, timestamp }`
+- Position creation: Accept optional `poolAddress` in POST body
+- Validation: Check `poolAddress` is in configured pool list
+- Default: Use `poolAddresses[0]` if not specified
+
+**Android UI:**
+- Fetch pools on startup via `GET /api/pools`
+- Store `availablePools` and `selectedPool` in UiState
+- Pool selector dropdown in Overview tab
+- Pass `selectedPool` when creating positions
+- Group positions by pool in positions list
+
+**Tracking:**
+- Each position NFT includes its pool address (from on-chain data)
+- Position model has `poolAddress?: String` field
+- MeteoraAdapter maps positions to pools for targeting operations
+
+---
+
+## ADR-013: Backend-Driven Pool List (Not Frontend Poll)
+
+**Date:** 2025-11-08
+**Status:** Accepted
+**Deciders:** Team
+**Related:** ADR-012 (Multi-Pool Architecture), API Design
+
+### Context
+
+Following the adoption of multi-pool support (ADR-012), we needed to decide how the Android app discovers available pools:
+
+Option A: Frontend polls each pool's on-chain state (complex, slow)
+Option B: Backend provides simple list of configured pools via API
+
+### Decision
+
+**Backend-driven pool discovery via `GET /api/pools` endpoint:**
+- Single API call returns all available pools
+- Server returns: `{ pools: [addr1, addr2, ...], count, timestamp }`
+- Client displays pool selector based on returned list
+- No on-chain querying needed from client
+
+### Alternatives Considered
+
+1. **Frontend discovers pools from blockchain**
+   - Pro: No backend setup needed
+   - Con: Complex on-chain queries
+   - Con: Slow (multiple RPC calls)
+   - Con: Requires knowledge of pool program
+
+2. **Hardcode pool list in Android app**
+   - Pro: No API call needed
+   - Con: Must update app to add pools
+   - Con: Not synchronized with backend
+
+3. **Frontend polls separate pool registry**
+   - Pro: Decoupled from main API
+   - Con: Extra dependency
+   - Con: Extra API call
+
+### Rationale
+
+**Backend-driven chosen because:**
+1. **Single Source of Truth:** Server config is source of truth for pools
+2. **Simplicity:** One API call, simple response
+3. **Performance:** Instant response, no on-chain queries
+4. **Maintainability:** Add pool by updating config, no app release needed
+5. **Security:** Backend validates pool before advertising it
+
+### Consequences
+
+**Positive:**
+- Fast pool discovery (single API call)
+- Easy to add new pools (config change only)
+- No on-chain queries needed
+- Clear API contract
+
+**Negative:**
+- Dependency on backend API (if unavailable, app can't get pools)
+- Must restart backend to add pools (unless hot-reload implemented)
+
+**Mitigation:**
+- API response includes timestamp (client knows data freshness)
+- Error handling if API fails
+- Cache pools in app storage for offline use
+
+---
+
 ## Decision Index
 
 - ADR-001: Use solana-agent-kit for Transaction Execution
@@ -991,12 +1159,14 @@ Migrate to **Jupiter Lite API v3** (`lite-api.jup.ag/price/v3`):
 - ADR-009: Documentation Standards
 - ADR-010: Dynamic Jito Tipping with 5-Second Cache
 - ADR-011: Jupiter Lite API v3 Migration
+- ADR-012: Multi-Pool Support Architecture (Client-Specified)
+- ADR-013: Backend-Driven Pool List Discovery
 
 ---
 
 ## Decision Status
 
-- **Accepted:** 11
+- **Accepted:** 13
 - **Proposed:** 0
 - **Deprecated:** 0
 - **Superseded:** 0

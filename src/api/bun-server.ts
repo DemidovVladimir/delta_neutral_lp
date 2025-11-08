@@ -84,6 +84,18 @@ async function handleRequest(req: Request): Promise<Response> {
       });
     }
 
+    // Get list of available pools
+    if (path === '/api/pools' && method === 'GET') {
+      const config = getConfig();
+      const poolAddresses = config.meteoraPoolAddresses || [];
+
+      return jsonResponse({
+        pools: poolAddresses,
+        count: poolAddresses.length,
+        timestamp: Date.now(),
+      });
+    }
+
     // Get pool analytics
     if (path === '/api/pool/analytics' && method === 'GET') {
       const adapter = getMeteoraAdapter();
@@ -95,7 +107,14 @@ async function handleRequest(req: Request): Promise<Response> {
     if (path === '/api/pool/bins' && method === 'GET') {
       const config = getConfig();
       const connection = getConnection();
-      const poolPubkey = new PublicKey(config.meteoraPoolAddress!);
+
+      // Use primary pool address (first in array)
+      const poolAddresses = config.meteoraPoolAddresses || [];
+      if (poolAddresses.length === 0) {
+        return jsonResponse({ error: 'No pool addresses configured' }, 400);
+      }
+
+      const poolPubkey = new PublicKey(poolAddresses[0]);
       const dlmmPool = await DLMM.create(connection, poolPubkey);
 
       const activeBinData = await getActiveBin(dlmmPool);
@@ -142,7 +161,7 @@ async function handleRequest(req: Request): Promise<Response> {
     // Create position
     if (path === '/api/positions/create' && method === 'POST') {
       const body = await req.json();
-      const { solAmount, usdcAmount, priceLower, priceUpper } = body;
+      const { solAmount, usdcAmount, priceLower, priceUpper, poolAddress } = body;
 
       if (!solAmount || !priceLower || !priceUpper) {
         return jsonResponse(
@@ -157,8 +176,29 @@ async function handleRequest(req: Request): Promise<Response> {
       const adapter = getMeteoraAdapter();
       const config = getConfig();
 
+      // Get available pools
+      const availablePoolAddresses = config.meteoraPoolAddresses || [];
+      if (availablePoolAddresses.length === 0) {
+        return jsonResponse({ error: 'No pool addresses configured' }, 400);
+      }
+
+      // Use specified pool or default to primary pool
+      const selectedPoolAddress = poolAddress || availablePoolAddresses[0];
+
+      // Validate pool is in configured pools
+      if (!availablePoolAddresses.includes(selectedPoolAddress)) {
+        return jsonResponse(
+          {
+            error: 'Invalid pool address',
+            message: `Pool ${selectedPoolAddress} is not in configured pools`,
+            availablePools: availablePoolAddresses,
+          },
+          400
+        );
+      }
+
       const result = await adapter.createPosition({
-        poolAddress: config.meteoraPoolAddress!,
+        poolAddress: selectedPoolAddress,
         solAmount: parseFloat(solAmount),
         usdcAmount: parseFloat(usdcAmount || '0'),
         priceLower: parseFloat(priceLower),
