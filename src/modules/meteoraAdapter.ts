@@ -841,7 +841,20 @@ export class MeteoraAdapter {
         throw new Error('No positions available to withdraw from');
       }
 
-      const positionPubkey = new PublicKey(this.positionMints[0]);
+      // Determine which position to withdraw from
+      let selectedPositionMint: string;
+      if (params.positionMint) {
+        // Use the specified position
+        if (!this.positionMints.includes(params.positionMint)) {
+          throw new Error(`Position mint ${params.positionMint} not found in managed positions`);
+        }
+        selectedPositionMint = params.positionMint;
+      } else {
+        // Default to first position for backward compatibility
+        selectedPositionMint = this.positionMints[0];
+      }
+
+      const positionPubkey = new PublicKey(selectedPositionMint);
       const poolPubkey = new PublicKey(this.config.meteoraPoolAddress!);
       const dlmmPool = await DLMM.create(connection, poolPubkey);
 

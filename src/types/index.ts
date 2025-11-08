@@ -152,6 +152,7 @@ export interface DepositParams {
 export interface WithdrawParams {
   percent?: number; // 0-100
   amount?: number; // In USD
+  positionMint?: string; // Specific position NFT mint to withdraw from
   singleSidedOut?: 'sol' | 'usdc';
 }
 

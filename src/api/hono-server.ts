@@ -261,7 +261,7 @@ app.post('/api/positions/deposit', async (c) => {
 app.post('/api/positions/withdraw', async (c) => {
   try {
     const body = await c.req.json();
-    const { percent } = body;
+    const { percent, positionMint } = body;
 
     if (!percent) {
       return c.json({ error: 'Missing required parameter: percent' }, 400);
@@ -270,6 +270,7 @@ app.post('/api/positions/withdraw', async (c) => {
     const adapter = getMeteoraAdapter();
     const signature = await adapter.withdrawFromLp({
       percent: parseFloat(percent),
+      positionMint: positionMint ? String(positionMint) : undefined,
     });
 
     return c.json({ signature, success: true });
