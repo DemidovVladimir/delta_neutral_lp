@@ -91,7 +91,7 @@ export class MeteoraAdapter {
           mints: savedMints,
         });
       } else {
-        log.info('MeteoraAdapter initialized in auto-create mode (no saved positions)');
+        log.info('MeteoraAdapter initialized in auto-create mode (no saved positions - will discover from blockchain on first API call)');
       }
     } else {
       // Manual mode: Check if user provided existing position mints
@@ -128,6 +128,76 @@ export class MeteoraAdapter {
    */
   getPositionMints(): string[] {
     return this.positionMints;
+  }
+
+  /**
+   * Discover all positions owned by the wallet from the blockchain
+   * Merges discovered positions with saved positions in state.json
+   * This ensures positions are not lost if state.json is corrupted or deleted
+   */
+  async discoverPositionsFromBlockchain(): Promise<string[]> {
+    try {
+      log.info('Discovering positions from blockchain...');
+
+      const connection = getConnection();
+      const wallet = getWalletKeypair();
+      const poolPubkey = new PublicKey(this.config.meteoraPoolAddress!);
+      const dlmmPool = await DLMM.create(connection, poolPubkey);
+
+      // Query all positions for this wallet and pool
+      const { userPositions } = await dlmmPool.getPositionsByUserAndLbPair(wallet.publicKey);
+
+      if (!userPositions || userPositions.length === 0) {
+        log.info('No positions found on blockchain');
+        return [];
+      }
+
+      // Extract position mints from discovered positions
+      const discoveredMints = userPositions.map((pos: any) => pos.publicKey.toBase58());
+
+      log.info('Positions discovered from blockchain', {
+        count: discoveredMints.length,
+        mints: discoveredMints,
+      });
+
+      // Merge with saved positions (avoid duplicates)
+      const mergedMints = Array.from(new Set([...this.positionMints, ...discoveredMints]));
+
+      // Update in-memory positions
+      this.positionMints = mergedMints;
+
+      // Save merged positions to state for future startups
+      if (mergedMints.length > this.positionMints.length) {
+        saveCreatedPositionMints(mergedMints);
+        log.info('State updated with newly discovered positions', {
+          previousCount: this.positionMints.length,
+          newCount: mergedMints.length,
+        });
+      }
+
+      return discoveredMints;
+    } catch (error) {
+      log.error('Failed to discover positions from blockchain', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return [];
+    }
+  }
+
+  /**
+   * Ensure positions are loaded from either state or blockchain
+   * Called on first API request to guarantee positions are available
+   */
+  async ensurePositionsLoaded(): Promise<void> {
+    // If positions already loaded, skip discovery
+    if (this.positionMints.length > 0) {
+      log.debug('Positions already loaded', { count: this.positionMints.length });
+      return;
+    }
+
+    // No saved positions, try to discover from blockchain
+    log.info('No saved positions found, attempting blockchain discovery...');
+    await this.discoverPositionsFromBlockchain();
   }
 
   /**
@@ -509,6 +579,9 @@ export class MeteoraAdapter {
    * Get total LP exposure across all positions
    */
   async getLpExposure(): Promise<LpExposure> {
+    // Ensure positions are loaded from state or blockchain
+    await this.ensurePositionsLoaded();
+
     log.debug('Reading LP exposure', {
       positionCount: this.positionMints.length,
     });
@@ -958,6 +1031,9 @@ export class MeteoraAdapter {
    * Claim accumulated fees
    */
   async claimFees(): Promise<ClaimResult> {
+    // Ensure positions are loaded from state or blockchain
+    await this.ensurePositionsLoaded();
+
     log.info('Claiming fees from all positions');
 
     try {
