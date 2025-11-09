@@ -720,5 +720,11 @@ Track these at the end of each week:
   - Shows position composition with progress bars
   - Screen clears and refreshes with each check
   - Real-time status updates
+- **API Endpoint Added (2025-11-09):** New endpoint for atomic withdraw+claim+close operation
+  - Added `POST /api/positions/withdraw-claim-close` endpoint
+  - Added `withdrawClaimAndClose()` method to MeteoraAdapter
+  - Uses SDK's `shouldClaimAndClose=true` for atomic execution in ONE transaction
+  - Returns signature and claimed fees (SOL and USDC amounts)
+  - Same atomic operation as auto-tune TX1, now available as standalone endpoint
 
 ---

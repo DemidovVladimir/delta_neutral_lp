@@ -208,7 +208,7 @@ export function loadConfig(): BotConfig {
   const autoTuneEnabled = parseEnvBoolean('AUTO_TUNE_ENABLED', false);
   const autoTuneBinCount = parseEnvNumber('AUTO_TUNE_BIN_COUNT', 20); // Default 20 bins
   const autoTuneCheckIntervalMs = parseEnvNumber('AUTO_TUNE_CHECK_INTERVAL_MS', 30000); // 30s default
-  const autoTuneImbalanceThreshold = parseEnvNumber('AUTO_TUNE_IMBALANCE_THRESHOLD', 0.8); // 80% default
+  const autoTuneImbalanceThreshold = parseEnvNumber('AUTO_TUNE_IMBALANCE_THRESHOLD', 0.9); // 90% default
 
   // Validate Jito config
   if (useJito && !jitoRelayUrl) {

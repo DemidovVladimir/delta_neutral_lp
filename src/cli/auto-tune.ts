@@ -49,14 +49,14 @@ Configuration (via .env):
   AUTO_TUNE_ENABLED=true                    Enable auto-tune mode
   AUTO_TUNE_BIN_COUNT=20                    Number of bins for concentrated liquidity
   AUTO_TUNE_CHECK_INTERVAL_MS=30000         Check interval in milliseconds (30s)
-  AUTO_TUNE_IMBALANCE_THRESHOLD=0.8         Trigger threshold (0.8 = 80% in one token)
+  AUTO_TUNE_IMBALANCE_THRESHOLD=0.9         Trigger threshold (0.9 = 90% in one token)
 
   METEORA_POOL_ADDRESS=<pool_address>      Meteora DLMM pool to manage
   AUTO_CREATE_POSITIONS=true                Auto-create initial position if needed
 
 How it works:
   1. Monitors position composition every interval
-  2. Detects when position becomes imbalanced (e.g., >80% SOL or >80% USDC)
+  2. Detects when position becomes imbalanced (e.g., > 90% SOL or > 90% USDC)
   3. Triggers ATOMIC rebalance transaction:
      ✓ Withdraw 100% from position
      ✓ Claim accumulated fees

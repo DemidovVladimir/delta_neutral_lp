@@ -233,6 +233,11 @@
 4. **Monitoring Loop:** Periodic checks with configurable interval
 5. **State Persistence:** JSON-based state tracking (data/auto-tune-state.json)
 6. **Watch Mode:** Visual terminal UI with progress bars and real-time status
+7. **API Endpoint (Added 2025-11-09):** `POST /api/positions/withdraw-claim-close`
+   - Exposes TX1 operation (withdraw+claim+close) as standalone endpoint
+   - Uses `withdrawClaimAndClose()` method in MeteoraAdapter
+   - Executes in ONE atomic transaction using SDK's `shouldClaimAndClose=true`
+   - Returns signature and claimed fees (SOL and USDC amounts)
 
 ---
 

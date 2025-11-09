@@ -31,6 +31,10 @@ pnpm install
 ```bash
 # Auto-Tune Mode (Automated Position Rebalancing)
 pnpm auto-tune           # Start auto-tune orchestrator (REAL FUNDS!)
+pnpm auto-tune:watch     # Start with watch mode (visual display)
+
+# API Server (Hono + Bun)
+pnpm api                 # Start API server on port 3001
 
 # Testing (recommended workflow)
 pnpm test:local          # Test on localnet mainnet-fork
@@ -72,7 +76,8 @@ The codebase follows a modular adapter pattern:
    - ✅ Persists created position NFT mints to state
    - ✅ Deposits/withdrawals with single-sided support
    - ✅ Fee claiming functionality
-   - ✅ **ATOMIC REBALANCE**: Withdraw + Claim + Close + Create in ONE transaction
+   - ✅ **ATOMIC WITHDRAW+CLAIM+CLOSE**: Single transaction using SDK's `shouldClaimAndClose=true`
+   - ✅ **TWO-STEP REBALANCE**: TX1 (withdraw+claim+close) + TX2 (create new position)
 
 2. **PriceOracle** (`src/core/priceOracle.ts`)
    - ✅ Jupiter API v6 integration with multi-token price fetching
@@ -109,6 +114,26 @@ The codebase follows a modular adapter pattern:
    - **agentKit** (`src/core/agentKit.ts`)
      - ✅ Solana Agent Kit initialization
      - ✅ Wallet keypair management
+
+6. **API Server** (`src/api/hono-server.ts`)
+   - ✅ Hono framework with Bun runtime
+   - ✅ RESTful endpoints for LP operations
+   - ✅ Pool analytics and bin data endpoints
+   - ✅ Price oracle endpoints (Jupiter + Pyth)
+   - ✅ CORS enabled for web UI integration
+
+**API Endpoints:**
+- `GET /api/health` - Health check
+- `GET /api/prices` - Oracle prices (Jupiter + Pyth)
+- `GET /api/pool/analytics` - Pool APR, APY, volume, fees
+- `GET /api/pool/bins` - Bin distribution and liquidity data
+- `GET /api/positions` - User's LP positions and exposure
+- `POST /api/positions/create` - Create new LP position
+- `POST /api/positions/deposit` - Deposit to existing position
+- `POST /api/positions/withdraw` - Withdraw from position
+- `POST /api/positions/claim-fees` - Claim accumulated fees
+- `POST /api/positions/close` - Close empty position (reclaim rent)
+- `POST /api/positions/withdraw-claim-close` - **Atomic operation: Withdraw 100% + Claim + Close in ONE transaction**
 
 **Planned (not yet implemented):**
 

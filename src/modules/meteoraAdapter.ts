@@ -1041,6 +1041,134 @@ export class MeteoraAdapter {
   }
 
   /**
+   * Withdraw 100%, claim fees, and close position in a SINGLE ATOMIC transaction
+   *
+   * This uses the Meteora SDK's `shouldClaimAndClose=true` parameter which ensures
+   * all three operations execute atomically within ONE transaction:
+   * 1. Withdraw 100% liquidity
+   * 2. Claim all accumulated fees
+   * 3. Close position and reclaim rent
+   *
+   * @param positionMint - Position NFT public key as string
+   * @returns Object containing signature and claimed fees
+   */
+  async withdrawClaimAndClose(positionMint: string): Promise<{
+    signature: string;
+    claimedFees: {
+      sol: number;
+      usdc: number;
+    };
+  }> {
+    log.info('Withdraw + Claim + Close (SINGLE ATOMIC TRANSACTION)', { positionMint });
+
+    try {
+      const connection = getConnection();
+      const wallet = getWalletKeypair();
+
+      const positionPubkey = new PublicKey(positionMint);
+      const poolPubkey = new PublicKey(this.config.meteoraPoolAddress!);
+      const dlmmPool = await DLMM.create(connection, poolPubkey);
+
+      // Get position data
+      const { userPositions } = await dlmmPool.getPositionsByUserAndLbPair(wallet.publicKey);
+      const position = userPositions.find((p: any) => p.publicKey.equals(positionPubkey));
+
+      if (!position) {
+        throw new Error('Position not found');
+      }
+
+      // Calculate claimable fees before withdrawal
+      const claimableSol = position.positionData.feeX.toNumber() / 10 ** DECIMALS.SOL;
+      const claimableUsdc = position.positionData.feeY.toNumber() / 10 ** DECIMALS.USDC;
+
+      log.info('Position details', {
+        lowerBinId: position.positionData.lowerBinId,
+        upperBinId: position.positionData.upperBinId,
+        claimableFees: { sol: claimableSol, usdc: claimableUsdc },
+      });
+
+      // SDK's removeLiquidity with shouldClaimAndClose=true creates ONE TRANSACTION
+      // that includes all instructions for withdraw + claim + close atomically
+      const withdrawTxs = await dlmmPool.removeLiquidity({
+        user: wallet.publicKey,
+        position: positionPubkey,
+        fromBinId: position.positionData.lowerBinId,
+        toBinId: position.positionData.upperBinId,
+        bps: new BN(10000), // 100%
+        shouldClaimAndClose: true, // ATOMIC: withdraw + claim + close in ONE TX
+        skipUnwrapSOL: false,
+      });
+
+      if (withdrawTxs.length === 0) {
+        throw new Error('No withdraw transactions returned from SDK');
+      }
+
+      // Use the first transaction (SDK already added compute budget)
+      const tx = withdrawTxs[0];
+
+      // Optional: Add Jito tip for priority
+      if (this.config.useJito) {
+        const jitoTipIx = await createEnhancedJitoTipInstruction(wallet.publicKey, {
+          priority: 'normal',
+          attempt: 0,
+        });
+        tx.add(jitoTipIx);
+      }
+
+      // Sign and send transaction
+      tx.feePayer = wallet.publicKey;
+      tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+      tx.sign(wallet);
+
+      const signature = await connection.sendRawTransaction(tx.serialize(), {
+        skipPreflight: false,
+        preflightCommitment: 'confirmed',
+        maxRetries: 3,
+      });
+
+      log.info('SINGLE TRANSACTION submitted: Withdraw + Claim + Close', {
+        signature,
+        solscan: `https://solscan.io/tx/${signature}`,
+      });
+
+      // Wait for confirmation
+      const latestBlockhash = await connection.getLatestBlockhash();
+      await connection.confirmTransaction({
+        signature,
+        ...latestBlockhash,
+      });
+
+      log.info('✅ Withdraw + Claim + Close completed successfully (1 TX)', {
+        signature,
+        claimedFees: { sol: claimableSol, usdc: claimableUsdc },
+        solscan: `https://solscan.io/tx/${signature}`,
+      });
+
+      // Fetch and log transaction fees
+      const feeDetails = await getTransactionFees(connection, signature);
+      logTransactionFees(signature, feeDetails, 'Withdraw + Claim + Close');
+
+      // Remove from our position list
+      this.positionMints = this.positionMints.filter(mint => mint !== positionMint);
+      saveCreatedPositionMints(this.positionMints);
+
+      return {
+        signature,
+        claimedFees: {
+          sol: claimableSol,
+          usdc: claimableUsdc,
+        },
+      };
+    } catch (error) {
+      log.error('Failed to withdraw + claim + close position', {
+        error: error instanceof Error ? error.message : String(error),
+        positionMint,
+      });
+      throw error;
+    }
+  }
+
+  /**
    * TWO-STEP REBALANCE: Sequential transactions for reliability
    *
    * This method performs rebalancing in two sequential transactions:

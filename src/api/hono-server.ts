@@ -334,6 +334,37 @@ app.post('/api/positions/close', async (c) => {
   }
 });
 
+// Withdraw 100%, claim fees, and close position in ONE ATOMIC transaction
+app.post('/api/positions/withdraw-claim-close', async (c) => {
+  try {
+    const body = await c.req.json();
+    const { positionMint } = body;
+
+    if (!positionMint) {
+      return c.json({ error: 'Missing required parameter: positionMint' }, 400);
+    }
+
+    const adapter = getMeteoraAdapter();
+    const result = await adapter.withdrawClaimAndClose(positionMint);
+
+    return c.json({
+      signature: result.signature,
+      claimedFees: result.claimedFees,
+      success: true,
+      message: 'Withdraw + Claim + Close completed in 1 atomic transaction. Position closed and rent reclaimed (~0.057 SOL).'
+    });
+  } catch (error) {
+    log.error('Failed to withdraw, claim, and close position', { error });
+    return c.json(
+      {
+        error: 'Failed to withdraw, claim, and close position',
+        message: error instanceof Error ? error.message : String(error),
+      },
+      500
+    );
+  }
+});
+
 // Start Bun server with Hono
 log.info(`🚀 Bun + Hono API server starting on port ${PORT}`);
 console.log(`🚀 Bun + Hono API server starting on port ${PORT}`);

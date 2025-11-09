@@ -5,7 +5,7 @@
  *
  * Strategy:
  * 1. Monitor position composition every interval (e.g., 10s)
- * 2. Detect when position becomes imbalanced (e.g., >80% in one token)
+ * 2. Detect when position becomes imbalanced (e.g., > 90% in one token)
  * 3. Trigger rebalance flow:
  *    - Withdraw 100% from current position
  *    - Claim all accumulated fees
@@ -18,7 +18,7 @@
  * - AUTO_TUNE_ENABLED: Enable/disable auto-tune mode
  * - AUTO_TUNE_BIN_COUNT: Number of bins (default: 20)
  * - AUTO_TUNE_CHECK_INTERVAL_MS: Check frequency (default: 10000 = 10s)
- * - AUTO_TUNE_IMBALANCE_THRESHOLD: Trigger threshold (default: 0.8 = 80%)
+ * - AUTO_TUNE_IMBALANCE_THRESHOLD: Trigger threshold (default: 0.9 = 90%)
  *
  * @example
  * ```typescript
