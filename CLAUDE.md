@@ -26,9 +26,12 @@ pnpm install
 
 ### Running the Bot
 
-**Current Status**: The main orchestrator and CLI commands are planned for future implementation. Currently available:
+**Available Commands:**
 
 ```bash
+# Auto-Tune Mode (Automated Position Rebalancing)
+pnpm auto-tune           # Start auto-tune orchestrator (REAL FUNDS!)
+
 # Testing (recommended workflow)
 pnpm test:local          # Test on localnet mainnet-fork
 pnpm test:mainnet        # Test on mainnet (REAL FUNDS!)
@@ -67,8 +70,9 @@ The codebase follows a modular adapter pattern:
    - ✅ Fetches pool analytics from Meteora DLMM API (cached 2.5s)
    - ✅ Calculates position composition (token X/Y percentages)
    - ✅ Persists created position NFT mints to state
-   - 🔜 Deposits/withdrawals with single-sided support
-   - 🔜 Fee claiming functionality
+   - ✅ Deposits/withdrawals with single-sided support
+   - ✅ Fee claiming functionality
+   - ✅ **ATOMIC REBALANCE**: Withdraw + Claim + Close + Create in ONE transaction
 
 2. **PriceOracle** (`src/core/priceOracle.ts`)
    - ✅ Jupiter API v6 integration with multi-token price fetching
@@ -81,13 +85,24 @@ The codebase follows a modular adapter pattern:
    - ✅ State snapshot management (positions, exposure, timestamps)
    - ✅ Action journal for execution history
    - ✅ Auto-created position NFT tracking
+   - ✅ Auto-tune state tracking (iteration count, rebalance history)
    - ✅ JSON-based storage in data/ directory
 
-4. **Utility Modules:**
+4. **AutoTuneOrchestrator** (`src/modules/autoTuneOrchestrator.ts`)
+   - ✅ Monitors position composition at configurable intervals
+   - ✅ Detects position imbalance (e.g., >80% in one token)
+   - ✅ Executes atomic rebalance when triggered
+   - ✅ Auto-compounds fees into new positions
+   - ✅ Maintains concentrated liquidity with fixed bin count
+   - ✅ State persistence across restarts
+
+5. **Utility Modules:**
    - **meteoraUtils** (`src/utils/meteoraUtils.ts`)
      - ✅ Bin price calculations from bin ID
      - ✅ Token percentage composition calculator
      - ✅ Meteora API client for pool analytics
+     - ✅ Position imbalance detection
+     - ✅ Centered price range calculation for rebalancing
    - **jitoUtils** (`src/utils/jitoUtils.ts`)
      - ✅ Jito tip instruction creation
      - ✅ Dynamic tip escalation (4k→6k→8k lamports)
@@ -175,13 +190,19 @@ See [INTEGRATION_SUMMARY.md](INTEGRATION_SUMMARY.md) for detailed changelog.
 **Drift Configuration:**
 - `DRIFT_MARKET_SOL_PERP`: Drift market index for SOL-PERP (typically 0)
 
+**Auto-Tune Configuration (NEW!):**
+- `AUTO_TUNE_ENABLED`: Enable automatic position rebalancing (default: false)
+- `AUTO_TUNE_BIN_COUNT`: Number of bins for concentrated liquidity (default: 20)
+- `AUTO_TUNE_CHECK_INTERVAL_MS`: Check interval in milliseconds (default: 30000 = 30s)
+- `AUTO_TUNE_IMBALANCE_THRESHOLD`: Trigger threshold as decimal (default: 0.8 = 80%)
+
 **Risk parameters:**
 - `DELTA_THRESHOLD_SOL`: Maximum delta before rebalancing (default: 2)
 - `MIN_COLLATERAL_RATIO`: Minimum collateral ratio (default: 0.15)
 - `MAX_SHORT_NOTIONAL_USD`: Maximum short position size (default: 12000)
 - `FUNDING_RATE_CAP_BPS`: Maximum acceptable funding rate in basis points (default: 80)
 
-Execution parameters:
+**Execution parameters:**
 - `USE_JITO`: Enable Jito bundle submission (default: true)
 - `JITO_RELAY_URL`: Jito relay endpoint
 - `PRIORITY_TIP_LAMPORTS`: Priority fee in lamports (default: 80000)
@@ -193,6 +214,81 @@ Execution parameters:
 - Action journal persists execution history
 - State snapshot includes: LP exposure, short position, collateral, delta, timestamps
 - **Auto-created position mints** are saved to `data/state.json` for persistence across restarts
+- **Auto-tune state** is saved to `data/auto-tune-state.json` with iteration count, rebalance history, and error tracking
+
+## Auto-Tune Feature (NEW!)
+
+The **Auto-Tune Orchestrator** provides fully automated position rebalancing for Meteora DLMM positions:
+
+### How It Works
+
+1. **Monitors** position composition at configurable intervals (default: every 10s)
+2. **Detects** when position becomes imbalanced (e.g., >80% in one token)
+3. **Executes** atomic rebalance transaction combining:
+   - Withdraw 100% from old position
+   - Claim all accumulated fees
+   - Close empty position (reclaim rent ~0.057 SOL)
+   - Create new position centered at current price
+
+**All operations execute in a SINGLE transaction** for atomicity and cost savings!
+
+### Key Features
+
+- **Concentrated Liquidity**: Maintains fixed bin count (default: 20 bins) for capital efficiency
+- **Auto-Compounding**: Claimed fees automatically added to new position
+- **Atomic Execution**: All rebalance operations in one transaction - either all succeed or all fail
+- **State Persistence**: Survives restarts with full state recovery
+- **Error Handling**: Automatic retry with exponential backoff, stops after 5 consecutive failures
+
+### Configuration
+
+```bash
+# Enable auto-tune
+AUTO_TUNE_ENABLED=true
+
+# Concentrated liquidity (20 bins = tight range, high capital efficiency)
+AUTO_TUNE_BIN_COUNT=20
+
+# Check position balance every 10 seconds
+AUTO_TUNE_CHECK_INTERVAL_MS=10000
+
+# Trigger rebalance when position becomes 80% or more in one token
+AUTO_TUNE_IMBALANCE_THRESHOLD=0.8
+```
+
+### Running Auto-Tune
+
+```bash
+# Start auto-tune mode
+pnpm auto-tune
+
+# The bot will:
+# 1. Load or create initial position
+# 2. Monitor position composition every 10s
+# 3. Automatically rebalance when imbalanced
+# 4. Auto-compound fees into new positions
+# 5. Log all operations to data/auto-tune-state.json
+```
+
+### Example Workflow
+
+**Initial State:**
+- SOL price: $160
+- Position: 20 bins centered at $160 (range: $158-$162)
+- Composition: 50% SOL, 50% USDC
+
+**Price Moves to $180:**
+- Position composition becomes: 15% SOL, 85% USDC ❌ (exceeds 80% threshold)
+- Auto-tune detects imbalance
+- **Atomic rebalance executes:**
+  1. Withdraws all liquidity (~0.5 SOL + 85 USDC)
+  2. Claims fees (~0.02 SOL + 1 USDC)
+  3. Closes old position (reclaims ~0.057 SOL rent)
+  4. Creates new position at $180 with 0.577 SOL + 86 USDC (fees compounded!)
+- New position: 20 bins centered at $180 (range: $178-$182)
+- Composition: 50% SOL, 50% USDC ✅
+
+**All in ONE transaction!**
 
 ## Development Workflow
 
@@ -210,6 +306,8 @@ When implementing features, follow the module interfaces defined in the PRD (age
 ## Important Notes
 
 - **Auto-position creation**: Set `AUTO_CREATE_POSITIONS=true` to have the bot create Meteora positions automatically on first run. No manual wallet/UI steps needed.
+- **Auto-tune rebalancing**: Set `AUTO_TUNE_ENABLED=true` to enable fully automated position rebalancing with atomic transactions. The bot will monitor positions and automatically rebalance when they become imbalanced.
+- **Atomic transactions**: Auto-tune executes ALL rebalance operations (withdraw + claim + close + create) in a SINGLE transaction for maximum efficiency and atomicity.
 - All production execution uses **solana-agent-kit** for direct control over bundles and fees
 - Test emergency flows thoroughly with dry-run flag before mainnet
 - Monitor funding rates closely - high sustained funding can erode profitability

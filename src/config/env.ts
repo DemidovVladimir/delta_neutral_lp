@@ -50,6 +50,12 @@ export interface BotConfig {
   // Loop parameters
   hedgeLoopIntervalMs: number;
   maxRetries: number;
+
+  // Auto-tune parameters
+  autoTuneEnabled: boolean;
+  autoTuneBinCount: number;
+  autoTuneCheckIntervalMs: number;
+  autoTuneImbalanceThreshold: number;
 }
 
 function parseEnvString(key: string, required: true): string;
@@ -198,6 +204,12 @@ export function loadConfig(): BotConfig {
   const hedgeLoopIntervalMs = parseEnvNumber('HEDGE_LOOP_INTERVAL_MS', 15000); // 15s default
   const maxRetries = parseEnvNumber('MAX_RETRIES', 3);
 
+  // Parse auto-tune parameters
+  const autoTuneEnabled = parseEnvBoolean('AUTO_TUNE_ENABLED', false);
+  const autoTuneBinCount = parseEnvNumber('AUTO_TUNE_BIN_COUNT', 20); // Default 20 bins
+  const autoTuneCheckIntervalMs = parseEnvNumber('AUTO_TUNE_CHECK_INTERVAL_MS', 30000); // 30s default
+  const autoTuneImbalanceThreshold = parseEnvNumber('AUTO_TUNE_IMBALANCE_THRESHOLD', 0.8); // 80% default
+
   // Validate Jito config
   if (useJito && !jitoRelayUrl) {
     throw new Error('JITO_RELAY_URL is required when USE_JITO=true');
@@ -215,6 +227,22 @@ export function loadConfig(): BotConfig {
   }
   if (fundingRateCapBps < 0) {
     throw new Error('FUNDING_RATE_CAP_BPS must be non-negative');
+  }
+
+  // Validate auto-tune parameters
+  if (autoTuneEnabled) {
+    if (autoTuneBinCount <= 0) {
+      throw new Error('AUTO_TUNE_BIN_COUNT must be positive');
+    }
+    if (autoTuneCheckIntervalMs <= 0) {
+      throw new Error('AUTO_TUNE_CHECK_INTERVAL_MS must be positive');
+    }
+    if (autoTuneImbalanceThreshold <= 0 || autoTuneImbalanceThreshold > 1) {
+      throw new Error('AUTO_TUNE_IMBALANCE_THRESHOLD must be between 0 and 1');
+    }
+    if (!meteoraPoolAddress) {
+      throw new Error('METEORA_POOL_ADDRESS is required when AUTO_TUNE_ENABLED=true');
+    }
   }
 
   return {
@@ -240,6 +268,10 @@ export function loadConfig(): BotConfig {
     priorityFeeMicroLamports,
     hedgeLoopIntervalMs,
     maxRetries,
+    autoTuneEnabled,
+    autoTuneBinCount,
+    autoTuneCheckIntervalMs,
+    autoTuneImbalanceThreshold,
   };
 }
 

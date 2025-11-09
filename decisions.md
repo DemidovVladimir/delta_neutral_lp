@@ -251,17 +251,7 @@ This creates friction for deployment and requires users to understand Meteora's 
 
 ### Decision
 
-Implement **automatic position creation** with `AUTO_CREATE_POSITIONS` flag:
-- Bot creates Meteora DLMM positions on first run (if enabled)
-- Mints position NFTs automatically
-- Persists created mint addresses to `data/state.json`
-- No manual wallet/UI interaction required
-
-Configuration supports two modes:
-1. **Auto-create**: Specify pool, deposit amounts, and price range
-2. **Existing**: Provide pre-created position NFT mints (legacy mode)
-
-### Alternatives Considered
+Configuration supports one mode:
 
 1. **Always require manual position creation**
    - Pro: Simpler bot logic
@@ -276,12 +266,6 @@ Configuration supports two modes:
    - Con: Still requires manual step
    - Con: Doesn't support headless deployment
 
-3. **Auto-create on every run**
-   - Pro: Always fresh positions
-   - Con: Would create duplicate positions
-   - Con: Can't persist across restarts
-   - Con: Wasted transaction fees
-
 ### Rationale
 
 1. **User Experience:**
@@ -295,7 +279,6 @@ Configuration supports two modes:
    - Bot validates parameters before creation
 
 3. **Flexibility:**
-   - Supports both auto-create and existing positions
    - Preserves backward compatibility
    - Advanced users can still pre-create positions
 
@@ -978,25 +961,191 @@ Migrate to **Jupiter Lite API v3** (`lite-api.jup.ag/price/v3`):
 
 ---
 
+---
+
+## ADR-012: Auto-Tune Two-Step Rebalancing Strategy
+
+**Date:** 2025-01-09
+**Status:** Accepted
+**Deciders:** Team
+**Related:** Epic L (Meteora DLMM), AutoTuneOrchestrator
+
+### Context
+
+Meteora DLMM positions become imbalanced as SOL price moves - they can become 80-100% concentrated in one token (SOL or USDC) when price moves outside the position range. This reduces capital efficiency and stops earning fees.
+
+Traditional approaches require:
+1. Manual monitoring of position composition
+2. Multiple separate transactions: withdraw → claim → close → create
+3. Complex price range calculations by user
+4. Risk of partial execution (some txs succeed, others fail)
+
+We needed an automated solution that:
+- Detects position imbalance automatically
+- Rebalances efficiently (low cost)
+- Auto-compounds claimed fees
+- Maintains concentrated liquidity
+- Requires minimal user configuration
+
+### Decision
+
+Implement **Auto-Tune with Two-Step Rebalancing**:
+
+**Detection:**
+- Monitor position composition at configurable intervals (default: 30s)
+- Simple threshold-based trigger (e.g., 80% in one token)
+- User sets ONE parameter: `AUTO_TUNE_IMBALANCE_THRESHOLD=0.8`
+
+**Execution:**
+- TWO sequential transactions for reliability:
+  **Transaction 1:** Withdraw + Claim + Close (using SDK's `shouldClaimAndClose=true`)
+  **Transaction 2:** Create new position with original + claimed fees
+- Uses SDK's transaction objects directly (no manual instruction extraction)
+- SDK handles compute budget instructions automatically
+- Normal Jito priority to avoid overpaying
+- Each transaction confirmed before proceeding to next
+
+**Auto-Calculation:**
+- Bot calculates new position range automatically
+- Centered at current price
+- Fixed bin count (default: 20 bins)
+- No manual BPS calculation needed by user
+
+**Auto-Compounding:**
+- Claimed fees automatically added to new position
+- Increases position size over time
+- Maximizes capital efficiency
+
+### Alternatives Considered
+
+1. **Sequential Transactions (4 separate txs)**
+   - Pro: Simpler SDK usage
+   - Con: Risk of partial execution
+   - Con: 4x transaction fees
+   - Con: Slower execution
+   - Con: Not atomic (could fail mid-way)
+   - **Note:** We ended up using 2 sequential transactions (withdraw+claim+close, then create) instead of 1 atomic transaction due to Solana's transaction size limits
+
+2. **Manual Rebalancing**
+   - Pro: User has full control
+   - Con: Requires constant monitoring
+   - Con: High maintenance burden
+   - Con: Users may miss optimal rebalance timing
+   - Con: Error-prone manual operations
+
+3. **User Specifies Price Range in BPS**
+   - Pro: User has control over range
+   - Con: Complex for non-technical users
+   - Con: Need to calculate BPS offsets manually
+   - Con: Users don't want to do math
+
+4. **Continuous Rebalancing (every block)**
+   - Pro: Always optimal range
+   - Con: Excessive transaction costs
+   - Con: Network spam
+   - Con: Diminishing returns
+
+### Rationale
+
+**Two sequential transactions chosen because:**
+1. **Transaction Size Limits:** Initial attempt with single atomic transaction failed with "Transaction too large: 1294 > 1232" error
+2. **SDK Integration:** Using SDK's built-in transactions (`shouldClaimAndClose=true` and `initializePositionAndAddLiquidityByStrategy`) instead of manual instruction extraction
+3. **Reliability:** Each transaction confirmed before proceeding
+4. **Cost:** 2 transactions instead of 4 (50% fee savings vs naive 4-tx approach)
+5. **Simplicity:** SDK handles compute budget automatically, no manual instruction combining needed
+
+**Simple threshold chosen because:**
+1. **User requested:** "just use percentage from balanced position"
+2. **Easy to understand:** "Rebalance when >80% SOL or USDC"
+3. **No calculations needed:** Set threshold once, bot handles rest
+
+**Auto-calculation chosen because:**
+1. **User explicitly requested:** "do not want to calculate BPS"
+2. **Reduces errors:** No manual calculation mistakes
+3. **Optimal placement:** Always centered at current price
+4. **Consistent behavior:** 20 bins gives predictable range width
+
+**20 bins default chosen because:**
+1. **Concentrated liquidity:** Tight range = high capital efficiency
+2. **Reasonable rebalance frequency:** Not too often, not too rare
+3. **Fits Meteora limits:** Well under 70-bin max for most pools
+
+### Consequences
+
+**Positive:**
+- **Zero-config pricing:** User sets threshold, bot calculates ranges
+- **Cost efficient:** 50% fewer transaction fees (2 txs vs 4 txs)
+- **Auto-compounding:** Fees reinvested automatically
+- **Reliable:** Each transaction confirmed before proceeding
+- **Simple UX:** Just set `AUTO_TUNE_IMBALANCE_THRESHOLD=0.8`
+- **SDK Integration:** Uses SDK's built-in transactions directly
+- **Maintainable:** SDK handles compute budget automatically
+
+**Negative:**
+- **Not fully atomic:** Two separate transactions (TX1 could succeed while TX2 fails)
+- **Sequential execution:** Slightly slower than true atomic (2 confirmations vs 1)
+- **Jito dependency:** Relies on Jito for MEV protection
+
+**Mitigation:**
+- Comprehensive logging of each transaction step
+- TX1 confirmed before starting TX2
+- Clear error messages indicating which transaction failed
+- State saved after successful rebalance
+- If TX1 succeeds but TX2 fails, position is closed and funds are in wallet (safe state)
+
+**Implementation Notes:**
+- **Transaction 1:** Uses SDK's `removeLiquidity()` with `shouldClaimAndClose=true`
+  - SDK automatically handles withdraw → claim → close in correct order
+  - Returns array of transactions, we use the first one
+- **Transaction 2:** Uses SDK's `initializePositionAndAddLiquidityByStrategy()`
+  - Creates new position with Spot strategy
+  - Uses claimed fees + original funds
+  - Requires both wallet and newPositionKeypair signatures via `partialSign()`
+- SDK handles compute budget instructions automatically
+- Only add Jito tip instruction after SDK's instructions
+- See [src/modules/meteoraAdapter.ts:1043-1324](src/modules/meteoraAdapter.ts#L1043-L1324)
+
+**Configuration:**
+```bash
+AUTO_TUNE_ENABLED=true                    # Enable auto-tune
+AUTO_TUNE_BIN_COUNT=20                    # 20 bins (concentrated)
+AUTO_TUNE_CHECK_INTERVAL_MS=30000         # Check every 30s
+AUTO_TUNE_IMBALANCE_THRESHOLD=0.8         # Trigger at 80% one-sided
+```
+
+**Usage:**
+```bash
+pnpm auto-tune  # Start automated rebalancing
+```
+
+**State Persistence:**
+- `data/auto-tune-state.json` tracks:
+  - Iteration count
+  - Rebalance history
+  - Last check/rebalance timestamps
+  - Error tracking (stops after 5 consecutive failures)
+
+---
+
 ## Decision Index
 
 - ADR-001: Use solana-agent-kit for Transaction Execution
 - ADR-002: Band Rebalancing Over Continuous Hedging
 - ADR-003: JSON-based State Persistence
 - ADR-004: Emergency Flow Execution Strategy
-- ADR-005: Automatic Meteora Position Creation
-- ADR-006: DLMM SDK ESM/CommonJS Interop Strategy
-- ADR-007: Jupiter API v6 Upgrade
-- ADR-008: Meteora Pool Analytics Caching Strategy (2.5s TTL)
-- ADR-009: Documentation Standards
-- ADR-010: Dynamic Jito Tipping with 5-Second Cache
-- ADR-011: Jupiter Lite API v3 Migration
+- ADR-005: DLMM SDK ESM/CommonJS Interop Strategy
+- ADR-006: Jupiter API v6 Upgrade
+- ADR-007: Meteora Pool Analytics Caching Strategy (2.5s TTL)
+- ADR-008: Documentation Standards
+- ADR-009: Dynamic Jito Tipping with 5-Second Cache
+- ADR-010: Jupiter Lite API v3 Migration
+- ADR-012: Auto-Tune Two-Step Rebalancing Strategy
 
 ---
 
 ## Decision Status
 
-- **Accepted:** 11
+- **Accepted:** 12
 - **Proposed:** 0
 - **Deprecated:** 0
 - **Superseded:** 0

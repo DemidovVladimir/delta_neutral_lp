@@ -1041,6 +1041,250 @@ export class MeteoraAdapter {
   }
 
   /**
+   * TWO-STEP REBALANCE: Sequential transactions for reliability
+   *
+   * This method performs rebalancing in two sequential transactions:
+   *
+   * Transaction 1: Withdraw + Claim + Close
+   * - Withdraw 100% from old position
+   * - Claim all accumulated fees
+   * - Close empty position (reclaim rent)
+   *
+   * Transaction 2: Create New Position
+   * - Create new position with Spot strategy
+   * - Centered at current price with 20 bins
+   * - Uses original funds + claimed fees (auto-compound)
+   *
+   * Example:
+   * - User invested: 0.1 SOL + 16 USDC
+   * - After price drop: 0.01 SOL + 31 USDC (imbalanced)
+   * - Auto-tune rebalances
+   * - New position: 0.1 SOL + claimed SOL fees + 16 USDC + claimed USDC fees
+   *
+   * @param params - Rebalance parameters
+   * @returns Transaction signatures and new position mint
+   */
+  async atomicRebalance(params: {
+    oldPositionMint: string;
+    newPositionParams: {
+      solAmount: number;
+      usdcAmount: number;
+      priceLower: number;
+      priceUpper: number;
+    };
+  }): Promise<{
+    signature: string;
+    newPositionMint: string;
+    claimedFees: { sol: number; usdc: number };
+  }> {
+    log.info('🔥 Starting TWO-STEP rebalance', {
+      oldPosition: params.oldPositionMint,
+      newPosition: params.newPositionParams,
+    });
+
+    try {
+      const connection = getConnection();
+      const wallet = getWalletKeypair();
+      const poolPubkey = new PublicKey(this.config.meteoraPoolAddress!);
+      const dlmmPool = await DLMM.create(connection, poolPubkey);
+      const oldPositionPubkey = new PublicKey(params.oldPositionMint);
+
+      // Get position data for withdraw and claim
+      const { userPositions } = await dlmmPool.getPositionsByUserAndLbPair(wallet.publicKey);
+      const position = userPositions.find((p: any) => p.publicKey.equals(oldPositionPubkey));
+
+      if (!position) {
+        throw new Error('Old position not found');
+      }
+
+      // Calculate claimable fees before operations
+      const claimableSol = position.positionData.feeX.toNumber() / 10 ** DECIMALS.SOL;
+      const claimableUsdc = position.positionData.feeY.toNumber() / 10 ** DECIMALS.USDC;
+
+      log.info('Step 1: Withdraw + Claim + Close (shouldClaimAndClose=true)', {
+        steps: ['SDK handles: Withdraw 100% → Claim fees → Close position'],
+        claimableFees: { sol: claimableSol, usdc: claimableUsdc },
+      });
+
+      // ============================================================
+      // TRANSACTION 1: Withdraw + Claim + Close
+      // ============================================================
+      // Use SDK's removeLiquidity with shouldClaimAndClose=true
+      // SDK automatically includes compute budget instructions
+      const withdrawTxs = await dlmmPool.removeLiquidity({
+        user: wallet.publicKey,
+        position: oldPositionPubkey,
+        fromBinId: position.positionData.lowerBinId,
+        toBinId: position.positionData.upperBinId,
+        bps: new BN(10000), // 100%
+        shouldClaimAndClose: true, // SDK handles withdraw + claim + close atomically
+        skipUnwrapSOL: false,
+      });
+
+      if (withdrawTxs.length === 0) {
+        throw new Error('No withdraw transactions returned from SDK');
+      }
+
+      // Use the first transaction directly (SDK already added compute budget)
+      const tx1 = withdrawTxs[0];
+
+      // Optional: Add Jito tip (normal priority) - add after SDK instructions
+      if (this.config.useJito) {
+        const jitoTipIx = await createEnhancedJitoTipInstruction(wallet.publicKey, {
+          priority: 'normal',
+          attempt: 0,
+        });
+        tx1.add(jitoTipIx);
+      }
+
+      // Sign and send Transaction 1
+      tx1.feePayer = wallet.publicKey;
+      tx1.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+      tx1.sign(wallet);
+
+      const sig1 = await connection.sendRawTransaction(tx1.serialize(), {
+        skipPreflight: false,
+        preflightCommitment: 'confirmed',
+        maxRetries: 3,
+      });
+
+      log.info('Transaction 1 submitted: Withdraw + Claim + Close', {
+        signature: sig1,
+        solscan: `https://solscan.io/tx/${sig1}`,
+      });
+
+      // Wait for confirmation
+      const latestBlockhash1 = await connection.getLatestBlockhash();
+      await connection.confirmTransaction({
+        signature: sig1,
+        ...latestBlockhash1,
+      });
+
+      log.info('✅ Transaction 1 confirmed', { signature: sig1 });
+
+      // ============================================================
+      // TRANSACTION 2: Create New Position
+      // ============================================================
+      log.info('Step 2: Create new position with Spot strategy', {
+        solAmount: params.newPositionParams.solAmount,
+        usdcAmount: params.newPositionParams.usdcAmount,
+        priceLower: params.newPositionParams.priceLower,
+        priceUpper: params.newPositionParams.priceUpper,
+      });
+
+      // Create new position with Spot strategy
+      const newPositionKeypair = Keypair.generate();
+      const totalXAmount = new BN(params.newPositionParams.solAmount * 10 ** DECIMALS.SOL);
+      const totalYAmount = new BN(params.newPositionParams.usdcAmount * 10 ** DECIMALS.USDC);
+
+      // Validate and adjust price range
+      const activePrice = await dlmmPool.getActiveBin().then((b: any) => parseFloat(b.price));
+      const { minBinId, maxBinId } = this.validateAndAdjustPriceRange(
+        dlmmPool,
+        params.newPositionParams.priceLower,
+        params.newPositionParams.priceUpper,
+        activePrice
+      );
+
+      const strategyParameters = {
+        maxBinId,
+        minBinId,
+        strategyType: StrategyType.Spot,
+      };
+
+      // SDK handles compute budget automatically
+      const createTx = await dlmmPool.initializePositionAndAddLiquidityByStrategy({
+        positionPubKey: newPositionKeypair.publicKey,
+        totalXAmount,
+        totalYAmount,
+        strategy: strategyParameters,
+        user: wallet.publicKey,
+        slippage: SLIPPAGE_BPS.default / 10000,
+      });
+
+      // Use SDK's transaction directly
+      const tx2 = createTx;
+
+      // Optional: Add Jito tip after SDK instructions
+      if (this.config.useJito) {
+        const jitoTipIx = await createEnhancedJitoTipInstruction(wallet.publicKey, {
+          priority: 'normal',
+          attempt: 0,
+        });
+        tx2.add(jitoTipIx);
+      }
+
+      // Sign and send Transaction 2
+      tx2.feePayer = wallet.publicKey;
+      tx2.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+      tx2.partialSign(wallet, newPositionKeypair);
+
+      const sig2 = await connection.sendRawTransaction(tx2.serialize(), {
+        skipPreflight: false,
+        preflightCommitment: 'confirmed',
+        maxRetries: 3,
+      });
+
+      log.info('Transaction 2 submitted: Create new position', {
+        signature: sig2,
+        solscan: `https://solscan.io/tx/${sig2}`,
+      });
+
+      // Wait for confirmation
+      const latestBlockhash2 = await connection.getLatestBlockhash();
+      await connection.confirmTransaction({
+        signature: sig2,
+        ...latestBlockhash2,
+      });
+
+      const newPositionMint = newPositionKeypair.publicKey.toBase58();
+
+      log.info('✅ Transaction 2 confirmed', {
+        signature: sig2,
+        newPosition: newPositionMint,
+      });
+
+      // ============================================================
+      // Update state and return
+      // ============================================================
+      log.info('✅ TWO-STEP rebalance completed successfully', {
+        tx1: sig1,
+        tx2: sig2,
+        oldPosition: params.oldPositionMint,
+        newPosition: newPositionMint,
+        claimedFees: { sol: claimableSol, usdc: claimableUsdc },
+      });
+
+      // Update position mints
+      this.positionMints = this.positionMints.filter(m => m !== params.oldPositionMint);
+      this.positionMints.push(newPositionMint);
+      saveCreatedPositionMints(this.positionMints);
+
+      // Fetch and log transaction fees
+      const feeDetails1 = await getTransactionFees(connection, sig1);
+      logTransactionFees(sig1, feeDetails1, 'Rebalance Step 1 (Withdraw+Claim+Close)');
+
+      const feeDetails2 = await getTransactionFees(connection, sig2);
+      logTransactionFees(sig2, feeDetails2, 'Rebalance Step 2 (Create Position)');
+
+      return {
+        signature: sig2, // Return the final transaction signature
+        newPositionMint,
+        claimedFees: {
+          sol: claimableSol,
+          usdc: claimableUsdc,
+        },
+      };
+    } catch (error) {
+      log.error('Failed to execute two-step rebalance', {
+        error: error instanceof Error ? error.message : String(error),
+        params,
+      });
+      throw error;
+    }
+  }
+
+  /**
    * Claim accumulated fees
    */
   async claimFees(): Promise<ClaimResult> {

@@ -17,6 +17,12 @@ MCP can still be used by Claude for diagnostics and manual ops; the bot’s core
 
 ## 2) Scope (MVP)
 - Provide/withdraw liquidity on **Meteora DLMM** (SOL/USDC), claim fees.
+- **Auto-Tune Feature** (implemented 2025-11-09): Automatic position rebalancing
+  - Monitors position composition every interval (default: 30s)
+  - Detects when position becomes imbalanced (>80% in one token)
+  - Executes atomic rebalance (withdraw + claim + close + create in ONE transaction)
+  - Auto-compounds claimed fees into new position
+  - Simple threshold-based configuration (no BPS calculations needed)
 - Maintain **Drift** short to keep `ΔSOL ≈ 0` (simple band rebalancing).
 - Implement **Emergency Flow** as bundled, prioritized execution:
   1) Meteora withdraw (partial/full)
@@ -50,6 +56,12 @@ USE_JITO=true
 JITO_RELAY_URL=
 PRIORITY_TIP_LAMPORTS=80000
 MAX_COMPUTE_UNITS=1200000
+
+# Auto-Tune (Implemented 2025-11-09)
+AUTO_TUNE_ENABLED=false
+AUTO_TUNE_BIN_COUNT=20
+AUTO_TUNE_CHECK_INTERVAL_MS=30000
+AUTO_TUNE_IMBALANCE_THRESHOLD=0.8
 ```
 
 ---
@@ -57,11 +69,12 @@ MAX_COMPUTE_UNITS=1200000
 ## 4) Architecture
 ```
 Agent Orchestrator (TS, solana-agent-kit)
- ├─ MeteoraAdapter  ── DLMM exposure, deposit/withdraw, claim
- ├─ DriftEngine     ── get state, place perp orders, collateral ops
- ├─ Bundler         ── atomic tx builder, Jito bundle, priority fallback
- ├─ RiskController  ── Δ, margin, funding, notional limits
- └─ Persistence     ── JSON store + action journal
+ ├─ MeteoraAdapter        ── DLMM exposure, deposit/withdraw, claim, atomicRebalance
+ ├─ AutoTuneOrchestrator  ── Position monitoring & automatic rebalancing (NEW 2025-11-09)
+ ├─ DriftEngine           ── get state, place perp orders, collateral ops
+ ├─ Bundler               ── atomic tx builder, Jito bundle, priority fallback
+ ├─ RiskController        ── Δ, margin, funding, notional limits
+ └─ Persistence           ── JSON store + action journal + auto-tune state
 ```
 
 ---
@@ -73,6 +86,27 @@ Agent Orchestrator (TS, solana-agent-kit)
 2. Read DLMM exposure → `lp_sol, lp_usdc`.
 3. Read Drift → `short_sol, collateralUsd, marginRatio, funding`.
 4. Compute `Δ = lp_sol - short_sol`. If `|Δ| ≥ band`, call `rebalanceToShortSol(target=lp_sol)`.
+
+### 5.1a Auto-Tune Loop (every 30s, runs independently if enabled)
+**Implemented 2025-11-09**
+1. Get current pool active bin and price
+2. Read position composition (SOL/USDC percentages)
+3. Check imbalance: if position >80% in one token, trigger rebalance
+4. Execute atomic rebalance (withdraw + claim + close + create in ONE transaction):
+   - Withdraw 100% from current position
+   - Claim all accumulated fees
+   - Close empty position (reclaim rent)
+   - Create new position centered at current price with:
+     - Original funds + claimed fees (auto-compounding)
+     - Fixed bin count (default: 20 bins)
+     - Automatically calculated price range
+5. Save rebalance state and continue monitoring
+
+**Key Features:**
+- All operations in SINGLE transaction for atomicity (75% fee savings vs 4 separate txs)
+- Uses partialSign for wallet + position keypair signatures
+- Normal Jito priority to avoid overpaying
+- Simple threshold-based configuration (no BPS calculations needed)
 
 ### 5.2 Emergency Flow (bundled)
 Trigger: margin buffer low, price shock, RPC congestion, or manual.
@@ -101,6 +135,39 @@ export class MeteoraAdapter {
   async depositToLp(a:{ usdc?:number; sol?:number; singleSided?:'sol'|'usdc' }): Promise<string> { throw new Error('TODO'); }
   async withdrawFromLp(a:{ percent?:number; amount?:number; singleSidedOut?:'sol'|'usdc' }): Promise<string> { throw new Error('TODO'); }
   async claimFees(): Promise<{ sol:number; usdc:number; sig:string }> { throw new Error('TODO'); }
+
+  // NEW: Auto-tune atomic rebalance (implemented 2025-11-09)
+  async atomicRebalance(params: {
+    oldPositionMint: string;
+    newPositionParams: {
+      solAmount: number;
+      usdcAmount: number;
+      priceLower: number;
+      priceUpper: number;
+    };
+  }): Promise<{
+    signature: string;
+    newPositionMint: string;
+    claimedFees: { sol: number; usdc: number };
+  }> {
+    // Extracts instructions from SDK methods (removeLiquidity, claimAllRewards, closePosition, initializePositionAndAddLiquidityByStrategy)
+    // Combines all into SINGLE Transaction with partialSign(wallet, newPositionKeypair)
+    // Uses 'normal' Jito priority
+    throw new Error('IMPLEMENTED - see src/modules/meteoraAdapter.ts');
+  }
+}
+```
+
+```ts
+// src/modules/autoTuneOrchestrator.ts (NEW - implemented 2025-11-09)
+export type AutoTuneState = { iteration:number; running:boolean; lastCheck:number; lastRebalance:number; rebalanceCount:number; consecutiveErrors:number; currentPositionMint?:string; };
+export type PositionBalance = { solPercent:number; usdcPercent:number; isImbalanced:boolean; currentPrice:number; lowerPrice:number; upperPrice:number; reason?:string; };
+export class AutoTuneOrchestrator {
+  async start(): Promise<void> { /* starts monitoring loop */ }
+  async stop(): Promise<void> { /* stops gracefully */ }
+  private async runCheckCycle(): Promise<void> { /* checks position, triggers rebalance if needed */ }
+  private async checkPositionBalance(): Promise<PositionBalance | null> { /* reads position composition */ }
+  private async executeRebalance(): Promise<RebalanceResult> { /* calls atomicRebalance() */ }
 }
 ```
 
@@ -157,12 +224,16 @@ epics:
   - id: L
     title: Meteora DLMM Adapter
     tasks:
+      - id: L0
+        title: Auto-create positions (optional mode)
       - id: L1
         title: Read exposure from position NFTs (lp_sol/usdc)
       - id: L2
         title: Deposit / Withdraw (single-sided support)
       - id: L3
         title: Claim fees
+      - id: L4
+        title: "Auto-tune: Atomic rebalancing (withdraw+claim+close+create) (NEW 2025-11-09)"
 
   - id: M
     title: Drift Hedge Engine
@@ -218,6 +289,10 @@ epics:
 ```bash
 # Start loop
 pnpm tsx src/cli/start.ts
+
+# Auto-tune (NEW - implemented 2025-11-09)
+pnpm auto-tune              # Start auto-tune loop
+pnpm auto-tune --help       # Show auto-tune help
 
 # Manual ops
 pnpm tsx src/cli/lp.ts deposit --usdc 12000

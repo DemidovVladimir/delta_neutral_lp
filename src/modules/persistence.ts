@@ -8,7 +8,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { StateSnapshot, JournalEntry, RiskLevel } from '../types/index.js';
+import { StateSnapshot, JournalEntry, RiskLevel, AutoTuneState } from '../types/index.js';
 import { log } from '../utils/logger.js';
 import { PERSISTENCE_CONFIG } from '../config/constants.js';
 
@@ -189,6 +189,80 @@ export function clearJournal(): void {
     }
   } catch (error) {
     log.error('Failed to clear journal', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
+ * Auto-tune state file path
+ */
+const AUTO_TUNE_STATE_FILE = path.join(dataDir, 'auto-tune-state.json');
+
+/**
+ * Save auto-tune state to disk
+ */
+export function saveAutoTuneState(state: AutoTuneState): void {
+  try {
+    const json = JSON.stringify(state, null, 2);
+    fs.writeFileSync(AUTO_TUNE_STATE_FILE, json, 'utf-8');
+
+    log.debug('Auto-tune state saved', {
+      file: AUTO_TUNE_STATE_FILE,
+      iteration: state.iteration,
+      rebalanceCount: state.rebalanceCount,
+    });
+  } catch (error) {
+    log.error('Failed to save auto-tune state', {
+      error: error instanceof Error ? error.message : String(error),
+      file: AUTO_TUNE_STATE_FILE,
+    });
+  }
+}
+
+/**
+ * Load auto-tune state from disk
+ * Returns null if no state file exists
+ */
+export function loadAutoTuneState(): AutoTuneState | null {
+  try {
+    if (!fs.existsSync(AUTO_TUNE_STATE_FILE)) {
+      log.info('No existing auto-tune state file found');
+      return null;
+    }
+
+    const json = fs.readFileSync(AUTO_TUNE_STATE_FILE, 'utf-8');
+    const state = JSON.parse(json) as AutoTuneState;
+
+    log.info('Auto-tune state loaded', {
+      file: AUTO_TUNE_STATE_FILE,
+      iteration: state.iteration,
+      rebalanceCount: state.rebalanceCount,
+      lastCheck: state.lastCheck,
+      lastRebalance: state.lastRebalance,
+    });
+
+    return state;
+  } catch (error) {
+    log.error('Failed to load auto-tune state', {
+      error: error instanceof Error ? error.message : String(error),
+      file: AUTO_TUNE_STATE_FILE,
+    });
+    return null;
+  }
+}
+
+/**
+ * Clear auto-tune state file (useful for testing)
+ */
+export function clearAutoTuneState(): void {
+  try {
+    if (fs.existsSync(AUTO_TUNE_STATE_FILE)) {
+      fs.unlinkSync(AUTO_TUNE_STATE_FILE);
+      log.info('Auto-tune state file cleared');
+    }
+  } catch (error) {
+    log.error('Failed to clear auto-tune state', {
       error: error instanceof Error ? error.message : String(error),
     });
   }

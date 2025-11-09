@@ -305,6 +305,54 @@ export interface EmergencyFlowParams {
 }
 
 // =============================================================================
+// AUTO-TUNE TYPES
+// =============================================================================
+
+export interface AutoTuneConfig {
+  enabled: boolean; // Enable auto-tune mode
+  binCount: number; // Fixed number of bins (e.g., 20 for concentrated liquidity)
+  checkIntervalMs: number; // How often to check position balance (e.g., 30000 = 30s)
+  imbalanceThreshold: number; // Threshold as decimal (e.g., 0.8 = 80% in one token)
+}
+
+export interface PositionBalance {
+  solPercent: number; // Percentage of position in SOL
+  usdcPercent: number; // Percentage of position in USDC
+  isImbalanced: boolean; // True if position exceeds imbalance threshold
+  currentPrice: number; // Current market price
+  lowerPrice: number; // Position lower bound price
+  upperPrice: number; // Position upper bound price
+  reason?: string; // Reason for imbalance (if any)
+}
+
+export interface AutoTuneState {
+  iteration: number; // Number of iterations (checks) performed
+  running: boolean; // Is auto-tune loop running
+  lastCheck: number; // Timestamp of last balance check
+  lastRebalance: number; // Timestamp of last rebalance
+  rebalanceCount: number; // Total number of rebalances performed
+  consecutiveErrors: number; // Error tracking
+  currentPositionMint?: string; // Active position being monitored
+}
+
+export interface RebalanceResult {
+  success: boolean;
+  oldPositionMint: string; // Position that was closed
+  newPositionMint: string; // New position created
+  claimedFees: {
+    sol: number;
+    usdc: number;
+  };
+  deposited: {
+    sol: number;
+    usdc: number;
+  };
+  signatures: string[]; // All transaction signatures
+  error?: string;
+  durationMs: number;
+}
+
+// =============================================================================
 // UTILITY TYPES
 // =============================================================================
 

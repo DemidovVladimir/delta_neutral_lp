@@ -12,6 +12,8 @@
     "test:mainnet": "NODE_ENV=mainnet tsx src/test/mainnet-meteora-test.ts",
     "test:integration": "NODE_ENV=mainnet tsx src/test/integration-test.ts",
     "find-pools": "NODE_ENV=mainnet tsx scripts/find-mainnet-pools.ts",
+    "auto-tune": "NODE_ENV=mainnet tsx src/cli/auto-tune.ts",
+    "auto-tune:watch": "NODE_ENV=mainnet tsx src/cli/auto-tune.ts --watch",
     "localnet:start": "./scripts/start-localnet-mainnet-fork.sh",
     "localnet:stop": "pkill solana-test-validator",
     "lint": "eslint src --ext .ts",
