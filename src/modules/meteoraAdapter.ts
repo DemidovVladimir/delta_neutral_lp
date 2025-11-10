@@ -276,6 +276,120 @@ export class MeteoraAdapter {
   }
 
   /**
+   * Build an unsigned position creation transaction for Jito bundling
+   * Returns the transaction and position keypair for external signing/bundling
+   *
+   * @param params - Position creation parameters
+   * @param jitoConfig - Optional Jito tip configuration for bundle submission
+   * @returns Object with unsigned transaction, position keypair, and additional data
+   */
+  async getCreatePositionTransaction(
+    params: CreatePositionParams,
+    jitoConfig?: JitoTipConfig
+  ): Promise<{
+    transaction: Transaction;
+    positionKeypair: Keypair;
+    solAmount: number;
+    usdcAmount: number;
+  }> {
+    log.info('Building unsigned position creation transaction', params);
+
+    try {
+      const connection = getConnection();
+      const wallet = getWalletKeypair();
+      const poolPubkey = new PublicKey(params.poolAddress);
+
+      // Check wallet balance
+      const balance = await connection.getBalance(wallet.publicKey);
+      const requiredSol = params.solAmount + 0.1; // Extra 0.1 SOL for rent and fees
+      if (balance / LAMPORTS_PER_SOL < requiredSol) {
+        throw new Error(
+          `Insufficient SOL balance. Required: ${requiredSol}, Available: ${balance / LAMPORTS_PER_SOL}`
+        );
+      }
+
+      // Initialize DLMM pool instance
+      const dlmmPool = await DLMM.create(connection, poolPubkey);
+
+      // Get current active bin for price reference
+      const activeBin = await dlmmPool.getActiveBin();
+      const currentPrice = parseFloat(activeBin.price);
+
+      log.info('Current pool state', {
+        activeBinId: activeBin.binId,
+        currentPrice,
+      });
+
+      // Validate and adjust price range to fit within DLMM limits
+      const { adjustedLower, adjustedUpper, minBinId, maxBinId } =
+        this.validateAndAdjustPriceRange(
+          dlmmPool,
+          params.priceLower,
+          params.priceUpper,
+          currentPrice
+        );
+
+      log.info('Validated bin range', {
+        minBinId,
+        maxBinId,
+        width: maxBinId - minBinId + 1,
+        priceLower: adjustedLower,
+        priceUpper: adjustedUpper,
+        originalPriceLower: params.priceLower,
+        originalPriceUpper: params.priceUpper,
+      });
+
+      // Create position keypair
+      const positionKeypair = Keypair.generate();
+
+      // Convert amounts to BN with proper decimals
+      const totalXAmount = new BN(params.solAmount * 10 ** DECIMALS.SOL);
+      const totalYAmount = new BN(params.usdcAmount * 10 ** DECIMALS.USDC);
+
+      // Create strategy parameters for balanced deposit
+      const strategyParameters = {
+        maxBinId,
+        minBinId,
+        strategyType: StrategyType.Spot, // Spot strategy for balanced liquidity
+      };
+
+      // Build position initialization and liquidity add transaction
+      const tx = await dlmmPool.initializePositionAndAddLiquidityByStrategy({
+        positionPubKey: positionKeypair.publicKey,
+        totalXAmount,
+        totalYAmount,
+        strategy: strategyParameters,
+        user: wallet.publicKey,
+        slippage: SLIPPAGE_BPS.default / 10000, // Convert BPS to decimal (50 BPS = 0.005)
+      });
+
+      // Add priority fees and optional Jito tip
+      await this.enhanceTransaction(tx, jitoConfig);
+
+      log.info('✅ Unsigned position creation transaction built', {
+        positionPubkey: positionKeypair.publicKey.toBase58(),
+        solAmount: params.solAmount,
+        usdcAmount: params.usdcAmount,
+        hasPriorityFees: true,
+        hasJitoTip: this.config.useJito && !!jitoConfig,
+      });
+
+      return {
+        transaction: tx,
+        positionKeypair,
+        solAmount: params.solAmount,
+        usdcAmount: params.usdcAmount,
+      };
+    } catch (error) {
+      log.error('Failed to build position creation transaction', {
+        error: error instanceof Error ? error.message : String(error),
+        params,
+      });
+      throw error;
+    }
+  }
+
+  /**
    * Create a new Meteora DLMM position
    * Only called when AUTO_CREATE_POSITIONS=true and no positions exist yet
    */

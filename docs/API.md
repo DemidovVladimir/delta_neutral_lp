@@ -341,6 +341,59 @@ CORS is enabled for all routes, allowing web UI integration.
 
 ---
 
+## Auto-Tune State Tracking
+
+The auto-tune feature persists its state to `data/auto-tune-state.json` with the following structure:
+
+```json
+{
+  "iteration": 10,
+  "running": false,
+  "lastCheck": 1699564800000,
+  "lastRebalance": 1699564750000,
+  "rebalanceCount": 3,
+  "consecutiveErrors": 0,
+  "currentPositionMint": "PositionNFT111111111111111111111111111111111",
+  "totalClaimedFees": {
+    "sol": 0.025,
+    "usdc": 4.50
+  },
+  "lastPositionCreated": {
+    "positionMint": "PositionNFT111111111111111111111111111111111",
+    "initialDeposit": {
+      "sol": 0.010,
+      "usdc": 1.65
+    },
+    "timestamp": 1699564750000
+  }
+}
+```
+
+**Fields:**
+- `iteration` - Total number of check iterations performed
+- `running` - Whether auto-tune loop is currently running
+- `lastCheck` - Timestamp of last position balance check
+- `lastRebalance` - Timestamp of last successful rebalance
+- `rebalanceCount` - Total number of rebalances executed
+- `consecutiveErrors` - Error tracking (auto-shutdown after 5 consecutive errors)
+- `currentPositionMint` - Active position being monitored
+- `totalClaimedFees` - **Aggregated fees claimed across all rebalances**
+  - `sol` - Total SOL fees claimed
+  - `usdc` - Total USDC fees claimed
+- `lastPositionCreated` - **Details of last position created**
+  - `positionMint` - Position NFT address
+  - `initialDeposit.sol` - Initial SOL deposited
+  - `initialDeposit.usdc` - Initial USDC deposited
+  - `timestamp` - When position was created
+
+**Use Cases:**
+- Track long-term fee earnings from auto-rebalancing
+- Analyze position performance over time
+- Monitor initial capital vs accumulated fees
+- Calculate effective APY from claimed fees
+
+---
+
 ## Related Documentation
 
 - [CLAUDE.md](../CLAUDE.md) - Project overview and architecture

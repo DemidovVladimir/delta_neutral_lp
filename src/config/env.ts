@@ -56,6 +56,13 @@ export interface BotConfig {
   autoTuneBinCount: number;
   autoTuneCheckIntervalMs: number;
   autoTuneImbalanceThreshold: number;
+  autoTuneDepositToken: 'SOL' | 'USDC'; // Which token to use for position sizing
+  autoTuneDepositAmount: number; // Amount of the deposit token to use
+  autoTuneMaxRetries: number; // Maximum retries for position creation (default: 3)
+
+  // Swap parameters
+  swapEnabled: boolean;
+  swapSlippageBps: number;
 }
 
 function parseEnvString(key: string, required: true): string;
@@ -194,11 +201,16 @@ export function loadConfig(): BotConfig {
   const fundingRateCapBps = parseEnvNumber('FUNDING_RATE_CAP_BPS', 80);
 
   // Parse execution parameters
-  const useJito = parseEnvBoolean('USE_JITO', true);
+  // Jito disabled by default due to DNS resolution issues with bundles-api-rest.jito.wtf
+  const useJito = parseEnvBoolean('USE_JITO', false);
   const jitoRelayUrl = parseEnvString('JITO_RELAY_URL', false, '');
   const priorityTipLamports = parseEnvNumber('PRIORITY_TIP_LAMPORTS', 80000);
-  const maxComputeUnits = parseEnvNumber('MAX_COMPUTE_UNITS', 200000);
-  const priorityFeeMicroLamports = parseEnvNumber('PRIORITY_FEE_MICRO_LAMPORTS', 1000); // 1 microlamport per CU
+
+  // Optimized compute parameters for 2025 fee market
+  // Typical values: 25,000-100,000 micro-lamports per CU
+  // Formula: priorityFee = computeUnits × microLamportsPerCU / 1,000,000
+  const maxComputeUnits = parseEnvNumber('MAX_COMPUTE_UNITS', 600000);
+  const priorityFeeMicroLamports = parseEnvNumber('PRIORITY_FEE_MICRO_LAMPORTS', 50000); // 50,000 µL/CU = moderate priority
 
   // Parse loop parameters
   const hedgeLoopIntervalMs = parseEnvNumber('HEDGE_LOOP_INTERVAL_MS', 15000); // 15s default
@@ -209,6 +221,19 @@ export function loadConfig(): BotConfig {
   const autoTuneBinCount = parseEnvNumber('AUTO_TUNE_BIN_COUNT', 20); // Default 20 bins
   const autoTuneCheckIntervalMs = parseEnvNumber('AUTO_TUNE_CHECK_INTERVAL_MS', 30000); // 30s default
   const autoTuneImbalanceThreshold = parseEnvNumber('AUTO_TUNE_IMBALANCE_THRESHOLD', 0.9); // 90% default
+  const autoTuneDepositTokenStr = parseEnvString('AUTO_TUNE_DEPOSIT_TOKEN', false, 'SOL');
+  const autoTuneDepositAmount = parseEnvNumber('AUTO_TUNE_DEPOSIT_AMOUNT', 1.0); // Default 1 token
+  const autoTuneMaxRetries = parseEnvNumber('AUTO_TUNE_MAX_RETRIES', 3); // Default 3 retries
+
+  // Validate auto-tune deposit token
+  if (autoTuneDepositTokenStr !== 'SOL' && autoTuneDepositTokenStr !== 'USDC') {
+    throw new Error('AUTO_TUNE_DEPOSIT_TOKEN must be either SOL or USDC');
+  }
+  const autoTuneDepositToken = autoTuneDepositTokenStr as 'SOL' | 'USDC';
+
+  // Parse swap parameters
+  const swapEnabled = parseEnvBoolean('SWAP_ENABLED', true); // Default enabled
+  const swapSlippageBps = parseEnvNumber('SWAP_SLIPPAGE_BPS', 50); // Default 0.5% slippage
 
   // Validate Jito config
   if (useJito && !jitoRelayUrl) {
@@ -239,6 +264,12 @@ export function loadConfig(): BotConfig {
     }
     if (autoTuneImbalanceThreshold <= 0 || autoTuneImbalanceThreshold > 1) {
       throw new Error('AUTO_TUNE_IMBALANCE_THRESHOLD must be between 0 and 1');
+    }
+    if (autoTuneDepositAmount <= 0) {
+      throw new Error('AUTO_TUNE_DEPOSIT_AMOUNT must be positive');
+    }
+    if (autoTuneMaxRetries < 1 || autoTuneMaxRetries > 10) {
+      throw new Error('AUTO_TUNE_MAX_RETRIES must be between 1 and 10');
     }
     if (!meteoraPoolAddress) {
       throw new Error('METEORA_POOL_ADDRESS is required when AUTO_TUNE_ENABLED=true');
@@ -272,6 +303,11 @@ export function loadConfig(): BotConfig {
     autoTuneBinCount,
     autoTuneCheckIntervalMs,
     autoTuneImbalanceThreshold,
+    autoTuneDepositToken,
+    autoTuneDepositAmount,
+    autoTuneMaxRetries,
+    swapEnabled,
+    swapSlippageBps,
   };
 }
 

@@ -123,6 +123,32 @@ export const log = {
       ...data,
     });
   },
+
+  /**
+   * Red banner error logging - highly visible for critical failures
+   * Use this for transaction failures that require immediate attention
+   */
+  errorBanner: (message: string, meta?: Record<string, any>) => {
+    const banner = '═'.repeat(80);
+    const padding = '║';
+
+    // Log to console with red color
+    console.error('\n');
+    console.error(`\x1b[41m\x1b[37m${banner}\x1b[0m`);
+    console.error(`\x1b[41m\x1b[37m${padding} ❌ TRANSACTION FAILED ❌${' '.repeat(80 - padding.length - ' ❌ TRANSACTION FAILED ❌'.length)}${padding}\x1b[0m`);
+    console.error(`\x1b[41m\x1b[37m${banner}\x1b[0m`);
+    console.error(`\x1b[31m\x1b[1m${message}\x1b[0m`);
+
+    if (meta && Object.keys(meta).length > 0) {
+      console.error('\x1b[33mDetails:\x1b[0m', JSON.stringify(meta, null, 2));
+    }
+
+    console.error(`\x1b[41m\x1b[37m${banner}\x1b[0m`);
+    console.error('\n');
+
+    // Also log to file
+    logger.error(`BANNER: ${message}`, meta);
+  },
 };
 
 // Export the underlying logger for advanced usage

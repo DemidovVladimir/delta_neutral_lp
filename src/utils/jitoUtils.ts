@@ -75,7 +75,14 @@
  * ```
  */
 
-import { PublicKey, SystemProgram, TransactionInstruction } from '@solana/web3.js';
+import {
+  Connection,
+  Keypair,
+  PublicKey,
+  SystemProgram,
+  Transaction,
+  TransactionInstruction
+} from '@solana/web3.js';
 import { log } from './logger.js';
 
 /**
@@ -112,8 +119,22 @@ interface TipCache {
   fetchedAt: number;
 }
 
-// Jito tip account (mainnet)
-const JITO_TIP_ACCOUNT = new PublicKey('ADaUMid9yfUytqMBgopwjb2DTLSokTSzL1zt6iGPaS49');
+// Jito tip accounts (mainnet) - 8 static tip accounts for parallel bundle processing
+// Pick randomly from these to reduce write-locking contention
+// Source: https://jito-foundation.gitbook.io/mev/mev-payment-and-distribution/on-chain-addresses
+const JITO_TIP_ACCOUNTS = [
+  new PublicKey('96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5'),
+  new PublicKey('HFqU5x63VTqvQss8hp11i4wVV8bD44PvwucfZ2bU7gRe'),
+  new PublicKey('Cw8CFyM9FkoMi7K7Crf6HNQqf4uEMzpKw6QNghXLvLkY'),
+  new PublicKey('ADaUMid9yfUytqMBgopwjb2DTLSokTSzL1zt6iGPaS49'),
+  new PublicKey('DfXygSm4jCyNCybVYYK6DwvWqjKee8pbDmJGcLWNDXjh'),
+  new PublicKey('ADuUkR4vqLUMWXxW9gh6D6L8pMSawimctcNZ5pGwDcEt'),
+  new PublicKey('DttWaMuVvTiduZRnguLF7jNxTgiMBZ1hyAumKUiL2KRL'),
+  new PublicKey('3AVi9Tg9Uo68tJfuvoKvqKNWKkC5wPdSSdeBnizKZ6jT'),
+];
+
+// Legacy single tip account (deprecated, use JITO_TIP_ACCOUNTS instead)
+const JITO_TIP_ACCOUNT = JITO_TIP_ACCOUNTS[3]; // ADaUMid9yfUytqMBgopwjb2DTLSokTSzL1zt6iGPaS49
 
 // Jito block engine endpoint
 const JITO_BLOCK_ENGINE_URL = 'https://mainnet.block-engine.jito.wtf/api/v1/transactions';
@@ -335,6 +356,9 @@ export async function createEnhancedJitoTipInstruction(
   // 5. Enforce minimum tip (Jito requirement)
   finalTip = Math.max(finalTip, MIN_TIP_LAMPORTS);
 
+  // Select random tip account to reduce contention
+  const tipAccount = JITO_TIP_ACCOUNTS[Math.floor(Math.random() * JITO_TIP_ACCOUNTS.length)];
+
   log.info('Enhanced Jito tip created', {
     priority: config.priority,
     attempt,
@@ -342,13 +366,14 @@ export async function createEnhancedJitoTipInstruction(
     escalationMultiplier: escalationMultiplier.toFixed(2),
     finalTip,
     finalTipSol: (finalTip / 1e9).toFixed(6),
+    tipAccount: tipAccount.toBase58(),
     txValueUsd: config.transactionValueUsd,
     capped: config.transactionValueUsd && config.maxTipBps ? 'yes' : 'no',
   });
 
   return SystemProgram.transfer({
     fromPubkey,
-    toPubkey: JITO_TIP_ACCOUNT,
+    toPubkey: tipAccount,
     lamports: finalTip,
   });
 }
@@ -381,15 +406,19 @@ export function createJitoTipInstruction(
     tipAmountLamports = 8000;
   }
 
+  // Select random tip account to reduce contention
+  const tipAccount = JITO_TIP_ACCOUNTS[Math.floor(Math.random() * JITO_TIP_ACCOUNTS.length)];
+
   log.debug('Creating static Jito tip instruction (legacy)', {
     attempt,
     tipLamports: tipAmountLamports,
     tipSol: tipAmountLamports / 1e9,
+    tipAccount: tipAccount.toBase58(),
   });
 
   return SystemProgram.transfer({
     fromPubkey,
-    toPubkey: JITO_TIP_ACCOUNT,
+    toPubkey: tipAccount,
     lamports: tipAmountLamports,
   });
 }
@@ -482,4 +511,249 @@ export function calculateRecommendedTip(
   });
 
   return recommendedTip;
+}
+
+/**
+ * Create a standalone Jito tip transaction for bundle submission
+ *
+ * Creates a simple transaction with just a tip transfer to a randomly selected
+ * Jito tip account. This transaction should be included as the LAST transaction
+ * in a Jito bundle to ensure the bundle is prioritized by validators.
+ *
+ * @param fromKeypair - Keypair paying the tip (must sign the transaction)
+ * @param tipConfig - Tip configuration (priority, attempt, etc.)
+ * @returns Signed transaction ready for bundle submission
+ *
+ * @example
+ * ```typescript
+ * const tipTx = await createBundleTipTransaction(wallet, {
+ *   priority: 'high',
+ *   attempt: 0,
+ * });
+ *
+ * const bundle = await submitJitoBundle([
+ *   swapTx.serialize().toString('base64'),
+ *   createTx.serialize().toString('base64'),
+ *   tipTx.serialize().toString('base64'), // Tip as last transaction
+ * ], true);
+ * ```
+ */
+export async function createBundleTipTransaction(
+  fromKeypair: Keypair,
+  tipConfig: JitoTipConfig,
+  connection: Connection
+): Promise<Transaction> {
+  // Create tip instruction
+  const tipInstruction = await createEnhancedJitoTipInstruction(
+    fromKeypair.publicKey,
+    tipConfig
+  );
+
+  // Build transaction
+  const transaction = new Transaction();
+  transaction.add(tipInstruction);
+
+  // Set recent blockhash and fee payer
+  const { blockhash } = await connection.getLatestBlockhash();
+  transaction.recentBlockhash = blockhash;
+  transaction.feePayer = fromKeypair.publicKey;
+
+  // Sign transaction
+  transaction.sign(fromKeypair);
+
+  log.info('Bundle tip transaction created', {
+    tipAmount: tipConfig.priority,
+    tipAccount: 'random',
+  });
+
+  return transaction;
+}
+
+/**
+ * Submit Jito bundle with multiple transactions
+ *
+ * Atomically submits multiple transactions as a single bundle to Jito block engine.
+ * All transactions will execute in order or all fail together.
+ *
+ * IMPORTANT: Bundles MUST include a tip payment to a Jito tip account or they may not land!
+ * The tip transaction should be the LAST transaction in the bundle.
+ *
+ * Key Features:
+ * - Atomic execution: All transactions succeed or all fail
+ * - Guaranteed ordering: Transactions execute in the order provided
+ * - MEV protection: Bundle only lands if all transactions succeed
+ * - Fast inclusion: Tips prioritize bundle for validators
+ *
+ * @param serializedTransactions - Array of base64-encoded serialized transactions (MUST include tip tx as last item)
+ * @param bundleOnly - Only submit via bundle (default: true)
+ * @returns Bundle ID and transaction signatures
+ *
+ * @example
+ * ```typescript
+ * // Atomic swap + create position bundle WITH TIP
+ * const swapTxSerialized = swapTx.serialize().toString('base64');
+ * const createTxSerialized = createTx.serialize().toString('base64');
+ * const tipTx = await createBundleTipTransaction(wallet, { priority: 'high', attempt: 0 }, connection);
+ * const tipTxSerialized = tipTx.serialize().toString('base64');
+ *
+ * const result = await submitJitoBundle([swapTxSerialized, createTxSerialized, tipTxSerialized], true);
+ * log.info('Bundle submitted', { bundleId: result.bundleId });
+ * ```
+ */
+export async function submitJitoBundle(
+  serializedTransactions: string[],
+  bundleOnly: boolean = true
+): Promise<{
+  bundleId: string;
+  signatures: string[];
+}> {
+  try {
+    const JITO_BUNDLE_URL = 'https://mainnet.block-engine.jito.wtf/api/v1/bundles';
+
+    log.info('Submitting Jito bundle', {
+      transactionCount: serializedTransactions.length,
+      bundleOnly,
+    });
+
+    const payload = {
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'sendBundle',
+      params: [
+        serializedTransactions,
+        {
+          encoding: 'base64',
+        },
+      ],
+    };
+
+    const response = await fetch(JITO_BUNDLE_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Jito bundle API returned ${response.status}: ${errorText}`);
+    }
+
+    const data = await response.json();
+
+    if (data.error) {
+      throw new Error(`Jito bundle error: ${JSON.stringify(data.error)}`);
+    }
+
+    const bundleId = data.result;
+
+    if (!bundleId) {
+      throw new Error('No bundle ID in Jito response');
+    }
+
+    log.info('✅ Jito bundle submitted successfully', {
+      bundleId,
+      transactionCount: serializedTransactions.length,
+      bundleOnly,
+    });
+
+    // Note: Actual transaction signatures are not returned immediately by Jito
+    // They will be available after bundle lands on-chain
+    return {
+      bundleId,
+      signatures: [], // Filled in after bundle confirmation
+    };
+  } catch (error) {
+    log.error('Failed to submit Jito bundle', {
+      error: error instanceof Error ? error.message : String(error),
+      transactionCount: serializedTransactions.length,
+      bundleOnly,
+    });
+    throw error;
+  }
+}
+
+/**
+ * Get bundle status from Jito
+ *
+ * Checks if a bundle has been included in a block
+ *
+ * @param bundleId - Bundle UUID returned from submitJitoBundle
+ * @returns Bundle status information
+ */
+export async function getBundleStatus(bundleId: string): Promise<{
+  status: 'pending' | 'landed' | 'failed';
+  landedSlot?: number;
+  transactions?: string[];
+}> {
+  try {
+    const JITO_BUNDLE_STATUS_URL = `https://mainnet.block-engine.jito.wtf/api/v1/bundles`;
+
+    log.debug('Checking Jito bundle status', { bundleId });
+
+    const payload = {
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'getBundleStatuses',
+      params: [[bundleId]],
+    };
+
+    const response = await fetch(JITO_BUNDLE_STATUS_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Jito status API returned ${response.status}: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+
+    if (data.error) {
+      throw new Error(`Jito status error: ${JSON.stringify(data.error)}`);
+    }
+
+    const statuses = data.result?.value;
+
+    if (!statuses || statuses.length === 0) {
+      return { status: 'pending' };
+    }
+
+    const bundleStatus = statuses[0];
+
+    if (bundleStatus.confirmation_status === 'confirmed' || bundleStatus.confirmation_status === 'finalized') {
+      log.info('Bundle landed on-chain', {
+        bundleId,
+        slot: bundleStatus.slot,
+        status: bundleStatus.confirmation_status,
+      });
+
+      return {
+        status: 'landed',
+        landedSlot: bundleStatus.slot,
+        transactions: bundleStatus.transactions || [],
+      };
+    }
+
+    if (bundleStatus.err) {
+      log.warn('Bundle failed', {
+        bundleId,
+        error: bundleStatus.err,
+      });
+
+      return { status: 'failed' };
+    }
+
+    return { status: 'pending' };
+  } catch (error) {
+    log.error('Failed to check bundle status', {
+      error: error instanceof Error ? error.message : String(error),
+      bundleId,
+    });
+    throw error;
+  }
 }

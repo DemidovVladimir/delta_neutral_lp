@@ -1,0 +1,18 @@
+# Pulumi
+.pulumi/
+Pulumi.*.yaml
+!Pulumi.yaml
+
+# Dependencies
+node_modules/
+
+# Build output
+bin/
+
+# TypeScript
+*.js
+*.js.map
+*.d.ts
+
+# Logs
+*.log

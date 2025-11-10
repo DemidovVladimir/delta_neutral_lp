@@ -726,5 +726,10 @@ Track these at the end of each week:
   - Uses SDK's `shouldClaimAndClose=true` for atomic execution in ONE transaction
   - Returns signature and claimed fees (SOL and USDC amounts)
   - Same atomic operation as auto-tune TX1, now available as standalone endpoint
+- **State Tracking Enhancement (2025-11-09):** Extended auto-tune state with analytics
+  - Added `totalClaimedFees: { sol, usdc }` - Aggregates all claimed fees across rebalances
+  - Added `lastPositionCreated: { positionMint, initialDeposit, timestamp }` - Tracks position details
+  - Enables long-term performance analytics and fee tracking
+  - State persisted to `data/auto-tune-state.json`
 
 ---

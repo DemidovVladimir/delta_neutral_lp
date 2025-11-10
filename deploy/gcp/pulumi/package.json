@@ -1,0 +1,21 @@
+{
+  "name": "autotune-gcp-infra",
+  "version": "1.0.0",
+  "description": "Pulumi infrastructure for auto-tune bot deployment on GCP",
+  "main": "index.ts",
+  "scripts": {
+    "build": "tsc",
+    "deploy": "pulumi up",
+    "destroy": "pulumi destroy",
+    "preview": "pulumi preview"
+  },
+  "dependencies": {
+    "@pulumi/pulumi": "^3.136.0",
+    "@pulumi/gcp": "^8.14.0",
+    "@pulumi/docker": "^4.5.10"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.0.0"
+  }
+}

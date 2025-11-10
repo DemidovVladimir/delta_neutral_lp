@@ -305,6 +305,44 @@ export interface EmergencyFlowParams {
 }
 
 // =============================================================================
+// SWAP TYPES
+// =============================================================================
+
+export interface SwapParams {
+  inputMint: string; // Token to swap from
+  outputMint: string; // Token to swap to
+  amount: number; // Amount in human-readable units (e.g., 100 USDC, 1.5 SOL)
+  slippageBps?: number; // Slippage tolerance in basis points (default: 50 = 0.5%)
+}
+
+export interface SwapQuote {
+  inputMint: string;
+  outputMint: string;
+  inAmount: string; // Raw amount (with decimals)
+  outAmount: string; // Raw amount (with decimals)
+  otherAmountThreshold: string; // Minimum output amount after slippage
+  priceImpactPct: number;
+  routePlan: any[];
+}
+
+export interface SwapTransactionResult {
+  transaction: SolanaTransaction; // Unsigned transaction ready for bundling
+  quote: SwapQuote; // Quote used for the swap
+  inputAmount: number; // Human-readable input amount
+  outputAmount: number; // Expected human-readable output amount
+  priceImpactPct: number;
+}
+
+export interface SwapResult {
+  signature: string;
+  inputMint: string;
+  outputMint: string;
+  inputAmount: number; // Actual amount swapped (human-readable)
+  outputAmount: number; // Actual amount received (human-readable)
+  priceImpactPct: number;
+}
+
+// =============================================================================
 // AUTO-TUNE TYPES
 // =============================================================================
 
@@ -333,6 +371,22 @@ export interface AutoTuneState {
   rebalanceCount: number; // Total number of rebalances performed
   consecutiveErrors: number; // Error tracking
   currentPositionMint?: string; // Active position being monitored
+
+  // Aggregated metrics across all rebalances
+  totalClaimedFees: {
+    sol: number; // Total SOL fees claimed across all rebalances
+    usdc: number; // Total USDC fees claimed across all rebalances
+  };
+
+  // Last position created details
+  lastPositionCreated?: {
+    positionMint: string; // Position NFT address
+    initialDeposit: {
+      sol: number; // Initial SOL deposited
+      usdc: number; // Initial USDC deposited
+    };
+    timestamp: number; // When position was created
+  };
 }
 
 export interface RebalanceResult {

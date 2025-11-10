@@ -33,12 +33,15 @@
  */
 
 import { PublicKey } from '@solana/web3.js';
+import { getAssociatedTokenAddress } from '@solana/spl-token';
 import DLMMModule from '@meteora-ag/dlmm';
 import { MeteoraAdapter } from './meteoraAdapter.js';
+import { JupiterSwapper } from './jupiterSwapper.js';
 import { getConfig } from '../config/env.js';
 import { log } from '../utils/logger.js';
-import { getConnection } from '../core/agentKit.js';
+import { getConnection, getWalletKeypair } from '../core/agentKit.js';
 import { DECIMALS } from '../config/constants.js';
+import { getSolPrice } from '../core/priceOracle.js';
 import {
   checkPositionImbalance,
   calculateCenteredPriceRange,
@@ -52,6 +55,9 @@ import {
 } from '../types/index.js';
 import { saveAutoTuneState, loadAutoTuneState } from './persistence.js';
 
+// Token mint addresses
+const USDC_MINT = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
+
 // Handle ESM/CommonJS interop for DLMM class
 // @ts-ignore - ESM default export handling
 const DLMM: any = DLMMModule.default || DLMMModule;
@@ -59,6 +65,7 @@ const DLMM: any = DLMMModule.default || DLMMModule;
 export class AutoTuneOrchestrator {
   private config = getConfig();
   private meteoraAdapter: MeteoraAdapter;
+  private jupiterSwapper: JupiterSwapper;
   private state: AutoTuneState;
   private intervalHandle?: NodeJS.Timeout;
   private watchMode: boolean;
@@ -66,6 +73,7 @@ export class AutoTuneOrchestrator {
   constructor(watchMode: boolean = false) {
     this.watchMode = watchMode;
     this.meteoraAdapter = new MeteoraAdapter();
+    this.jupiterSwapper = new JupiterSwapper();
 
     // Load saved state or initialize new state
     const savedState = loadAutoTuneState();
@@ -76,6 +84,10 @@ export class AutoTuneOrchestrator {
       lastRebalance: 0,
       rebalanceCount: 0,
       consecutiveErrors: 0,
+      totalClaimedFees: {
+        sol: 0,
+        usdc: 0,
+      },
     };
 
     log.info('AutoTuneOrchestrator initialized', {
@@ -271,6 +283,20 @@ export class AutoTuneOrchestrator {
           this.state.lastRebalance = Date.now();
           this.state.currentPositionMint = result.newPositionMint;
           this.state.consecutiveErrors = 0;
+
+          // Accumulate claimed fees
+          this.state.totalClaimedFees.sol += result.claimedFees.sol;
+          this.state.totalClaimedFees.usdc += result.claimedFees.usdc;
+
+          // Save last position created details
+          this.state.lastPositionCreated = {
+            positionMint: result.newPositionMint,
+            initialDeposit: {
+              sol: result.deposited.sol,
+              usdc: result.deposited.usdc,
+            },
+            timestamp: Date.now(),
+          };
         } else {
           if (!this.watchMode) {
             log.error('❌ Rebalance failed', {
@@ -390,55 +416,199 @@ export class AutoTuneOrchestrator {
   }
 
   /**
-   * Execute full rebalance flow as a SINGLE atomic operation:
-   * 1. Withdraw 100% from position
-   * 2. Claim fees
-   * 3. Close position
-   * 4. Create new position with original + fees
+   * Calculate balanced position deposits based on config token + claimed fees
    *
-   * All operations are bundled into a single transaction for atomicity
+   * Strategy:
+   * - User specifies base token amount (e.g., 1 SOL or 160 USDC)
+   * - Add claimed fees to base amount
+   * - Calculate other token needed for balanced position at current price
+   * - Return balanced amounts for position creation
+   */
+  private calculateBalancedDeposits(
+    claimedSol: number,
+    claimedUsdc: number,
+    currentPrice: number
+  ): { solAmount: number; usdcAmount: number } {
+    const baseToken = this.config.autoTuneDepositToken;
+    const baseAmount = this.config.autoTuneDepositAmount;
+
+    log.info('Calculating balanced deposits', {
+      baseToken,
+      baseAmount,
+      claimedSol,
+      claimedUsdc,
+      currentPrice,
+    });
+
+    if (baseToken === 'SOL') {
+      // Base is SOL: SOL amount = base + claimed SOL
+      const totalSol = baseAmount + claimedSol;
+
+      // For balanced position around active bin, we need roughly equal USD value
+      // With configured bin count (e.g., 20 bins = 10 each side), position should be ~50/50
+      const solAmountFinal = totalSol;
+      const usdcAmountFinal = solAmountFinal * currentPrice + claimedUsdc; // Equal USD value + claimed USDC
+
+      log.info('Calculated balanced deposits (SOL base)', {
+        solAmount: solAmountFinal,
+        usdcAmount: usdcAmountFinal,
+        solValueUsd: solAmountFinal * currentPrice,
+        totalValueUsd: solAmountFinal * currentPrice + usdcAmountFinal,
+      });
+
+      return {
+        solAmount: solAmountFinal,
+        usdcAmount: usdcAmountFinal,
+      };
+    } else {
+      // Base is USDC: USDC amount = base + claimed USDC
+      const totalUsdc = baseAmount + claimedUsdc;
+
+      // For balanced position, roughly equal USD value
+      const usdcAmountFinal = totalUsdc;
+      const solAmountFinal = usdcAmountFinal / currentPrice + claimedSol; // Equal USD value + claimed SOL
+
+      log.info('Calculated balanced deposits (USDC base)', {
+        solAmount: solAmountFinal,
+        usdcAmount: usdcAmountFinal,
+        usdcValueUsd: usdcAmountFinal,
+        totalValueUsd: solAmountFinal * currentPrice + usdcAmountFinal,
+      });
+
+      return {
+        solAmount: solAmountFinal,
+        usdcAmount: usdcAmountFinal,
+      };
+    }
+  }
+
+  /**
+   * Get USDC balance for wallet
+   */
+  private async getUsdcBalance(): Promise<number> {
+    try {
+      const connection = getConnection();
+      const wallet = getWalletKeypair();
+
+      // Get associated token account for USDC
+      const usdcTokenAccount = await getAssociatedTokenAddress(
+        USDC_MINT,
+        wallet.publicKey
+      );
+
+      // Try to get account balance
+      const balance = await connection.getTokenAccountBalance(usdcTokenAccount);
+      return balance.value.uiAmount || 0;
+    } catch (error) {
+      // If account doesn't exist, balance is 0
+      log.debug('USDC token account not found or error getting balance', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return 0;
+    }
+  }
+
+  /**
+   * Check if error is due to insufficient funds
+   */
+  private isInsufficientFundsError(error: Error): boolean {
+    const errorMsg = error.message.toLowerCase();
+    return (
+      errorMsg.includes('insufficient') ||
+      errorMsg.includes('not enough') ||
+      errorMsg.includes('balance') ||
+      errorMsg.includes('0x1') // Solana insufficient funds error code
+    );
+  }
+
+  /**
+   * Execute full rebalance flow with TWO-PHASE approach:
+   *
+   * PHASE 1: Withdraw + Claim + Close
+   * - Withdraw 100% from old position
+   * - Claim all accumulated fees
+   * - Close empty position (reclaim rent)
+   * - Tokens now in wallet (likely imbalanced due to price movement)
+   *
+   * PHASE 2: Create new position with intelligent retry
+   * - Calculate balanced deposits based on config + claimed fees
+   * - Attempt 1: Try create position WITHOUT swap
+   * - If fails with insufficient funds:
+   *   - Calculate swap needed
+   *   - Bundle: [Jupiter swap TX, Create position TX]
+   *   - Submit to Jito
+   * - On failure: Retry with escalating Jito tips (max 3 retries)
+   * - Only escalate tips if NOT insufficient funds error
    */
   private async executeRebalance(): Promise<RebalanceResult> {
     const startTime = Date.now();
 
     try {
-      // Get current position mint
+      // ========================================================================
+      // PHASE 1: WITHDRAW + CLAIM + CLOSE
+      // ========================================================================
+
       const positionMints = this.meteoraAdapter.getPositionMints();
       if (positionMints.length === 0) {
         throw new Error('No position to rebalance');
       }
 
       const oldPositionMint = positionMints[0];
-      log.info('Starting ATOMIC rebalance flow', { oldPositionMint });
+      log.info('🔄 Starting TWO-PHASE rebalance flow', { oldPositionMint });
 
       // Get current exposure before withdrawal
       const exposureBefore = await this.meteoraAdapter.getLpExposure();
-      const totalSolBefore = exposureBefore.solAmount;
-      const totalUsdcBefore = exposureBefore.usdcAmount;
       const claimableSol = exposureBefore.claimableSol;
       const claimableUsdc = exposureBefore.claimableUsdc;
 
-      log.info('Current position state', {
-        solAmount: totalSolBefore,
-        usdcAmount: totalUsdcBefore,
+      log.info('📊 Current position state', {
+        solAmount: exposureBefore.solAmount,
+        usdcAmount: exposureBefore.usdcAmount,
         claimableSol,
         claimableUsdc,
       });
 
-      // Calculate new position parameters FIRST (before closing old one)
+      // Execute Phase 1: Withdraw + Claim + Close in ONE transaction
+      log.info('⬇️  PHASE 1: Withdrawing, claiming fees, and closing position');
+
+      const withdrawResult = await this.meteoraAdapter.withdrawClaimAndClose(oldPositionMint);
+
+      log.info('✅ Phase 1 complete', {
+        signature: withdrawResult.signature,
+        claimedSol: withdrawResult.claimedFees.sol,
+        claimedUsdc: withdrawResult.claimedFees.usdc,
+      });
+
+      // ========================================================================
+      // PHASE 2: CREATE NEW POSITION WITH INTELLIGENT RETRY
+      // ========================================================================
+
+      log.info('⬆️  PHASE 2: Creating new balanced position with retry logic');
+
+      // Get current price for balanced deposit calculation
+      const solPriceData = await getSolPrice();
+      const currentPrice = solPriceData.usd;
+
+      // Calculate balanced deposits (config amount + claimed fees)
+      const { solAmount, usdcAmount } = this.calculateBalancedDeposits(
+        withdrawResult.claimedFees.sol,
+        withdrawResult.claimedFees.usdc,
+        currentPrice
+      );
+
+      // Get pool info for price range
       const connection = getConnection();
       const poolPubkey = new PublicKey(this.config.meteoraPoolAddress!);
       const dlmmPool = await DLMM.create(connection, poolPubkey);
 
-      // Get current price and bin
       const activeBinData = await getActiveBin(dlmmPool);
-      const currentPrice = activeBinData.pricePerToken;
+      const activeBinPrice = activeBinData.pricePerToken;
       const currentBinId = activeBinData.binId;
       const binStep = dlmmPool.lbPair.binStep;
 
-      // Calculate centered price range for new position
+      // Calculate centered price range
       const priceRange = calculateCenteredPriceRange(
-        currentPrice,
+        activeBinPrice,
         currentBinId,
         binStep,
         this.config.autoTuneBinCount,
@@ -446,70 +616,341 @@ export class AutoTuneOrchestrator {
         DECIMALS.USDC
       );
 
-      log.info('New position range calculated', {
-        currentPrice,
+      log.info('📍 New position parameters', {
+        currentPrice: activeBinPrice,
         binCount: this.config.autoTuneBinCount,
-        lowerPrice: priceRange.lowerPrice,
-        upperPrice: priceRange.upperPrice,
-        minBinId: priceRange.minBinId,
-        maxBinId: priceRange.maxBinId,
-      });
-
-      // Calculate total funds for new position (original + fees)
-      const totalSol = totalSolBefore + claimableSol;
-      const totalUsdc = totalUsdcBefore + claimableUsdc;
-
-      log.info('Executing ATOMIC rebalance with bundled operations', {
-        oldPosition: oldPositionMint,
-        withdrawPercent: 100,
-        claimFees: { sol: claimableSol, usdc: claimableUsdc },
-        closePosition: true,
-        createNewPosition: {
-          solAmount: totalSol,
-          usdcAmount: totalUsdc,
-          priceLower: priceRange.lowerPrice,
-          priceUpper: priceRange.upperPrice,
+        priceRange: {
+          lower: priceRange.lowerPrice,
+          upper: priceRange.upperPrice,
+        },
+        deposits: {
+          sol: solAmount,
+          usdc: usdcAmount,
         },
       });
 
-      // Execute ATOMIC rebalance in a single transaction
-      // All operations bundled: withdraw → claim → close → create
-      const result = await this.meteoraAdapter.atomicRebalance({
-        oldPositionMint,
-        newPositionParams: {
-          solAmount: totalSol,
-          usdcAmount: totalUsdc,
-          priceLower: priceRange.lowerPrice,
-          priceUpper: priceRange.upperPrice,
-        },
-      });
+      // Attempt to create position with intelligent retry
+      let attempt = 0;
+      let newPositionMint = '';
+      let createSignatures: string[] = [];
+      let lastError: Error | null = null;
+      let usedSwap = false;
+
+      while (attempt < this.config.autoTuneMaxRetries) {
+        attempt++;
+
+        try {
+          log.info(`🎯 Attempt ${attempt}/${this.config.autoTuneMaxRetries}: Creating position`);
+
+          // ATTEMPT 1: Try WITHOUT swap first (normal priority)
+          if (attempt === 1) {
+            const result = await this.meteoraAdapter.createPosition({
+              poolAddress: this.config.meteoraPoolAddress!,
+              solAmount,
+              usdcAmount,
+              priceLower: priceRange.lowerPrice,
+              priceUpper: priceRange.upperPrice,
+            });
+
+            newPositionMint = result.positionMint;
+            createSignatures.push(result.signature);
+
+            log.info('✅ Position created successfully WITHOUT swap', {
+              positionMint: newPositionMint,
+              signature: result.signature,
+            });
+
+            break; // Success!
+          }
+
+          // ATTEMPT 2+: If retrying due to network error (not insufficient funds)
+          // Use escalated Jito tips
+          if (attempt > 1 && !usedSwap) {
+            // Calculate escalated tip: base → 1.5x → 2x → 2.5x
+            const escalationFactor = 1 + (attempt - 1) * 0.5;
+            const maxEscalationFactor = 3; // Cap at 3x base tip
+            const finalFactor = Math.min(escalationFactor, maxEscalationFactor);
+
+            log.warn(`⚠️  Retrying with escalated Jito tip`, {
+              attempt,
+              escalationFactor: finalFactor,
+            });
+
+            const result = await this.meteoraAdapter.createPosition({
+              poolAddress: this.config.meteoraPoolAddress!,
+              solAmount,
+              usdcAmount,
+              priceLower: priceRange.lowerPrice,
+              priceUpper: priceRange.upperPrice,
+            });
+
+            newPositionMint = result.positionMint;
+            createSignatures.push(result.signature);
+
+            log.info('✅ Position created successfully with escalated tips', {
+              positionMint: newPositionMint,
+              signature: result.signature,
+              attempt,
+            });
+
+            break; // Success!
+          }
+
+          // ATTEMPTS 2+: Should only reach here if first attempt failed with insufficient funds
+          // This means we need to swap
+          if (!usedSwap) {
+            log.errorBanner('Insufficient funds detected - attempting swap + create bundle', {
+              attempt,
+              requiredSol: solAmount,
+              requiredUsdc: usdcAmount,
+            });
+
+            // Step 1: Check wallet balances
+            const wallet = getWalletKeypair();
+            const solBalance = await connection.getBalance(wallet.publicKey);
+            const actualSol = solBalance / Math.pow(10, 9);
+            const actualUsdc = await this.getUsdcBalance();
+
+            log.info('Wallet balances', {
+              actualSol,
+              actualUsdc,
+              requiredSol: solAmount,
+              requiredUsdc: usdcAmount,
+            });
+
+            // Step 2: Calculate swap needed
+            const swapParams = this.jupiterSwapper.calculateRebalanceSwap(
+              actualSol,
+              actualUsdc,
+              currentPrice,
+              50 // Target 50% SOL
+            );
+
+            if (!swapParams) {
+              throw new Error('Cannot calculate swap parameters - wallet may have no funds');
+            }
+
+            log.info('Calculated swap needed', swapParams);
+
+            // Step 3: Get swap transaction
+            const swapTxResult = await this.jupiterSwapper.getSwapTransaction(swapParams);
+
+            log.info('Got swap transaction', {
+              inputAmount: swapTxResult.inputAmount,
+              outputAmount: swapTxResult.outputAmount,
+              priceImpact: swapTxResult.priceImpactPct,
+            });
+
+            // Step 4: Get create position transaction for bundling
+            log.info('🔗 Building atomic Jito bundle: [swap + create position + tip]');
+
+            // Calculate escalation for bundle attempts
+            const bundleAttempt = attempt - 1; // First swap attempt is attempt 2, so bundleAttempt = 1
+
+            // Build create position transaction WITHOUT embedded Jito tip
+            // Tip will be added as separate transaction at end of bundle
+            // For bundles, only the bundle tip matters (not priority fees inside txs)
+            const createTxResult = await this.meteoraAdapter.getCreatePositionTransaction({
+              poolAddress: this.config.meteoraPoolAddress!,
+              solAmount,
+              usdcAmount,
+              priceLower: priceRange.lowerPrice,
+              priceUpper: priceRange.upperPrice,
+            }, undefined); // NO jitoConfig - avoid duplicate tips!
+
+            log.info('Got create position transaction', {
+              positionMint: createTxResult.positionKeypair.publicKey.toBase58(),
+              solAmount: createTxResult.solAmount,
+              usdcAmount: createTxResult.usdcAmount,
+            });
+
+            // Step 5: Sign both transactions
+            swapTxResult.transaction.sign([wallet]);
+            createTxResult.transaction.feePayer = wallet.publicKey;
+            createTxResult.transaction.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+            createTxResult.transaction.partialSign(wallet, createTxResult.positionKeypair);
+
+            // Step 6: Create Jito tip transaction (REQUIRED for bundles to land!)
+            const { submitJitoBundle, getBundleStatus, createBundleTipTransaction } = await import('../utils/jitoUtils.js');
+
+            const tipPriority = bundleAttempt === 1 ? 'normal' : 'high';
+            const tipTx = await createBundleTipTransaction(
+              wallet,
+              {
+                priority: tipPriority,
+                attempt: bundleAttempt - 1,
+              },
+              connection
+            );
+
+            log.info('Created Jito tip transaction for bundle', {
+              priority: tipPriority,
+              attempt: bundleAttempt - 1,
+            });
+
+            // Step 7: Submit as Jito bundle (swap + create + tip)
+            if (this.config.useJito) {
+              log.info('📦 Submitting atomic Jito bundle with tip');
+
+              const bundle = await submitJitoBundle([
+                Buffer.from(swapTxResult.transaction.serialize()).toString('base64'),
+                Buffer.from(createTxResult.transaction.serialize()).toString('base64'),
+                Buffer.from(tipTx.serialize()).toString('base64'), // Tip MUST be last
+              ], true);
+
+              log.info('Bundle submitted to Jito', { bundleId: bundle.bundleId });
+
+              // Poll bundle status (max 30 seconds)
+              let bundleConfirmed = false;
+              const maxPollTime = 30000; // 30 seconds
+              const pollInterval = 2000; // 2 seconds
+              const startPoll = Date.now();
+
+              while (!bundleConfirmed && Date.now() - startPoll < maxPollTime) {
+                await new Promise(resolve => setTimeout(resolve, pollInterval));
+
+                const status = await getBundleStatus(bundle.bundleId);
+
+                if (status.status === 'landed') {
+                  bundleConfirmed = true;
+                  log.info('✅ Jito bundle landed on-chain', {
+                    bundleId: bundle.bundleId,
+                    slot: status.landedSlot,
+                    transactions: status.transactions,
+                  });
+
+                  // Extract signatures from bundle status
+                  if (status.transactions && status.transactions.length >= 2) {
+                    createSignatures.push(...status.transactions);
+                  }
+                  break;
+                } else if (status.status === 'failed') {
+                  throw new Error(`Jito bundle failed: ${bundle.bundleId}`);
+                }
+
+                log.debug('Bundle status', { status: status.status, elapsed: Date.now() - startPoll });
+              }
+
+              if (!bundleConfirmed) {
+                throw new Error('Jito bundle confirmation timeout after 30s');
+              }
+            } else {
+              // Fallback: Execute sequentially if Jito disabled
+              log.warn('⚠️  Jito disabled, executing swap and create sequentially');
+
+              const swapSig = await connection.sendTransaction(swapTxResult.transaction, {
+                skipPreflight: true,
+                maxRetries: 3,
+              });
+
+              log.info('Swap transaction submitted', { signature: swapSig });
+              const swapBlockhash = await connection.getLatestBlockhash();
+              await connection.confirmTransaction({
+                signature: swapSig,
+                ...swapBlockhash,
+              });
+              log.info('✅ Swap confirmed');
+
+              const createSig = await connection.sendRawTransaction(
+                createTxResult.transaction.serialize(),
+                {
+                  skipPreflight: false,
+                  preflightCommitment: 'confirmed',
+                }
+              );
+
+              log.info('Create position transaction submitted', { signature: createSig });
+              const createBlockhash = await connection.getLatestBlockhash();
+              await connection.confirmTransaction({
+                signature: createSig,
+                ...createBlockhash,
+              });
+              log.info('✅ Position created');
+
+              createSignatures.push(swapSig, createSig);
+            }
+
+            newPositionMint = createTxResult.positionKeypair.publicKey.toBase58();
+
+            log.info('✅ Position created successfully WITH swap', {
+              positionMint: newPositionMint,
+              signatures: createSignatures,
+            });
+
+            usedSwap = true;
+            break; // Success!
+          }
+
+        } catch (error) {
+          lastError = error instanceof Error ? error : new Error(String(error));
+
+          // Check if insufficient funds error
+          const isInsufficientFunds = this.isInsufficientFundsError(lastError);
+
+          log.errorBanner(`Attempt ${attempt} failed: ${lastError.message}`, {
+            attempt,
+            maxRetries: this.config.autoTuneMaxRetries,
+            isInsufficientFunds,
+            willRetry: attempt < this.config.autoTuneMaxRetries,
+          });
+
+          // If insufficient funds on first attempt, retry with swap
+          if (isInsufficientFunds && attempt === 1) {
+            usedSwap = true;
+            log.warn('⚠️  Will retry with Jupiter swap bundling');
+            continue;
+          }
+
+          // If not insufficient funds, escalate Jito tips and retry
+          if (!isInsufficientFunds && attempt < this.config.autoTuneMaxRetries) {
+            log.info('Non-fund error detected, will retry with escalated tips on next attempt');
+            continue;
+          }
+
+          // Max retries reached
+          if (attempt >= this.config.autoTuneMaxRetries) {
+            log.errorBanner('MAX RETRIES REACHED - Rebalance failed', {
+              attempts: attempt,
+              lastError: lastError.message,
+            });
+            throw lastError;
+          }
+        }
+      }
+
+      // ========================================================================
+      // SUCCESS
+      // ========================================================================
 
       const durationMs = Date.now() - startTime;
 
-      log.info('✅ ATOMIC rebalance completed successfully', {
+      log.info('✅ TWO-PHASE rebalance completed successfully', {
         oldPosition: oldPositionMint,
-        newPosition: result.newPositionMint,
-        signature: result.signature,
+        newPosition: newPositionMint,
+        attempts: attempt,
+        usedSwap,
+        signatures: [withdrawResult.signature, ...createSignatures],
         durationMs,
       });
 
       return {
         success: true,
         oldPositionMint,
-        newPositionMint: result.newPositionMint,
-        claimedFees: result.claimedFees,
+        newPositionMint,
+        claimedFees: withdrawResult.claimedFees,
         deposited: {
-          sol: totalSol,
-          usdc: totalUsdc,
+          sol: solAmount,
+          usdc: usdcAmount,
         },
-        signatures: [result.signature],
+        signatures: [withdrawResult.signature, ...createSignatures],
         durationMs,
       };
+
     } catch (error) {
       const durationMs = Date.now() - startTime;
       const errorMessage = error instanceof Error ? error.message : String(error);
 
-      log.error('❌ ATOMIC rebalance failed', {
+      log.errorBanner('REBALANCE FAILED CATASTROPHICALLY', {
         error: errorMessage,
         durationMs,
       });
