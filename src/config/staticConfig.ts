@@ -21,8 +21,6 @@ export interface StaticBotConfig {
   priceRangeBpsUpper: number;
 
   // Execution parameters
-  useJito: boolean;
-  jitoRelayUrl: string;
   jupiterPriorityFeeLamports: number;
   maxComputeUnits: number;
   priorityFeeMicroLamports: number;
@@ -66,10 +64,6 @@ export const STATIC_CONFIG: StaticBotConfig = {
   // At $163: range $161.30 - $164.56
   priceRangeBpsLower: -100, // -1%
   priceRangeBpsUpper: 100,  // +1%
-
-  // Jito configuration (MEV protection)
-  useJito: true,
-  jitoRelayUrl: 'https://mainnet.block-engine.jito.wtf/api/v1/bundles',
 
   // Priority fees (optimized for 2025 fee market)
   // Priority fee: 50,000 µL/CU = moderate priority
@@ -139,11 +133,6 @@ export function validateStaticConfig(config: StaticBotConfig): void {
     if (config.autoTuneDepositToken !== 'SOL' && config.autoTuneDepositToken !== 'USDC') {
       throw new Error('autoTuneDepositToken must be SOL or USDC');
     }
-  }
-
-  // Validate Jito config
-  if (config.useJito && !config.jitoRelayUrl) {
-    throw new Error('jitoRelayUrl is required when useJito=true');
   }
 
   // Validate price range

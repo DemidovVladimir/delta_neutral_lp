@@ -70,7 +70,6 @@ import {
   getMeteoraPairInfo,
 } from '../utils/meteoraUtils.js';
 import { getTransactionFees, logTransactionFees, getBatchTransactionFees } from '../utils/transactionUtils.js';
-import { createEnhancedJitoTipInstruction, JitoTipConfig } from '../utils/jitoUtils.js';
 
 export class MeteoraAdapter {
   private config = getConfig();
@@ -201,14 +200,11 @@ export class MeteoraAdapter {
   }
 
   /**
-   * Add priority fees and optional Jito tip to a transaction
+   * Add priority fees to a transaction
    *
    * @param tx - Transaction to enhance
-   * @param jitoConfig - Optional Jito tip configuration
    */
-  private async enhanceTransaction(tx: Transaction, jitoConfig?: JitoTipConfig): Promise<void> {
-    const wallet = getWalletKeypair();
-
+  private async enhanceTransaction(tx: Transaction): Promise<void> {
     // Check if transaction already has ComputeBudget instructions
     const hasComputeBudgetInstructions = tx.instructions.some(
       (ix) => ix.programId.equals(ComputeBudgetProgram.programId)
@@ -217,7 +213,7 @@ export class MeteoraAdapter {
     if (hasComputeBudgetInstructions) {
       log.warn('Transaction already contains ComputeBudget instructions, skipping addition to avoid duplicates');
     } else {
-      // 1. Add ComputeBudget instructions (priority fees)
+      // Add ComputeBudget instructions (priority fees)
       const computeUnitPrice = ComputeBudgetProgram.setComputeUnitPrice({
         microLamports: this.config.priorityFeeMicroLamports,
       });
@@ -233,17 +229,6 @@ export class MeteoraAdapter {
       log.debug('Added priority fee instructions', {
         priorityFeeMicroLamports: this.config.priorityFeeMicroLamports,
         maxComputeUnits: this.config.maxComputeUnits,
-      });
-    }
-
-    // 2. Add Jito tip if enabled and config provided
-    if (this.config.useJito && jitoConfig) {
-      const jitoTipIx = await createEnhancedJitoTipInstruction(wallet.publicKey, jitoConfig);
-      tx.add(jitoTipIx);
-
-      log.debug('Added Jito tip instruction', {
-        priority: jitoConfig.priority,
-        attempt: jitoConfig.attempt || 0,
       });
     }
   }
@@ -276,16 +261,14 @@ export class MeteoraAdapter {
   }
 
   /**
-   * Build an unsigned position creation transaction for Jito bundling
-   * Returns the transaction and position keypair for external signing/bundling
+   * Build an unsigned position creation transaction
+   * Returns the transaction and position keypair for external signing
    *
    * @param params - Position creation parameters
-   * @param jitoConfig - Optional Jito tip configuration for bundle submission
    * @returns Object with unsigned transaction, position keypair, and additional data
    */
   async getCreatePositionTransaction(
-    params: CreatePositionParams,
-    jitoConfig?: JitoTipConfig
+    params: CreatePositionParams
   ): Promise<{
     transaction: Transaction;
     positionKeypair: Keypair;
@@ -363,15 +346,14 @@ export class MeteoraAdapter {
         slippage: SLIPPAGE_BPS.default / 10000, // Convert BPS to decimal (50 BPS = 0.005)
       });
 
-      // Add priority fees and optional Jito tip
-      await this.enhanceTransaction(tx, jitoConfig);
+      // Add priority fees
+      await this.enhanceTransaction(tx);
 
       log.info('✅ Unsigned position creation transaction built', {
         positionPubkey: positionKeypair.publicKey.toBase58(),
         solAmount: params.solAmount,
         usdcAmount: params.usdcAmount,
         hasPriorityFees: true,
-        hasJitoTip: this.config.useJito && !!jitoConfig,
       });
 
       return {
@@ -465,11 +447,8 @@ export class MeteoraAdapter {
         slippage: SLIPPAGE_BPS.default / 10000, // Convert BPS to decimal (50 BPS = 0.005)
       });
 
-      // Add priority fees and Jito tip (normal priority for position creation)
-      await this.enhanceTransaction(tx, {
-        priority: 'normal',
-        attempt: 0,
-      });
+      // Add priority fees
+      await this.enhanceTransaction(tx);
 
       // Sign and send transaction
       tx.partialSign(wallet);
@@ -899,11 +878,8 @@ export class MeteoraAdapter {
         slippage: SLIPPAGE_BPS.default / 10000,
       });
 
-      // Add priority fees and Jito tip (normal priority for deposits)
-      await this.enhanceTransaction(tx, {
-        priority: 'normal',
-        attempt: 0,
-      });
+      // Add priority fees
+      await this.enhanceTransaction(tx);
 
       // Sign and send
       tx.partialSign(wallet);
@@ -1011,11 +987,8 @@ export class MeteoraAdapter {
       for (let i = 0; i < txs.length; i++) {
         const tx = txs[i];
 
-        // Add priority fees and Jito tip (high priority for withdrawals)
-        await this.enhanceTransaction(tx, {
-          priority: 'high',
-          attempt: 0,
-        });
+        // Add priority fees
+        await this.enhanceTransaction(tx);
 
         tx.partialSign(wallet);
         const signature = await connection.sendRawTransaction(tx.serialize(), {
@@ -1107,11 +1080,8 @@ export class MeteoraAdapter {
         position, // Pass the full position object, not just the public key
       });
 
-      // Add priority fees (low priority for closing, just reclaiming rent)
-      await this.enhanceTransaction(closeTx, {
-        priority: 'low',
-        attempt: 0,
-      });
+      // Add priority fees
+      await this.enhanceTransaction(closeTx);
 
       // Sign and send transaction
       closeTx.partialSign(wallet);
@@ -1252,14 +1222,6 @@ export class MeteoraAdapter {
       // Use the first transaction (SDK already added compute budget)
       const tx = withdrawTxs[0];
 
-      // Optional: Add Jito tip for priority
-      if (this.config.useJito) {
-        const jitoTipIx = await createEnhancedJitoTipInstruction(wallet.publicKey, {
-          priority: 'normal',
-          attempt: 0,
-        });
-        tx.add(jitoTipIx);
-      }
 
       // Sign and send transaction
       tx.feePayer = wallet.publicKey;
@@ -1404,14 +1366,6 @@ export class MeteoraAdapter {
       // Use the first transaction directly (SDK already added compute budget)
       const tx1 = withdrawTxs[0];
 
-      // Optional: Add Jito tip (normal priority) - add after SDK instructions
-      if (this.config.useJito) {
-        const jitoTipIx = await createEnhancedJitoTipInstruction(wallet.publicKey, {
-          priority: 'normal',
-          attempt: 0,
-        });
-        tx1.add(jitoTipIx);
-      }
 
       // Sign and send Transaction 1
       tx1.feePayer = wallet.publicKey;
@@ -1481,14 +1435,6 @@ export class MeteoraAdapter {
       // Use SDK's transaction directly
       const tx2 = createTx;
 
-      // Optional: Add Jito tip after SDK instructions
-      if (this.config.useJito) {
-        const jitoTipIx = await createEnhancedJitoTipInstruction(wallet.publicKey, {
-          priority: 'normal',
-          attempt: 0,
-        });
-        tx2.add(jitoTipIx);
-      }
 
       // Sign and send Transaction 2
       tx2.feePayer = wallet.publicKey;
@@ -1618,11 +1564,8 @@ export class MeteoraAdapter {
       for (let i = 0; i < claimTxs.length; i++) {
         const tx = claimTxs[i];
 
-        // Add priority fees (low priority for fee claims, not time-sensitive)
-        await this.enhanceTransaction(tx, {
-          priority: 'low',
-          attempt: 0,
-        });
+        // Add priority fees
+        await this.enhanceTransaction(tx);
 
         tx.partialSign(wallet);
         const signature = await connection.sendRawTransaction(tx.serialize(), {

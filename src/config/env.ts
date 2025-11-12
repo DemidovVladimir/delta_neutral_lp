@@ -30,8 +30,6 @@ export interface BotConfig {
   priceRangeBpsUpper?: number;
   lpOwner?: string;
   meteoraPositionMints?: string[];
-  useJito: boolean;
-  jitoRelayUrl?: string;
   jupiterPriorityFeeLamports: number;
   maxComputeUnits: number;
   priorityFeeMicroLamports: number;
@@ -141,8 +139,6 @@ function loadProductionConfig(): BotConfig {
     priceRangeBpsUpper: STATIC_CONFIG.priceRangeBpsUpper,
     lpOwner: STATIC_CONFIG.lpOwner,
     meteoraPositionMints: undefined, // Not used in auto-tune mode
-    useJito: STATIC_CONFIG.useJito,
-    jitoRelayUrl: STATIC_CONFIG.jitoRelayUrl,
     jupiterPriorityFeeLamports: STATIC_CONFIG.jupiterPriorityFeeLamports,
     maxComputeUnits: STATIC_CONFIG.maxComputeUnits,
     priorityFeeMicroLamports: STATIC_CONFIG.priorityFeeMicroLamports,
@@ -232,10 +228,6 @@ function loadDevelopmentConfig(): BotConfig {
   }
 
   // Parse execution parameters
-  // Jito disabled by default due to DNS resolution issues with bundles-api-rest.jito.wtf
-  const useJito = parseEnvBoolean('USE_JITO', false);
-  const jitoRelayUrl = parseEnvString('JITO_RELAY_URL', false, '');
-
   // Jupiter swap priority fee (for swap transactions only)
   const jupiterPriorityFeeLamports = parseEnvNumber('JUPITER_PRIORITY_FEE_LAMPORTS', 80000);
 
@@ -271,11 +263,6 @@ function loadDevelopmentConfig(): BotConfig {
   const rentReserveSol = parseEnvNumber('RENT_RESERVE_SOL', 0.1); // Default 0.1 SOL for rent/fees
   const minimumWalletBalanceSol = parseEnvNumber('MINIMUM_WALLET_BALANCE_SOL', 0.2); // Default 0.2 SOL minimum balance
 
-  // Validate Jito config
-  if (useJito && !jitoRelayUrl) {
-    throw new Error('JITO_RELAY_URL is required when USE_JITO=true');
-  }
-
   // Validate auto-tune parameters
   if (autoTuneEnabled) {
     if (autoTuneBinCount <= 0) {
@@ -309,8 +296,6 @@ function loadDevelopmentConfig(): BotConfig {
     priceRangeBpsUpper,
     lpOwner,
     meteoraPositionMints,
-    useJito,
-    jitoRelayUrl: jitoRelayUrl || undefined,
     jupiterPriorityFeeLamports,
     maxComputeUnits,
     priorityFeeMicroLamports,

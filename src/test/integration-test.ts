@@ -23,7 +23,6 @@ import {
   getPriceFromBinId,
   formatNumber,
 } from '../utils/meteoraUtils.js';
-import { createEnhancedJitoTipInstruction, calculateRecommendedTip } from '../utils/jitoUtils.js';
 import { initializeAgentKit, getWalletKeypair } from '../core/agentKit.js';
 import { getConfig } from '../config/env.js';
 
@@ -153,46 +152,6 @@ async function testMeteoraUtilities() {
   }
 }
 
-async function testJitoUtilities(walletPubkey: PublicKey) {
-  console.log('\n🧪 Testing Jito Utilities...\n');
-
-  try {
-    // Test enhanced dynamic tip escalation with different priorities
-    console.log('1. Testing enhanced dynamic tip escalation...');
-
-    const priorities: Array<'low' | 'normal' | 'high' | 'urgent' | 'critical'> = ['low', 'normal', 'high', 'urgent', 'critical'];
-
-    for (const priority of priorities) {
-      const tipIx = await createEnhancedJitoTipInstruction(walletPubkey, {
-        priority,
-        attempt: 0,
-      });
-      console.log(`✅ Priority ${priority}: Tip = ${tipIx.data.readBigUInt64LE(4)} lamports`);
-    }
-
-    // Test retry escalation
-    console.log('\n2. Testing retry escalation (normal priority)...');
-    for (let attempt = 0; attempt < 3; attempt++) {
-      const tipIx = await createEnhancedJitoTipInstruction(walletPubkey, {
-        priority: 'normal',
-        attempt,
-      });
-      console.log(`✅ Attempt ${attempt}: Tip = ${tipIx.data.readBigUInt64LE(4)} lamports`);
-    }
-
-    // Test recommended tip calculation
-    console.log('\n3. Testing recommended tip calculation...');
-    const normalTip = calculateRecommendedTip(4000, 1.0);
-    const urgentTip = calculateRecommendedTip(4000, 2.0);
-    console.log(`✅ Normal priority (1.0x): ${normalTip} lamports`);
-    console.log(`✅ Urgent priority (2.0x): ${urgentTip} lamports`);
-
-    return true;
-  } catch (error) {
-    console.error('❌ Jito utilities test failed:', error);
-    return false;
-  }
-}
 
 async function main() {
   console.log('═══════════════════════════════════════════════════════════');
@@ -200,13 +159,12 @@ async function main() {
   console.log('═══════════════════════════════════════════════════════════\n');
 
   // Initialize and load config
-  const { cfg, wallet } = await initializeTest();
+  const { cfg } = await initializeTest();
 
   const results = {
     jupiterV6: false,
     meteoraAPI: false,
     meteoraUtils: false,
-    jitoUtils: false,
   };
 
   // Run all tests
@@ -220,7 +178,6 @@ async function main() {
   }
 
   results.meteoraUtils = await testMeteoraUtilities();
-  results.jitoUtils = await testJitoUtilities(wallet.publicKey);
 
   // Summary
   console.log('\n═══════════════════════════════════════════════════════════');
@@ -233,7 +190,6 @@ async function main() {
   console.log(`Jupiter API v6:        ${results.jupiterV6 ? '✅ PASS' : '❌ FAIL'}`);
   console.log(`Meteora DLMM API:      ${results.meteoraAPI ? '✅ PASS' : '❌ FAIL'}`);
   console.log(`Meteora Utilities:     ${results.meteoraUtils ? '✅ PASS' : '❌ FAIL'}`);
-  console.log(`Jito Utilities:        ${results.jitoUtils ? '✅ PASS' : '❌ FAIL'}`);
 
   console.log(`\n${passed}/${total} tests passed\n`);
 

@@ -1,70 +1,31 @@
 import winston from 'winston';
-import { LOG_CONFIG } from '../config/constants.js';
-import * as fs from 'fs';
-import * as path from 'path';
 
-// Custom format for structured logging
-const structuredFormat = winston.format.combine(
-  winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss.SSS' }),
-  winston.format.errors({ stack: true }),
-  winston.format.json()
-);
-
-// Human-readable format for console
+// Human-readable format for console - simplified output
 const consoleFormat = winston.format.combine(
-  winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss.SSS' }),
+  winston.format.timestamp({ format: 'HH:mm:ss' }),
   winston.format.colorize(),
   winston.format.printf((info: winston.Logform.TransformableInfo) => {
     const { timestamp, level, message, ...meta } = info;
     let msg = `${timestamp} [${level}] ${message}`;
-    if (Object.keys(meta).length > 0) {
-      msg += ` ${JSON.stringify(meta, null, 2)}`;
+    // Only show metadata if it exists and is not empty
+    if (meta && Object.keys(meta).length > 0) {
+      msg += ` ${JSON.stringify(meta)}`;
     }
     return msg;
   })
 );
 
-// Determine transports based on environment
-const transports: winston.transport[] = [];
-
-// In production (Docker/GCP), only use console logging (GCP captures stdout)
-// In development, use both file and console logging
-if (process.env.NODE_ENV === 'production') {
-  // Production: Console only with JSON format for GCP log aggregation
-  transports.push(
-    new winston.transports.Console({
-      format: structuredFormat,
-    })
-  );
-} else {
-  // Development: File logging + colorized console
-  // Ensure logs directory exists (only in development)
-  if (!fs.existsSync(LOG_CONFIG.logDir)) {
-    fs.mkdirSync(LOG_CONFIG.logDir, { recursive: true });
-  }
-
-  transports.push(
-    new winston.transports.File({
-      filename: path.join(LOG_CONFIG.logDir, 'error.log'),
-      level: 'error',
-      maxsize: LOG_CONFIG.maxFileSize,
-      maxFiles: LOG_CONFIG.maxFiles,
-    }),
-    new winston.transports.File({
-      filename: path.join(LOG_CONFIG.logDir, 'combined.log'),
-      maxsize: LOG_CONFIG.maxFileSize,
-      maxFiles: LOG_CONFIG.maxFiles,
-    }),
-    new winston.transports.Console({
-      format: consoleFormat,
-    })
-  );
-}
+// Console-only logging - no file output
+const transports: winston.transport[] = [
+  new winston.transports.Console({
+    format: consoleFormat,
+  })
+];
 
 // Create the logger
 const logger = winston.createLogger({
   level: process.env.LOG_LEVEL || 'info',
-  format: structuredFormat,
+  format: consoleFormat,
   transports,
 });
 
@@ -138,7 +99,7 @@ export const log = {
     // Log to console with red color
     console.error('\n');
     console.error(`\x1b[41m\x1b[37m${banner}\x1b[0m`);
-    console.error(`\x1b[41m\x1b[37m${padding} ❌ TRANSACTION FAILED ❌${' '.repeat(80 - padding.length - ' ❌ TRANSACTION FAILED ❌'.length)}${padding}\x1b[0m`);
+    console.error(`\x1b[41m\x1b[37m${padding} ❌ ERROR ❌${' '.repeat(80 - padding.length - ' ❌ ERROR ❌'.length)}${padding}\x1b[0m`);
     console.error(`\x1b[41m\x1b[37m${banner}\x1b[0m`);
     console.error(`\x1b[31m\x1b[1m${message}\x1b[0m`);
 
@@ -148,9 +109,6 @@ export const log = {
 
     console.error(`\x1b[41m\x1b[37m${banner}\x1b[0m`);
     console.error('\n');
-
-    // Also log to file
-    logger.error(`BANNER: ${message}`, meta);
   },
 };
 

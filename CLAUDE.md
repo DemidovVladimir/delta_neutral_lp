@@ -107,18 +107,19 @@ The codebase follows a modular adapter pattern:
 
 5. **AutoTuneOrchestrator** (`src/modules/autoTuneOrchestrator.ts`)
    - ✅ Monitors position composition at configurable intervals
-   - ✅ Detects position imbalance (e.g., >90% in one token)
+   - ✅ Detects position imbalance (e.g., >80% in one token)
    - ✅ **Two-Phase Rebalance Flow**:
      - Phase 1: Withdraw 100% + Claim + Close (single atomic TX)
-     - Phase 2: Create new position with intelligent retry (max 3 attempts)
-   - ✅ **Jupiter Swap Integration**: Auto-swaps tokens when balance is insufficient
-   - ✅ **Intelligent Retry Logic**:
-     - Attempt 1: Try position creation WITHOUT swap
-     - Attempt 2+: Execute swap first if insufficient funds detected
-     - Non-fund errors: Escalate Jito tips (1x → 1.5x → 2x → 2.5x)
+     - Swap Phase (if needed): Execute Jupiter swap BEFORE position creation
+     - Phase 2: Create new position with simple retry logic (max 3 attempts)
+   - ✅ **Pre-flight Balance Check**: Detects insufficient funds BEFORE any operations
+   - ✅ **Sequential Swap Execution**: Swap executed as separate TX before position creation
+   - ✅ **Target-Based Swapping**: Calculates exact shortfall based on configured deposit amount
+   - ✅ **Dual Reserve System**:
+     - `MINIMUM_WALLET_BALANCE_SOL`: Permanent reserve (never touched)
+     - `RENT_RESERVE_SOL`: Temporary reserve for rent/fees
    - ✅ **Fee Auto-Compounding**: Claimed fees automatically added to new positions
    - ✅ **User-Controlled Deposits**: Based on `AUTO_TUNE_DEPOSIT_TOKEN` + `AUTO_TUNE_DEPOSIT_AMOUNT`
-   - ✅ **Red Banner Error Logging**: Highly visible ANSI-formatted error notifications
    - ✅ Tracks total claimed fees across all rebalances
    - ✅ Records initial deposit amounts for each position created
    - ✅ Maintains concentrated liquidity with fixed bin count
@@ -194,11 +195,11 @@ Integrated improvements from `meteora-lp-army-bot` project:
    - Better MEV protection for time-sensitive transactions
 
 5. **Jupiter Swap Integration (January 2025)**
-   - Auto-swapping when position creation fails due to insufficient token balance
-   - Transaction builder pattern for Jito bundling support
-   - Sequential execution: swap → confirm → create (atomic bundling planned)
-   - Intelligent error detection: insufficient funds vs network errors
-   - Cost-aware tip escalation based on error type
+   - **Pre-flight balance checking** to detect insufficient funds before any operations
+   - **Target-based swap calculation** with dual reserve system (permanent + temporary)
+   - **Sequential execution**: Swap → Wait for confirmation → Create position
+   - Swap executed as separate transaction BEFORE position creation
+   - 2% slippage buffer for price impact protection
 
 See [INTEGRATION_SUMMARY.md](INTEGRATION_SUMMARY.md) for detailed changelog.
 
@@ -208,16 +209,19 @@ See [INTEGRATION_SUMMARY.md](INTEGRATION_SUMMARY.md) for detailed changelog.
 - Uses `skipPreflight: false` with `preflightCommitment: 'confirmed'`
 - Priority fees via ComputeBudget instructions
 - Jito tip instructions for MEV protection with dynamic escalation
-- **Two-Phase Rebalance**: Withdraw+Claim+Close (TX1) → Create New Position (TX2)
-- **✅ Atomic Jito Bundling**: Swap + Create Position in single bundle (IMPLEMENTED!)
-  - Uses `submitJitoBundle()` for atomic execution when Jito enabled
-  - Polls bundle status with 30s timeout
-  - Fallback to sequential execution if Jito disabled
-  - Guaranteed transaction ordering and atomicity
-- **Intelligent Retry Logic**:
-  - Attempt 1: Try creation without swap (normal priority)
-  - Attempt 2+: Execute swap in Jito bundle if insufficient funds (high priority)
-  - Escalate Jito tips for non-fund errors (normal → high priority)
+- **Three-Phase Rebalance Flow**:
+  1. **Phase 1**: Withdraw+Claim+Close (single atomic TX)
+  2. **Swap Phase** (if needed): Execute Jupiter swap, wait for confirmation (2s settle time)
+  3. **Phase 2**: Create new position with updated balance
+- **Pre-flight Balance Check**: Determines if swap is needed BEFORE any operations
+- **Sequential Swap Execution**: Swap executed as separate transaction before position creation
+- **Target-Based Swapping**:
+  - Calculates exact shortfall based on `AUTO_TUNE_DEPOSIT_AMOUNT` + claimed fees
+  - Respects dual reserves: `MINIMUM_WALLET_BALANCE_SOL` (permanent) + `RENT_RESERVE_SOL` (temporary)
+  - Adds 2% slippage buffer for price impact
+- **Simple Retry Logic**:
+  - Position creation retries up to 3 times with exponential backoff
+  - Swap already executed if needed, so retries are for network errors only
   - Max 3 retries before giving up
 
 **Planned improvements:**
@@ -260,10 +264,17 @@ See [INTEGRATION_SUMMARY.md](INTEGRATION_SUMMARY.md) for detailed changelog.
 - `AUTO_TUNE_BIN_COUNT`: Number of bins for concentrated liquidity (default: 20)
 - `AUTO_TUNE_CHECK_INTERVAL_MS`: Check interval in milliseconds (default: 30000 = 30s)
 - `AUTO_TUNE_IMBALANCE_THRESHOLD`: Trigger threshold as decimal (default: 0.8 = 80%)
+- `AUTO_TUNE_DEPOSIT_TOKEN`: Base token for position sizing (SOL or USDC, default: SOL)
+- `AUTO_TUNE_DEPOSIT_AMOUNT`: Amount of deposit token to use (default: 1.0)
+- `AUTO_TUNE_MAX_RETRIES`: Maximum retries for position creation (default: 3)
 
 **Swap Configuration (Jupiter Integration - NEW!):**
 - `SWAP_ENABLED`: Enable Jupiter swap functionality (default: true)
 - `SWAP_SLIPPAGE_BPS`: Slippage tolerance in basis points (default: 50 = 0.5%)
+
+**Wallet Reserve Configuration (NEW!):**
+- `MINIMUM_WALLET_BALANCE_SOL`: Permanent reserve that never gets touched (default: 0.2)
+- `RENT_RESERVE_SOL`: Temporary reserve for rent/fees during position creation (default: 0.1)
 
 **Risk parameters:**
 - `DELTA_THRESHOLD_SOL`: Maximum delta before rebalancing (default: 2)
@@ -311,9 +322,11 @@ The **Auto-Tune Orchestrator** provides fully automated position rebalancing for
 
 - **Concentrated Liquidity**: Maintains fixed bin count (default: 20 bins) for capital efficiency
 - **Auto-Compounding**: Claimed fees automatically added to new position
-- **Atomic Execution**: All rebalance operations in one transaction - either all succeed or all fail
+- **Sequential Execution**: Phase 1 (withdraw+claim+close) → Swap (if needed) → Phase 2 (create)
+- **Pre-flight Balance Check**: Detects insufficient funds before any operations
+- **Target-Based Swapping**: Calculates exact shortfall, respects dual reserve system
 - **State Persistence**: Survives restarts with full state recovery
-- **Error Handling**: Automatic retry with exponential backoff, stops after 5 consecutive failures
+- **Error Handling**: Simple retry with exponential backoff (max 3 attempts)
 
 ### Configuration
 
@@ -329,6 +342,16 @@ AUTO_TUNE_CHECK_INTERVAL_MS=10000
 
 # Trigger rebalance when position becomes 80% or more in one token
 AUTO_TUNE_IMBALANCE_THRESHOLD=0.8
+
+# Deposit token for position sizing
+AUTO_TUNE_DEPOSIT_TOKEN=SOL
+
+# Amount of deposit token (e.g., 0.5 SOL)
+AUTO_TUNE_DEPOSIT_AMOUNT=0.5
+
+# Wallet reserves (permanent + temporary)
+MINIMUM_WALLET_BALANCE_SOL=0.2
+RENT_RESERVE_SOL=0.1
 ```
 
 ### Running Auto-Tune
@@ -355,15 +378,15 @@ pnpm auto-tune
 **Price Moves to $180:**
 - Position composition becomes: 15% SOL, 85% USDC ❌ (exceeds 80% threshold)
 - Auto-tune detects imbalance
-- **Atomic rebalance executes:**
-  1. Withdraws all liquidity (~0.5 SOL + 85 USDC)
-  2. Claims fees (~0.02 SOL + 1 USDC)
-  3. Closes old position (reclaims ~0.057 SOL rent)
-  4. Creates new position at $180 with 0.577 SOL + 86 USDC (fees compounded!)
+- **Three-phase rebalance executes:**
+  1. **Phase 1**: Withdraws all liquidity + claims fees + closes position (0.5 SOL + 85 USDC + fees)
+  2. **Pre-flight check**: Wallet has 0.557 SOL + 86 USDC, needs 0.5 SOL + 90 USDC for target
+  3. **Swap phase**: Swaps 0.022 SOL → 4 USDC to cover USDC shortfall
+  4. **Phase 2**: Creates new position at $180 with 0.535 SOL + 90 USDC (fees compounded!)
 - New position: 20 bins centered at $180 (range: $178-$182)
 - Composition: 50% SOL, 50% USDC ✅
 
-**All in ONE transaction!**
+**Sequential execution with target-based swapping!**
 
 ## Jupiter Swapper Integration (NEW!)
 
@@ -371,75 +394,112 @@ The **Jupiter Swapper** module enables intelligent token swaps for automatic pos
 
 ### Purpose
 
-Handles scenarios where position creation fails due to insufficient token balance. Instead of requiring manual token acquisition, the bot automatically swaps tokens to achieve the desired 50/50 balance.
+Handles scenarios where wallet has insufficient token balance for position creation. Instead of requiring manual token acquisition, the bot automatically swaps tokens to achieve the target balance based on `AUTO_TUNE_DEPOSIT_AMOUNT`.
 
-### Intelligent Two-Phase Rebalance Flow
+### Sequential Three-Phase Rebalance Flow
 
 **Phase 1: Withdraw + Claim + Close (Single Atomic Transaction)**
 - Withdraw 100% liquidity from old position
 - Claim all accumulated fees (auto-compounded into new position)
 - Close position and reclaim rent (~0.057 SOL)
 
-**Phase 2: Create New Position (Intelligent Retry with Swap)**
+**Pre-flight Balance Check**
+- Calculate target deposits: `AUTO_TUNE_DEPOSIT_AMOUNT` (base) + claimed fees
+- Check actual wallet balances (SOL + USDC)
+- Determine if swap is needed BEFORE any position creation attempts
 
+**Swap Phase (if needed)**
 ```
-Attempt 1: Try WITHOUT swap
-├─ Calculate balanced deposits: AUTO_TUNE_DEPOSIT_TOKEN + claimed fees
-├─ Try to create position with calculated amounts
-└─ SUCCESS → Done! | FAIL → Detect error type
-
-Attempt 2: Execute swap FIRST (if insufficient funds)
-├─ Check actual wallet balances (SOL + USDC)
-├─ Calculate optimal swap to achieve 50/50 balance
+IF insufficient balance detected:
+├─ Calculate exact shortfall for missing token
+├─ Respect dual reserves:
+│  ├─ MINIMUM_WALLET_BALANCE_SOL (permanent, never touched)
+│  └─ RENT_RESERVE_SOL (temporary for rent/fees)
+├─ Calculate swap amount with 2% slippage buffer
 ├─ Execute Jupiter swap transaction
-├─ Wait for swap confirmation
-├─ Try to create position again
-└─ SUCCESS → Done! | FAIL → Retry with escalated tips
+├─ Wait for confirmation (2s settle time)
+└─ Continue to Phase 2 with updated balance
+```
 
-Attempt 3: Retry with escalated Jito tips (if non-fund error)
-├─ Escalate tip: 1x → 1.5x → 2x → 2.5x (capped at 3x)
-├─ Only for network errors (NOT insufficient funds)
-└─ SUCCESS → Done! | FAIL → Red banner error + give up
+**Phase 2: Create New Position (Simple Retry)**
+```
+Attempt 1, 2, 3:
+├─ Try to create position with current balance
+├─ If FAIL: Wait (1s, 2s, 3s exponential backoff)
+└─ Max 3 retries, then give up
 ```
 
 ### Key Features
 
-- **Transaction Builder**: Returns unsigned `VersionedTransaction` for Jito bundling
-- **Sequential Execution**: Swap → Confirm → Create Position (atomic bundling planned)
-- **Smart Error Detection**: Distinguishes insufficient funds from network errors
-- **Intelligent Retry Logic**:
-  - Always try WITHOUT swap first (saves gas if balance is sufficient)
-  - Execute swap only if insufficient funds detected
-  - Escalate tips ONLY for non-fund errors (avoid wasting fees)
-- **Auto-Balance Calculation**: `calculateRebalanceSwap()` determines optimal swap amount
-- **Slippage Protection**: Configurable tolerance (default: 50 BPS = 0.5%)
-- **Helper Methods**: `swapSolToUsdc()`, `swapUsdcToSol()`, `getSwapTransaction()`
+- **Pre-flight Balance Check**: Detects insufficient funds BEFORE any operations
+- **Sequential Execution**: Swap → Wait for confirmation (2s) → Create Position
+- **Target-Based Swapping**: Calculates exact shortfall, not generic 50/50 rebalancing
+- **Dual Reserve System**:
+  - `MINIMUM_WALLET_BALANCE_SOL`: Permanent reserve (e.g., 0.2 SOL, never touched)
+  - `RENT_RESERVE_SOL`: Temporary reserve for rent/fees (e.g., 0.1 SOL)
+- **Smart Shortfall Calculation**:
+  - Available SOL = Actual SOL - (Minimum Balance + Rent Reserve)
+  - Swap only the exact amount needed to reach target
+- **Slippage Protection**: 2% buffer added to swap amounts for price impact
+- **Simple Retry Logic**: Position creation retries up to 3 times with exponential backoff
+- **Helper Methods**: `swapSolToUsdc()`, `swapUsdcToSol()`, `executeSwap()`
 
 ### Example: Real-World Rebalance Scenario
 
 **Starting State:**
-- User config: `AUTO_TUNE_DEPOSIT_TOKEN=SOL`, `AUTO_TUNE_DEPOSIT_AMOUNT=1.0`
-- Old position at $160: 0.01 SOL + 31 USDC (90% USDC, imbalanced!)
-- Withdraw + claim: 0.01 SOL + 31 USDC + 0.005 SOL fees + 0.5 USDC fees
+- User config: `AUTO_TUNE_DEPOSIT_TOKEN=SOL`, `AUTO_TUNE_DEPOSIT_AMOUNT=0.5`
+- Reserves: `MINIMUM_WALLET_BALANCE_SOL=0.2`, `RENT_RESERVE_SOL=0.1`
+- Old position at $180: 0.01 SOL + 85 USDC (95% USDC, imbalanced!)
+- Current price: $180/SOL
 
-**Phase 2 Execution:**
-
-**Attempt 1** (try without swap):
+**Phase 1: Withdraw + Claim + Close**
 ```
-Target position: 1.015 SOL + 162.5 USDC (balanced 50/50 at $160)
-Wallet balance: 0.015 SOL + 31.5 USDC
-Result: ❌ FAIL - Insufficient USDC (need 162.5, have 31.5)
+Withdrawn: 0.01 SOL + 85 USDC
+Claimed fees: 0.005 SOL + 0.5 USDC
+Reclaimed rent: 0.057 SOL
+Total in wallet: 0.072 SOL + 85.5 USDC
 ```
 
-**Attempt 2** (execute swap):
+**Pre-flight Balance Check**
 ```
-1. Swap 50% SOL → USDC:
-   - Swap 0.5 SOL → ~80 USDC (at $160/SOL)
-   - New balance: 0.515 SOL + 111.5 USDC
+Target deposits:
+- SOL: 0.5 (base) + 0.005 (fees) = 0.505 SOL
+- USDC: 0.505 * $180 = 90.9 USDC (for balanced position)
 
-2. Create position:
-   - Deposit: 0.515 SOL + 82.4 USDC (balanced 50/50)
-   - Result: ✅ SUCCESS!
+Available balance:
+- Actual SOL: 0.072
+- Reserves: 0.2 (permanent) + 0.1 (rent) = 0.3 total
+- Available SOL: 0.072 - 0.3 = -0.228 (INSUFFICIENT!)
+- Actual USDC: 85.5
+- Needed USDC: 90.9 (INSUFFICIENT!)
+
+Result: Need USDC swap!
+```
+
+**Swap Phase**
+```
+USDC shortfall: 90.9 - 85.5 = 5.4 USDC
+But we can't swap SOL (no available SOL after reserves)
+ERROR: Insufficient balance for both tokens!
+
+Alternative: User needs to deposit more funds or reduce AUTO_TUNE_DEPOSIT_AMOUNT
+```
+
+**Realistic scenario with sufficient wallet balance:**
+```
+Wallet after Phase 1: 0.5 SOL + 85.5 USDC
+Target: 0.505 SOL + 90.9 USDC
+Available SOL: 0.5 - 0.3 = 0.2 SOL
+USDC shortfall: 90.9 - 85.5 = 5.4 USDC
+
+Swap calculation:
+- Need 5.4 USDC
+- SOL to swap: (5.4 / 180) * 1.02 = 0.0306 SOL (with 2% buffer)
+- Available SOL: 0.2 (sufficient!)
+
+Execute swap: 0.0306 SOL → ~5.5 USDC
+New balance: 0.4694 SOL + 91 USDC
+Create position: 0.505 SOL + 90.9 USDC ✅ SUCCESS!
 ```
 
 ### Configuration
@@ -459,61 +519,28 @@ AUTO_TUNE_DEPOSIT_AMOUNT=1.0
 
 # Maximum retries for position creation (default: 3)
 AUTO_TUNE_MAX_RETRIES=3
+
+# Wallet reserves
+MINIMUM_WALLET_BALANCE_SOL=0.2
+RENT_RESERVE_SOL=0.1
 ```
-
-### ✅ Atomic Jito Bundling (IMPLEMENTED!)
-
-**Status**: ✅ Fully implemented and production-ready!
-
-The bot now uses true atomic Jito bundling for swap + position creation:
-
-```typescript
-// Get swap transaction
-const swapTx = await jupiterSwapper.getSwapTransaction({...});
-
-// Get position creation transaction
-const createTx = await meteoraAdapter.getCreatePositionTransaction({...}, {
-  priority: 'high',
-  attempt: 0,
-});
-
-// Sign both transactions
-swapTx.transaction.sign([wallet]);
-createTx.transaction.partialSign(wallet, createTx.positionKeypair);
-
-// Submit as atomic bundle to Jito
-const bundle = await submitJitoBundle([
-  Buffer.from(swapTx.transaction.serialize()).toString('base64'),
-  Buffer.from(createTx.transaction.serialize()).toString('base64'),
-], true);
-
-// Poll for bundle confirmation (30s timeout)
-const status = await getBundleStatus(bundle.bundleId);
-
-// All operations succeed atomically or all fail!
-```
-
-**Benefits**:
-- ✅ Atomic execution guarantee
-- ✅ MEV protection via Jito
-- ✅ Guaranteed transaction ordering
-- ✅ No partial failures (either both succeed or both fail)
-- ✅ 30-second bundle confirmation polling
-- ✅ Fallback to sequential execution if Jito disabled
 
 ### Use Cases
 
 1. **Position Creation**: When wallet lacks one token, swap automatically before creating position
-2. **Rebalancing**: When position drains completely to one side (>95%), swap to restore balance
-3. **Emergency Recovery**: Quick token swaps during emergency withdrawal flows
+2. **Rebalancing**: When position becomes imbalanced, swap to achieve target balance
+3. **Target-Based Sizing**: User controls position size via `AUTO_TUNE_DEPOSIT_AMOUNT`
+4. **Reserve Protection**: Maintains minimum wallet balance for operational safety
 
 ### Technical Details
 
 - **Jupiter V6 API**: Latest aggregator with best swap routes
-- **Versioned Transactions**: Uses Solana v0 transactions for bundling
-- **No Direct Execution**: Methods return transactions for external bundling
-- **Quote Validation**: Fetches quotes before building transactions
+- **Sequential Execution**: Swap → Wait 2s → Create (simpler, more reliable)
+- **Target-Based Calculation**: Calculates exact shortfall, not generic rebalancing
+- **Dual Reserve System**: Protects permanent minimum + temporary rent reserves
+- **Quote Validation**: Fetches quotes before executing swaps
 - **Price Impact Tracking**: Logs price impact percentage for monitoring
+- **2% Slippage Buffer**: Added to all swap calculations for safety
 
 ## Development Workflow
 
@@ -531,10 +558,11 @@ When implementing features, follow the module interfaces defined in the PRD (age
 ## Important Notes
 
 - **Auto-position creation**: Set `AUTO_CREATE_POSITIONS=true` to have the bot create Meteora positions automatically on first run. No manual wallet/UI steps needed.
-- **Auto-tune rebalancing**: Set `AUTO_TUNE_ENABLED=true` to enable fully automated position rebalancing with atomic transactions. The bot will monitor positions and automatically rebalance when they become imbalanced.
-- **Jupiter swapper integration**: The bot can automatically swap tokens when position creation fails due to insufficient balance. Swaps are bundled with position creation in atomic Jito bundles for maximum efficiency.
-- **Atomic transactions**: Auto-tune executes ALL rebalance operations (withdraw + claim + close + create) in a SINGLE transaction for maximum efficiency and atomicity.
-- **Transaction bundling**: Jupiter swaps return unsigned transactions that can be bundled with other operations (e.g., swap + create position) in single Jito bundles with escalating priority tips.
+- **Auto-tune rebalancing**: Set `AUTO_TUNE_ENABLED=true` to enable fully automated position rebalancing. The bot will monitor positions and automatically rebalance when they become imbalanced (>80% in one token).
+- **Jupiter swapper integration**: The bot automatically swaps tokens when wallet has insufficient balance for position creation. Swap is executed as separate transaction BEFORE position creation.
+- **Sequential execution**: Auto-tune uses three-phase flow: Phase 1 (withdraw+claim+close) → Swap (if needed) → Phase 2 (create new position).
+- **Target-based swapping**: Swap calculations are based on `AUTO_TUNE_DEPOSIT_AMOUNT` target, not generic 50/50 rebalancing. Respects dual reserve system (permanent + temporary).
+- **Pre-flight checks**: Balance check runs BEFORE any operations to determine if swap is needed, avoiding wasted gas on failed transactions.
 - All production execution uses **solana-agent-kit** for direct control over bundles and fees
 - Test emergency flows thoroughly with dry-run flag before mainnet
 - Monitor funding rates closely - high sustained funding can erode profitability

@@ -112,7 +112,6 @@ export class JupiterSwapper {
     log.info('JupiterSwapper initialized', {
       swapEnabled: this.config.swapEnabled ?? true,
       swapSlippageBps: this.config.swapSlippageBps ?? 50,
-      useJito: this.config.useJito,
     });
   }
 
