@@ -160,7 +160,7 @@ export async function getMeteoraPairInfo(poolKey: string): Promise<MeteoraPairIn
       throw new Error(`Meteora API returned ${response.status}`);
     }
 
-    const data = await response.json();
+    const data = await response.json() as any;
 
     const pairInfo: MeteoraPairInfo = {
       address: data.address,

@@ -50,7 +50,7 @@
  * ```
  */
 
-import { Connection, VersionedTransaction, PublicKey } from '@solana/web3.js';
+import { VersionedTransaction } from '@solana/web3.js';
 import { getConnection, getWalletKeypair } from '../core/agentKit.js';
 import { log } from '../utils/logger.js';
 import { getConfig } from '../config/env.js';
@@ -64,6 +64,7 @@ const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 // Jupiter API endpoints
 const JUPITER_QUOTE_API = 'https://quote-api.jup.ag/v6/quote';
 const JUPITER_SWAP_API = 'https://quote-api.jup.ag/v6/swap';
+const JUPITER_SWAP_INSTRUCTIONS_API = 'https://quote-api.jup.ag/v6/swap-instructions';
 
 export interface SwapParams {
   inputMint: string; // Token to swap from
@@ -87,6 +88,17 @@ export interface SwapTransactionResult {
   quote: SwapQuote; // Quote used for the swap
   inputAmount: number; // Human-readable input amount
   outputAmount: number; // Expected human-readable output amount
+  priceImpactPct: number;
+}
+
+export interface SwapInstructionsResult {
+  setupInstructions: any[]; // Setup instructions (e.g., create ATA)
+  swapInstruction: any; // The actual swap instruction
+  cleanupInstruction: any | null; // Cleanup instructions (e.g., close WSOL account)
+  addressLookupTableAddresses: string[]; // Address lookup tables needed
+  quote: SwapQuote;
+  inputAmount: number;
+  outputAmount: number;
   priceImpactPct: number;
 }
 
@@ -229,7 +241,7 @@ export class JupiterSwapper {
           userPublicKey: walletPubkey,
           wrapAndUnwrapSol: true, // Automatically wrap/unwrap SOL
           dynamicComputeUnitLimit: true, // Let Jupiter optimize compute units
-          prioritizationFeeLamports: this.config.priorityTipLamports ?? 80000,
+          prioritizationFeeLamports: this.config.jupiterPriorityFeeLamports ?? 80000,
         }),
       });
 
@@ -345,6 +357,103 @@ export class JupiterSwapper {
         error: error instanceof Error ? error.message : String(error),
         params,
         durationMs,
+      });
+    }
+  }
+
+  /**
+   * Get swap instructions (for composing with other instructions in same transaction)
+   *
+   * Uses Jupiter's /swap-instructions endpoint to get raw instructions that can
+   * be composed with other operations (like Meteora position creation) in a single
+   * transaction for true atomicity.
+   *
+   * @param params - Swap parameters
+   * @returns Swap instructions that can be composed into a single transaction
+   */
+  async getSwapInstructions(params: SwapParams): Promise<SwapInstructionsResult> {
+    try {
+      // Check if swaps are enabled
+      if (this.config.swapEnabled === false) {
+        throw new Error('Swaps are disabled. Set SWAP_ENABLED=true in .env');
+      }
+
+      log.info('🔄 Fetching swap instructions for composition', {
+        inputMint: params.inputMint,
+        outputMint: params.outputMint,
+        amount: params.amount,
+        slippageBps: params.slippageBps ?? this.config.swapSlippageBps ?? 50,
+      });
+
+      // 1. Get swap quote
+      const quote = await this.getQuote(params);
+
+      // 2. Get swap instructions from Jupiter
+      const wallet = getWalletKeypair();
+      const walletPubkey = wallet.publicKey.toBase58();
+
+      log.debug('Requesting swap instructions from Jupiter', {
+        userPublicKey: walletPubkey,
+      });
+
+      const response = await fetch(JUPITER_SWAP_INSTRUCTIONS_API, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          quoteResponse: quote,
+          userPublicKey: walletPubkey,
+          wrapAndUnwrapSol: true,
+          prioritizationFeeLamports: {
+            autoMultiplier: 1, // Don't auto-increase priority fee
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Jupiter swap-instructions API error: ${response.status} - ${errorText}`);
+      }
+
+      const instructionsData = await response.json() as {
+        setupInstructions?: any[];
+        swapInstruction: any;
+        cleanupInstruction?: any;
+        addressLookupTableAddresses?: string[];
+      };
+
+      const inputAmount = this.fromRawAmount(quote.inAmount, params.inputMint);
+      const outputAmount = this.fromRawAmount(quote.outAmount, params.outputMint);
+
+      log.info('✅ Swap instructions received', {
+        inputAmount,
+        outputAmount,
+        priceImpactPct: quote.priceImpactPct,
+        setupInstructions: instructionsData.setupInstructions?.length ?? 0,
+        hasCleanupInstruction: !!instructionsData.cleanupInstruction,
+        addressLookupTables: instructionsData.addressLookupTableAddresses?.length ?? 0,
+      });
+
+      return {
+        setupInstructions: instructionsData.setupInstructions || [],
+        swapInstruction: instructionsData.swapInstruction,
+        cleanupInstruction: instructionsData.cleanupInstruction || null,
+        addressLookupTableAddresses: instructionsData.addressLookupTableAddresses || [],
+        quote,
+        inputAmount,
+        outputAmount,
+        priceImpactPct: quote.priceImpactPct,
+      };
+    } catch (error) {
+      log.error('❌ Failed to get swap instructions', {
+        error: error instanceof Error ? error.message : String(error),
+        params,
+      });
+
+      throw new TransactionError('Failed to fetch swap instructions', {
+        error: error instanceof Error ? error.message : String(error),
+        params,
       });
     }
   }

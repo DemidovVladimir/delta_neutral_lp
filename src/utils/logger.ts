@@ -3,11 +3,6 @@ import { LOG_CONFIG } from '../config/constants.js';
 import * as fs from 'fs';
 import * as path from 'path';
 
-// Ensure logs directory exists
-if (!fs.existsSync(LOG_CONFIG.logDir)) {
-  fs.mkdirSync(LOG_CONFIG.logDir, { recursive: true });
-}
-
 // Custom format for structured logging
 const structuredFormat = winston.format.combine(
   winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss.SSS' }),
@@ -29,12 +24,26 @@ const consoleFormat = winston.format.combine(
   })
 );
 
-// Create the logger
-const logger = winston.createLogger({
-  level: process.env.LOG_LEVEL || 'info',
-  format: structuredFormat,
-  transports: [
-    // Write all logs to file in JSON format
+// Determine transports based on environment
+const transports: winston.transport[] = [];
+
+// In production (Docker/GCP), only use console logging (GCP captures stdout)
+// In development, use both file and console logging
+if (process.env.NODE_ENV === 'production') {
+  // Production: Console only with JSON format for GCP log aggregation
+  transports.push(
+    new winston.transports.Console({
+      format: structuredFormat,
+    })
+  );
+} else {
+  // Development: File logging + colorized console
+  // Ensure logs directory exists (only in development)
+  if (!fs.existsSync(LOG_CONFIG.logDir)) {
+    fs.mkdirSync(LOG_CONFIG.logDir, { recursive: true });
+  }
+
+  transports.push(
     new winston.transports.File({
       filename: path.join(LOG_CONFIG.logDir, 'error.log'),
       level: 'error',
@@ -46,24 +55,18 @@ const logger = winston.createLogger({
       maxsize: LOG_CONFIG.maxFileSize,
       maxFiles: LOG_CONFIG.maxFiles,
     }),
-  ],
-});
-
-// Add console transport for non-production environments
-if (process.env.NODE_ENV !== 'production') {
-  logger.add(
     new winston.transports.Console({
       format: consoleFormat,
     })
   );
-} else {
-  // In production, use JSON format for console too (for log aggregation)
-  logger.add(
-    new winston.transports.Console({
-      format: structuredFormat,
-    })
-  );
 }
+
+// Create the logger
+const logger = winston.createLogger({
+  level: process.env.LOG_LEVEL || 'info',
+  format: structuredFormat,
+  transports,
+});
 
 // Helper functions for common log patterns
 export const log = {

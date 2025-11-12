@@ -5,7 +5,7 @@
  */
 
 import { getConnection } from '../core/agentKit.js';
-import { getTransactionFees, logTransactionFees } from '../utils/transactionUtils.js';
+import { getTransactionFees } from '../utils/transactionUtils.js';
 
 // Example: Test with a recent mainnet transaction
 // Replace with an actual transaction signature from your wallet

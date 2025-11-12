@@ -133,9 +133,6 @@ const JITO_TIP_ACCOUNTS = [
   new PublicKey('3AVi9Tg9Uo68tJfuvoKvqKNWKkC5wPdSSdeBnizKZ6jT'),
 ];
 
-// Legacy single tip account (deprecated, use JITO_TIP_ACCOUNTS instead)
-const JITO_TIP_ACCOUNT = JITO_TIP_ACCOUNTS[3]; // ADaUMid9yfUytqMBgopwjb2DTLSokTSzL1zt6iGPaS49
-
 // Jito block engine endpoint
 const JITO_BLOCK_ENGINE_URL = 'https://mainnet.block-engine.jito.wtf/api/v1/transactions';
 
@@ -464,7 +461,7 @@ export async function sendJitoTransaction(
       throw new Error(`Jito API returned ${response.status}: ${response.statusText}`);
     }
 
-    const data = await response.json();
+    const data = await response.json() as any;
 
     if (data.error) {
       throw new Error(`Jito error: ${JSON.stringify(data.error)}`);
@@ -640,7 +637,7 @@ export async function submitJitoBundle(
       throw new Error(`Jito bundle API returned ${response.status}: ${errorText}`);
     }
 
-    const data = await response.json();
+    const data = await response.json() as any;
 
     if (data.error) {
       throw new Error(`Jito bundle error: ${JSON.stringify(data.error)}`);
@@ -711,7 +708,7 @@ export async function getBundleStatus(bundleId: string): Promise<{
       throw new Error(`Jito status API returned ${response.status}: ${response.statusText}`);
     }
 
-    const data = await response.json();
+    const data = await response.json() as any;
 
     if (data.error) {
       throw new Error(`Jito status error: ${JSON.stringify(data.error)}`);

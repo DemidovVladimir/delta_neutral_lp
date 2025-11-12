@@ -8,7 +8,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { StateSnapshot, JournalEntry, RiskLevel, AutoTuneState } from '../types/index.js';
+import { StateSnapshot, JournalEntry, AutoTuneState } from '../types/index.js';
 import { log } from '../utils/logger.js';
 import { PERSISTENCE_CONFIG } from '../config/constants.js';
 
@@ -128,26 +128,11 @@ export function saveCreatedPositionMints(mints: string[]): void {
       claimableUsdc: 0,
       positions: [],
     },
-    driftState: {
-      shortSol: 0,
-      collateralUsd: 0,
-      marginRatio: 0,
-      fundingBpsDay: 0,
-      unrealizedPnl: 0,
-    },
     price: {
       usd: 0,
       timestamp: Date.now(),
       source: 'cached',
     },
-    riskMetrics: {
-      delta: 0,
-      collat: 0,
-      notional: 0,
-      exposure: 0,
-      marginBuffer: 0,
-    },
-    riskLevel: RiskLevel.SAFE,
   };
 
   // Update with new mints
@@ -233,6 +218,16 @@ export function loadAutoTuneState(): AutoTuneState | null {
 
     const json = fs.readFileSync(AUTO_TUNE_STATE_FILE, 'utf-8');
     const state = JSON.parse(json) as AutoTuneState;
+
+    // Ensure all required properties exist with defaults (for backward compatibility)
+    if (!state.totalClaimedFees) {
+      state.totalClaimedFees = { sol: 0, usdc: 0 };
+      log.info('Added missing totalClaimedFees property to loaded state');
+    }
+    if (!state.unclaimedFees) {
+      state.unclaimedFees = { sol: 0, usdc: 0 };
+      log.info('Added missing unclaimedFees property to loaded state');
+    }
 
     log.info('Auto-tune state loaded', {
       file: AUTO_TUNE_STATE_FILE,

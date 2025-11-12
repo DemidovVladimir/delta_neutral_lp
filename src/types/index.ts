@@ -1,13 +1,11 @@
 /**
  * Type Definitions
  *
- * Shared TypeScript type definitions for the delta-neutral liquidity provision bot.
+ * Shared TypeScript type definitions for the Meteora DLMM liquidity provision bot.
  *
  * Type Categories:
  * - **Core Types**: Prices, token amounts, base data structures
  * - **Meteora LP Types**: Position data, exposure tracking, pool analytics
- * - **Drift Types**: Perpetual positions, collateral, margin (planned)
- * - **Risk Types**: Delta thresholds, margin ratios, limits (planned)
  * - **Transaction Types**: Bundle params, execution results
  * - **State Types**: Persistence, snapshots, action journal
  *
@@ -163,29 +161,6 @@ export interface ClaimResult {
 }
 
 // =============================================================================
-// DRIFT PERP TYPES
-// =============================================================================
-
-export interface DriftState {
-  shortSol: number; // Current short position size (negative for short)
-  collateralUsd: number; // Total collateral in USD
-  marginRatio: number; // Collateral / Notional
-  fundingBpsDay: number; // Funding rate in basis points per day
-  unrealizedPnl: number; // Unrealized P&L in USD
-  liquidationPrice?: number; // Estimated liquidation price
-}
-
-export interface RebalanceParams {
-  targetSol: number; // Target short position size
-  price: number; // Current SOL price
-  maxSlippageBps: number; // Maximum slippage in basis points
-}
-
-export interface CollateralParams {
-  usdc: number; // Amount in USDC
-}
-
-// =============================================================================
 // BUNDLE & TRANSACTION TYPES
 // =============================================================================
 
@@ -222,50 +197,13 @@ export interface TransactionResult {
 }
 
 // =============================================================================
-// RISK TYPES
-// =============================================================================
-
-export interface RiskParams {
-  lpSol: number;
-  price: number;
-  shortSol: number;
-  collateralUsd: number;
-  fundingBpsDay: number;
-}
-
-export interface RiskMetrics {
-  delta: number; // lpSol - shortSol
-  collat: number; // Collateral ratio
-  notional: number; // Position notional in USD
-  exposure: number; // USD exposure
-  marginBuffer: number; // Distance to liquidation
-}
-
-export interface RiskLimits {
-  deltaThresholdSol: number;
-  minCollateralRatio: number;
-  maxShortNotionalUsd: number;
-  fundingRateCapBps: number;
-}
-
-export enum RiskLevel {
-  SAFE = 'SAFE',
-  WARNING = 'WARNING',
-  DANGER = 'DANGER',
-  CRITICAL = 'CRITICAL',
-}
-
-// =============================================================================
 // STATE PERSISTENCE TYPES
 // =============================================================================
 
 export interface StateSnapshot {
   timestamp: number;
   lpExposure: LpExposure;
-  driftState: DriftState;
   price: Price;
-  riskMetrics: RiskMetrics;
-  riskLevel: RiskLevel;
   createdPositionMints?: string[]; // Auto-created position NFT mints (for persistence)
 }
 
@@ -278,30 +216,6 @@ export interface JournalEntry {
   success: boolean;
   error?: string;
   durationMs: number;
-}
-
-// =============================================================================
-// ORCHESTRATOR TYPES
-// =============================================================================
-
-export interface HedgeLoopState {
-  iteration: number;
-  running: boolean;
-  lastRun: number;
-  consecutiveErrors: number;
-}
-
-export interface EmergencyTrigger {
-  reason: string;
-  severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
-  timestamp: number;
-  data?: Record<string, any>;
-}
-
-export interface EmergencyFlowParams {
-  withdrawPercent?: number; // 0-100, default 100 (full withdrawal)
-  skipSwap?: boolean; // Skip SOL->USDC swap
-  dryRun?: boolean; // Simulate only, don't execute
 }
 
 // =============================================================================
@@ -376,6 +290,12 @@ export interface AutoTuneState {
   totalClaimedFees: {
     sol: number; // Total SOL fees claimed across all rebalances
     usdc: number; // Total USDC fees claimed across all rebalances
+  };
+
+  // Currently unclaimed fees (ready for claiming)
+  unclaimedFees: {
+    sol: number; // SOL fees currently available to claim
+    usdc: number; // USDC fees currently available to claim
   };
 
   // Last position created details

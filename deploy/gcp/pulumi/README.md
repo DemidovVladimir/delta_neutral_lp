@@ -49,6 +49,13 @@ pulumi config set gcp:project YOUR_PROJECT_ID
 # Optional: Configure region/zone (defaults to free tier)
 pulumi config set gcp:region us-central1
 pulumi config set gcp:zone us-central1-a
+
+# IMPORTANT: Set up billing alerts (protects against charges)
+# See BILLING_SETUP.md for detailed instructions
+# Note: Use 'autotune:' namespace for billing configuration
+pulumi config set --secret autotune:billingAccountId YOUR_BILLING_ACCOUNT_ID
+pulumi config set autotune:budgetAlertEmails your-email@example.com
+pulumi config set autotune:budgetAmount 1.0  # Alert at $1 USD
 ```
 
 ### 2. Deploy
@@ -71,15 +78,32 @@ That's it! Pulumi will:
 
 ### 3. Monitor
 
+Use the convenient management script:
+
 ```bash
-# View outputs
+cd deploy/gcp/pulumi
+
+# View live container logs
+./scripts/manage.sh logs
+
+# Check VM and container status
+./scripts/manage.sh status
+
+# View all available commands
+./scripts/manage.sh help
+```
+
+Or use Pulumi outputs directly:
+
+```bash
+# View all output commands
 pulumi stack output
 
 # View logs
-gcloud compute ssh autotune-prod --zone=us-central1-a --command='docker logs -f autotune'
+$(pulumi stack output logsCommand)
 
 # SSH into VM
-gcloud compute ssh autotune-prod --zone=us-central1-a
+$(pulumi stack output sshCommand)
 ```
 
 ## Configuration Options
@@ -101,6 +125,33 @@ pulumi config set gcp:zone us-central1-a
 ```
 
 ## Managing Infrastructure
+
+### Quick Management Commands
+
+```bash
+cd deploy/gcp/pulumi
+
+# Restart VM and container (useful after fixing issues)
+./scripts/manage.sh restart
+
+# View live logs
+./scripts/manage.sh logs
+
+# Check status
+./scripts/manage.sh status
+
+# Stop VM (save costs)
+./scripts/manage.sh stop
+
+# Start VM
+./scripts/manage.sh start
+
+# SSH into VM
+./scripts/manage.sh ssh
+
+# View all commands
+./scripts/manage.sh help
+```
 
 ### Update Secrets
 

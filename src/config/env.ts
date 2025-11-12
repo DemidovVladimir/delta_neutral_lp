@@ -1,68 +1,52 @@
 import dotenv from 'dotenv';
 import { PublicKey } from '@solana/web3.js';
 import path from 'path';
+import { STATIC_CONFIG, validateStaticConfig } from './staticConfig.js';
 
 // Load .env file based on NODE_ENV
-const env = process.env.NODE_ENV || 'development';
-const envFile = env === 'local' ? '.env.local' :
-                env === 'devnet' ? '.env.devnet' :
-                env === 'mainnet' || env === 'production' ? '.env.mainnet' :
-                '.env';
+const env = process.env.NODE_ENV || 'mainnet';
+const useStaticConfig = env === 'production'; // Use static config in production (GCP)
 
-dotenv.config({
-  path: path.resolve(process.cwd(), envFile),
-  override: true, // Override existing environment variables to ensure correct env file is used
-});
+// In production, don't load .env file (secrets come from GCP Secret Manager)
+// Otherwise, always load .env from root (mainnet configuration)
+if (!useStaticConfig) {
+  dotenv.config({
+    path: path.resolve(process.cwd(), '.env'),
+    override: true,
+  });
+}
 
 export interface BotConfig {
-  // Core
+  // Secrets (loaded from env/GCP Secret Manager)
   rpcUrl: string;
   privateKey: string;
-  driftMarketSolPerp: number;
 
-  // Meteora position configuration (two modes)
+  // All other config (from staticConfig.ts in production, or .env in development)
   autoCreatePositions: boolean;
-
-  // Auto-create mode (used if autoCreatePositions=true)
   meteoraPoolAddress?: string;
   initialDepositSol?: number;
   initialDepositUsdc?: number;
   priceRangeBpsLower?: number;
   priceRangeBpsUpper?: number;
-
-  // Manual mode (used if autoCreatePositions=false)
   lpOwner?: string;
   meteoraPositionMints?: string[];
-
-  // Risk parameters
-  deltaThresholdSol: number;
-  minCollateralRatio: number;
-  maxShortNotionalUsd: number;
-  fundingRateCapBps: number;
-
-  // Execution parameters
   useJito: boolean;
   jitoRelayUrl?: string;
-  priorityTipLamports: number;
+  jupiterPriorityFeeLamports: number;
   maxComputeUnits: number;
   priorityFeeMicroLamports: number;
-
-  // Loop parameters
-  hedgeLoopIntervalMs: number;
   maxRetries: number;
-
-  // Auto-tune parameters
   autoTuneEnabled: boolean;
   autoTuneBinCount: number;
   autoTuneCheckIntervalMs: number;
   autoTuneImbalanceThreshold: number;
-  autoTuneDepositToken: 'SOL' | 'USDC'; // Which token to use for position sizing
-  autoTuneDepositAmount: number; // Amount of the deposit token to use
-  autoTuneMaxRetries: number; // Maximum retries for position creation (default: 3)
-
-  // Swap parameters
+  autoTuneDepositToken: 'SOL' | 'USDC';
+  autoTuneDepositAmount: number;
+  autoTuneMaxRetries: number;
   swapEnabled: boolean;
   swapSlippageBps: number;
+  rentReserveSol: number;
+  minimumWalletBalanceSol: number;
 }
 
 function parseEnvString(key: string, required: true): string;
@@ -126,11 +110,67 @@ function validatePublicKeys(key: string, values: string[]): void {
   values.forEach(value => validatePublicKey(key, value));
 }
 
-export function loadConfig(): BotConfig {
+/**
+ * Load configuration for production (GCP) deployment
+ * Uses static config + only 2 secrets from environment
+ */
+function loadProductionConfig(): BotConfig {
+  console.log('🔧 Loading PRODUCTION config (static + secrets)');
+
+  // Validate static config first
+  validateStaticConfig(STATIC_CONFIG);
+
+  // Load only secrets from environment (GCP Secret Manager)
+  const rpcUrl = parseEnvString('RPC_URL', true);
+  const privateKey = parseEnvString('PRIVATE_KEY', true);
+
+  console.log('✅ Loaded 2 secrets from GCP Secret Manager');
+  console.log('✅ Using static config from staticConfig.ts');
+
+  return {
+    // Secrets
+    rpcUrl,
+    privateKey,
+
+    // Static config
+    autoCreatePositions: STATIC_CONFIG.autoCreatePositions,
+    meteoraPoolAddress: STATIC_CONFIG.meteoraPoolAddress,
+    initialDepositSol: STATIC_CONFIG.initialDepositSol,
+    initialDepositUsdc: STATIC_CONFIG.initialDepositUsdc,
+    priceRangeBpsLower: STATIC_CONFIG.priceRangeBpsLower,
+    priceRangeBpsUpper: STATIC_CONFIG.priceRangeBpsUpper,
+    lpOwner: STATIC_CONFIG.lpOwner,
+    meteoraPositionMints: undefined, // Not used in auto-tune mode
+    useJito: STATIC_CONFIG.useJito,
+    jitoRelayUrl: STATIC_CONFIG.jitoRelayUrl,
+    jupiterPriorityFeeLamports: STATIC_CONFIG.jupiterPriorityFeeLamports,
+    maxComputeUnits: STATIC_CONFIG.maxComputeUnits,
+    priorityFeeMicroLamports: STATIC_CONFIG.priorityFeeMicroLamports,
+    maxRetries: STATIC_CONFIG.maxRetries,
+    autoTuneEnabled: STATIC_CONFIG.autoTuneEnabled,
+    autoTuneBinCount: STATIC_CONFIG.autoTuneBinCount,
+    autoTuneCheckIntervalMs: STATIC_CONFIG.autoTuneCheckIntervalMs,
+    autoTuneImbalanceThreshold: STATIC_CONFIG.autoTuneImbalanceThreshold,
+    autoTuneDepositToken: STATIC_CONFIG.autoTuneDepositToken,
+    autoTuneDepositAmount: STATIC_CONFIG.autoTuneDepositAmount,
+    autoTuneMaxRetries: STATIC_CONFIG.autoTuneMaxRetries,
+    swapEnabled: STATIC_CONFIG.swapEnabled,
+    swapSlippageBps: STATIC_CONFIG.swapSlippageBps,
+    rentReserveSol: STATIC_CONFIG.rentReserveSol,
+    minimumWalletBalanceSol: STATIC_CONFIG.minimumWalletBalanceSol,
+  };
+}
+
+/**
+ * Load configuration for development/local environments
+ * Uses .env file for all configuration
+ */
+function loadDevelopmentConfig(): BotConfig {
+  console.log(`🔧 Loading config from .env (mainnet)`);
+
   // Parse core config
   const rpcUrl = parseEnvString('RPC_URL', true);
   const privateKey = parseEnvString('PRIVATE_KEY', true);
-  const driftMarketSolPerp = parseEnvNumber('DRIFT_MARKET_SOL_PERP', 0);
 
   // Parse Meteora position mode
   const autoCreatePositions = parseEnvBoolean('AUTO_CREATE_POSITIONS', false);
@@ -160,12 +200,9 @@ export function loadConfig(): BotConfig {
 
     // Validate deposits and price range only if pool address is provided
     if (meteoraPoolAddress) {
-      // Validate at least one deposit is specified
-      if (initialDepositSol === 0 && initialDepositUsdc === 0) {
-        throw new Error(
-          'At least one of INITIAL_DEPOSIT_SOL or INITIAL_DEPOSIT_USDC must be greater than 0'
-        );
-      }
+      // Note: INITIAL_DEPOSIT_SOL and INITIAL_DEPOSIT_USDC are optional now
+      // Auto-tune mode uses AUTO_TUNE_DEPOSIT_TOKEN and AUTO_TUNE_DEPOSIT_AMOUNT instead
+      // Only validate if both are 0 (backward compatibility check)
 
       // Validate price range
       if (priceRangeBpsLower >= priceRangeBpsUpper) {
@@ -194,17 +231,13 @@ export function loadConfig(): BotConfig {
     }
   }
 
-  // Parse risk parameters with defaults from PRD
-  const deltaThresholdSol = parseEnvNumber('DELTA_THRESHOLD_SOL', 2);
-  const minCollateralRatio = parseEnvNumber('MIN_COLLATERAL_RATIO', 0.15);
-  const maxShortNotionalUsd = parseEnvNumber('MAX_SHORT_NOTIONAL_USD', 12000);
-  const fundingRateCapBps = parseEnvNumber('FUNDING_RATE_CAP_BPS', 80);
-
   // Parse execution parameters
   // Jito disabled by default due to DNS resolution issues with bundles-api-rest.jito.wtf
   const useJito = parseEnvBoolean('USE_JITO', false);
   const jitoRelayUrl = parseEnvString('JITO_RELAY_URL', false, '');
-  const priorityTipLamports = parseEnvNumber('PRIORITY_TIP_LAMPORTS', 80000);
+
+  // Jupiter swap priority fee (for swap transactions only)
+  const jupiterPriorityFeeLamports = parseEnvNumber('JUPITER_PRIORITY_FEE_LAMPORTS', 80000);
 
   // Optimized compute parameters for 2025 fee market
   // Typical values: 25,000-100,000 micro-lamports per CU
@@ -212,8 +245,7 @@ export function loadConfig(): BotConfig {
   const maxComputeUnits = parseEnvNumber('MAX_COMPUTE_UNITS', 600000);
   const priorityFeeMicroLamports = parseEnvNumber('PRIORITY_FEE_MICRO_LAMPORTS', 50000); // 50,000 µL/CU = moderate priority
 
-  // Parse loop parameters
-  const hedgeLoopIntervalMs = parseEnvNumber('HEDGE_LOOP_INTERVAL_MS', 15000); // 15s default
+  // Parse retry configuration
   const maxRetries = parseEnvNumber('MAX_RETRIES', 3);
 
   // Parse auto-tune parameters
@@ -235,23 +267,13 @@ export function loadConfig(): BotConfig {
   const swapEnabled = parseEnvBoolean('SWAP_ENABLED', true); // Default enabled
   const swapSlippageBps = parseEnvNumber('SWAP_SLIPPAGE_BPS', 50); // Default 0.5% slippage
 
+  // Parse wallet reserve parameters
+  const rentReserveSol = parseEnvNumber('RENT_RESERVE_SOL', 0.1); // Default 0.1 SOL for rent/fees
+  const minimumWalletBalanceSol = parseEnvNumber('MINIMUM_WALLET_BALANCE_SOL', 0.2); // Default 0.2 SOL minimum balance
+
   // Validate Jito config
   if (useJito && !jitoRelayUrl) {
     throw new Error('JITO_RELAY_URL is required when USE_JITO=true');
-  }
-
-  // Validate risk parameters
-  if (deltaThresholdSol <= 0) {
-    throw new Error('DELTA_THRESHOLD_SOL must be positive');
-  }
-  if (minCollateralRatio <= 0 || minCollateralRatio >= 1) {
-    throw new Error('MIN_COLLATERAL_RATIO must be between 0 and 1');
-  }
-  if (maxShortNotionalUsd <= 0) {
-    throw new Error('MAX_SHORT_NOTIONAL_USD must be positive');
-  }
-  if (fundingRateCapBps < 0) {
-    throw new Error('FUNDING_RATE_CAP_BPS must be non-negative');
   }
 
   // Validate auto-tune parameters
@@ -279,7 +301,6 @@ export function loadConfig(): BotConfig {
   return {
     rpcUrl,
     privateKey,
-    driftMarketSolPerp,
     autoCreatePositions,
     meteoraPoolAddress,
     initialDepositSol,
@@ -288,16 +309,11 @@ export function loadConfig(): BotConfig {
     priceRangeBpsUpper,
     lpOwner,
     meteoraPositionMints,
-    deltaThresholdSol,
-    minCollateralRatio,
-    maxShortNotionalUsd,
-    fundingRateCapBps,
     useJito,
     jitoRelayUrl: jitoRelayUrl || undefined,
-    priorityTipLamports,
+    jupiterPriorityFeeLamports,
     maxComputeUnits,
     priorityFeeMicroLamports,
-    hedgeLoopIntervalMs,
     maxRetries,
     autoTuneEnabled,
     autoTuneBinCount,
@@ -308,7 +324,17 @@ export function loadConfig(): BotConfig {
     autoTuneMaxRetries,
     swapEnabled,
     swapSlippageBps,
+    rentReserveSol,
+    minimumWalletBalanceSol,
   };
+}
+
+export function loadConfig(): BotConfig {
+  if (useStaticConfig) {
+    return loadProductionConfig();
+  } else {
+    return loadDevelopmentConfig();
+  }
 }
 
 // Singleton config instance

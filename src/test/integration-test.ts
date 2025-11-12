@@ -23,7 +23,7 @@ import {
   getPriceFromBinId,
   formatNumber,
 } from '../utils/meteoraUtils.js';
-import { createJitoTipInstruction, calculateRecommendedTip } from '../utils/jitoUtils.js';
+import { createEnhancedJitoTipInstruction, calculateRecommendedTip } from '../utils/jitoUtils.js';
 import { initializeAgentKit, getWalletKeypair } from '../core/agentKit.js';
 import { getConfig } from '../config/env.js';
 
@@ -157,16 +157,31 @@ async function testJitoUtilities(walletPubkey: PublicKey) {
   console.log('\n🧪 Testing Jito Utilities...\n');
 
   try {
-    // Test dynamic tip escalation
-    console.log('1. Testing dynamic tip escalation...');
+    // Test enhanced dynamic tip escalation with different priorities
+    console.log('1. Testing enhanced dynamic tip escalation...');
 
-    for (let attempt = 0; attempt < 5; attempt++) {
-      const tipIx = createJitoTipInstruction(walletPubkey, attempt);
-      console.log(`✅ Attempt ${attempt}: Tip = ${tipIx.data.readUIntLE(4, 6)} lamports`);
+    const priorities: Array<'low' | 'normal' | 'high' | 'urgent' | 'critical'> = ['low', 'normal', 'high', 'urgent', 'critical'];
+
+    for (const priority of priorities) {
+      const tipIx = await createEnhancedJitoTipInstruction(walletPubkey, {
+        priority,
+        attempt: 0,
+      });
+      console.log(`✅ Priority ${priority}: Tip = ${tipIx.data.readBigUInt64LE(4)} lamports`);
+    }
+
+    // Test retry escalation
+    console.log('\n2. Testing retry escalation (normal priority)...');
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const tipIx = await createEnhancedJitoTipInstruction(walletPubkey, {
+        priority: 'normal',
+        attempt,
+      });
+      console.log(`✅ Attempt ${attempt}: Tip = ${tipIx.data.readBigUInt64LE(4)} lamports`);
     }
 
     // Test recommended tip calculation
-    console.log('\n2. Testing recommended tip calculation...');
+    console.log('\n3. Testing recommended tip calculation...');
     const normalTip = calculateRecommendedTip(4000, 1.0);
     const urgentTip = calculateRecommendedTip(4000, 2.0);
     console.log(`✅ Normal priority (1.0x): ${normalTip} lamports`);
@@ -185,7 +200,7 @@ async function main() {
   console.log('═══════════════════════════════════════════════════════════\n');
 
   // Initialize and load config
-  const { cfg, wallet, initialized } = await initializeTest();
+  const { cfg, wallet } = await initializeTest();
 
   const results = {
     jupiterV6: false,

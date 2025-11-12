@@ -49,6 +49,10 @@ import {
   getPriceFromBinId,
 } from '../utils/meteoraUtils.js';
 import {
+  composeSwapAndCreatePosition,
+  signAndSendComposedTransaction,
+} from '../utils/transactionComposer.js';
+import {
   AutoTuneState,
   PositionBalance,
   RebalanceResult,
@@ -88,7 +92,19 @@ export class AutoTuneOrchestrator {
         sol: 0,
         usdc: 0,
       },
+      unclaimedFees: {
+        sol: 0,
+        usdc: 0,
+      },
     };
+
+    // Ensure backward compatibility: add unclaimedFees if missing from saved state
+    if (this.state && !this.state.unclaimedFees) {
+      this.state.unclaimedFees = {
+        sol: 0,
+        usdc: 0,
+      };
+    }
 
     log.info('AutoTuneOrchestrator initialized', {
       enabled: this.config.autoTuneEnabled,
@@ -176,7 +192,10 @@ export class AutoTuneOrchestrator {
     console.log(`   Iteration:        #${this.state.iteration}`);
     console.log(`   Rebalances:       ${this.state.rebalanceCount}`);
     console.log(`   Consecutive Errors: ${this.state.consecutiveErrors}`);
-    console.log(`   Check Duration:   ${elapsed}ms\n`);
+    console.log(`   Check Duration:   ${elapsed}ms`);
+    const unclaimedSol = this.state.unclaimedFees?.sol ?? 0;
+    const unclaimedUsdc = this.state.unclaimedFees?.usdc ?? 0;
+    console.log(`   Unclaimed Fees:   ${unclaimedSol.toFixed(6)} SOL + ${unclaimedUsdc.toFixed(2)} USDC\n`);
 
     if (!balance) {
       console.log('⚠️  NO POSITION FOUND\n');
@@ -235,9 +254,30 @@ export class AutoTuneOrchestrator {
       if (!balance) {
         const elapsed = Date.now() - startTime;
         this.displayWatchMode(null, elapsed);
-        if (!this.watchMode) {
-          log.warn('No position found to monitor - will create on next cycle if AUTO_CREATE_POSITIONS=true');
+
+        // Auto-create initial position if enabled
+        if (this.config.autoCreatePositions && this.config.meteoraPoolAddress) {
+          if (!this.watchMode) {
+            log.info('🆕 No position found - auto-creating initial position');
+          }
+
+          try {
+            await this.createInitialPosition();
+            if (!this.watchMode) {
+              log.info('✅ Initial position created successfully - will monitor on next cycle');
+            }
+          } catch (error) {
+            log.error('Failed to create initial position', {
+              error: error instanceof Error ? error.message : String(error),
+            });
+            this.state.consecutiveErrors++;
+          }
+        } else {
+          if (!this.watchMode) {
+            log.warn('No position found to monitor (AUTO_CREATE_POSITIONS not enabled)');
+          }
         }
+
         this.state.consecutiveErrors = 0;
         saveAutoTuneState(this.state);
         return;
@@ -288,6 +328,12 @@ export class AutoTuneOrchestrator {
           this.state.totalClaimedFees.sol += result.claimedFees.sol;
           this.state.totalClaimedFees.usdc += result.claimedFees.usdc;
 
+          // Reset unclaimed fees to zero (fees were just claimed and compounded)
+          this.state.unclaimedFees = {
+            sol: 0,
+            usdc: 0,
+          };
+
           // Save last position created details
           this.state.lastPositionCreated = {
             positionMint: result.newPositionMint,
@@ -297,6 +343,9 @@ export class AutoTuneOrchestrator {
             },
             timestamp: Date.now(),
           };
+
+          // Save state immediately after successful rebalance
+          saveAutoTuneState(this.state);
         } else {
           if (!this.watchMode) {
             log.error('❌ Rebalance failed', {
@@ -397,6 +446,12 @@ export class AutoTuneOrchestrator {
         upperBinPrice,
         this.config.autoTuneImbalanceThreshold
       );
+
+      // Update unclaimed fees in state
+      this.state.unclaimedFees = {
+        sol: position.claimableSol,
+        usdc: position.claimableUsdc,
+      };
 
       return {
         solPercent: imbalanceCheck.solPercent,
@@ -508,18 +563,6 @@ export class AutoTuneOrchestrator {
     }
   }
 
-  /**
-   * Check if error is due to insufficient funds
-   */
-  private isInsufficientFundsError(error: Error): boolean {
-    const errorMsg = error.message.toLowerCase();
-    return (
-      errorMsg.includes('insufficient') ||
-      errorMsg.includes('not enough') ||
-      errorMsg.includes('balance') ||
-      errorMsg.includes('0x1') // Solana insufficient funds error code
-    );
-  }
 
   /**
    * Execute full rebalance flow with TWO-PHASE approach:
@@ -548,16 +591,17 @@ export class AutoTuneOrchestrator {
       // PHASE 1: WITHDRAW + CLAIM + CLOSE
       // ========================================================================
 
-      const positionMints = this.meteoraAdapter.getPositionMints();
-      if (positionMints.length === 0) {
+      // Get current exposure before withdrawal
+      const exposureBefore = await this.meteoraAdapter.getLpExposure();
+
+      if (exposureBefore.positions.length === 0) {
         throw new Error('No position to rebalance');
       }
 
-      const oldPositionMint = positionMints[0];
+      // Use the ACTUAL position from on-chain data, not from stale list
+      const oldPositionMint = exposureBefore.positions[0].mint;
       log.info('🔄 Starting TWO-PHASE rebalance flow', { oldPositionMint });
 
-      // Get current exposure before withdrawal
-      const exposureBefore = await this.meteoraAdapter.getLpExposure();
       const claimableSol = exposureBefore.claimableSol;
       const claimableUsdc = exposureBefore.claimableUsdc;
 
@@ -629,12 +673,129 @@ export class AutoTuneOrchestrator {
         },
       });
 
+      // ========================================================================
+      // PRE-FLIGHT CHECK: Determine if we need to swap before position creation
+      // ========================================================================
+      const wallet = getWalletKeypair();
+      const solBalance = await connection.getBalance(wallet.publicKey);
+      const actualSol = solBalance / Math.pow(10, 9);
+      const actualUsdc = await this.getUsdcBalance();
+
+      log.info('💰 Pre-flight wallet balance check', {
+        actualSol,
+        actualUsdc,
+        requiredSol: solAmount,
+        requiredUsdc: usdcAmount,
+        hasSufficientSol: actualSol >= solAmount,
+        hasSufficientUsdc: actualUsdc >= usdcAmount,
+      });
+
+      // Determine if swap is needed BEFORE any attempts
+      const needsSwap = actualSol < solAmount || actualUsdc < usdcAmount;
+
+      // ========================================================================
+      // SWAP EXECUTION (if needed): Execute BEFORE position creation
+      // ========================================================================
+      if (needsSwap) {
+        log.warn('⚠️  Insufficient balance detected - executing swap before position creation', {
+          missingToken: actualSol < solAmount ? 'SOL' : 'USDC',
+          shortfall: actualSol < solAmount
+            ? { token: 'SOL', need: solAmount, have: actualSol, missing: solAmount - actualSol }
+            : { token: 'USDC', need: usdcAmount, have: actualUsdc, missing: usdcAmount - actualUsdc },
+        });
+
+        // Calculate swap needed with reserves
+        const totalReserve = this.config.minimumWalletBalanceSol + this.config.rentReserveSol;
+        const availableSol = Math.max(0, actualSol - totalReserve);
+
+        log.info('Calculating target-based swap with reserves', {
+          actualSol,
+          actualUsdc,
+          minimumBalance: this.config.minimumWalletBalanceSol,
+          rentReserve: this.config.rentReserveSol,
+          totalReserve,
+          availableSol,
+          targetSol: solAmount,
+          targetUsdc: usdcAmount,
+        });
+
+        // Calculate shortfall for each token
+        const solShortfall = Math.max(0, solAmount - availableSol);
+        const usdcShortfall = Math.max(0, usdcAmount - actualUsdc);
+
+        let swapParams: any = null;
+
+        // Determine swap direction based on shortfall
+        if (solShortfall > 0 && usdcShortfall === 0) {
+          // Need more SOL, have enough USDC - swap USDC → SOL
+          const usdcToSwap = solShortfall * currentPrice * 1.02; // +2% buffer for slippage
+          if (actualUsdc >= usdcToSwap) {
+            swapParams = {
+              inputMint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
+              outputMint: 'So11111111111111111111111111111111111111112', // SOL
+              amount: usdcToSwap,
+            };
+            log.info('Swap USDC → SOL to reach target', {
+              solShortfall,
+              usdcToSwap,
+              expectedSolOutput: solShortfall,
+            });
+          } else {
+            throw new Error(`Insufficient USDC for swap. Need ${usdcToSwap}, have ${actualUsdc}`);
+          }
+        } else if (usdcShortfall > 0 && solShortfall === 0) {
+          // Need more USDC, have enough SOL - swap SOL → USDC
+          const solToSwap = (usdcShortfall / currentPrice) * 1.02; // +2% buffer for slippage
+          if (availableSol >= solToSwap) {
+            swapParams = {
+              inputMint: 'So11111111111111111111111111111111111111112', // SOL
+              outputMint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
+              amount: solToSwap,
+            };
+            log.info('Swap SOL → USDC to reach target', {
+              usdcShortfall,
+              solToSwap,
+              expectedUsdcOutput: usdcShortfall,
+            });
+          } else {
+            throw new Error(`Insufficient SOL for swap. Need ${solToSwap}, have ${availableSol}`);
+          }
+        } else if (solShortfall > 0 && usdcShortfall > 0) {
+          throw new Error(`Insufficient balance for both SOL and USDC. Need ${solShortfall} more SOL and ${usdcShortfall} more USDC`);
+        }
+
+        if (!swapParams) {
+          throw new Error('Could not calculate swap parameters');
+        }
+
+        // Execute swap
+        log.info('🔄 Executing swap transaction');
+        const swapResult = await this.jupiterSwapper.executeSwap(swapParams);
+
+        log.info('✅ Swap completed successfully', {
+          signature: swapResult.signature,
+          inputAmount: swapResult.inputAmount,
+          outputAmount: swapResult.outputAmount,
+          priceImpact: swapResult.priceImpactPct,
+          solscan: `https://solscan.io/tx/${swapResult.signature}`,
+        });
+
+        // Wait for balance to update
+        log.info('Waiting 2s for balance to settle...');
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+
+      // ========================================================================
+      // POSITION CREATION: Now create position with updated balance
+      // ========================================================================
+      log.info('📍 Creating new position with current balance');
+
       // Attempt to create position with intelligent retry
       let attempt = 0;
       let newPositionMint = '';
       let createSignatures: string[] = [];
       let lastError: Error | null = null;
-      let usedSwap = false;
+      let usedSwap = needsSwap; // Track if we used swap
 
       while (attempt < this.config.autoTuneMaxRetries) {
         attempt++;
@@ -642,279 +803,46 @@ export class AutoTuneOrchestrator {
         try {
           log.info(`🎯 Attempt ${attempt}/${this.config.autoTuneMaxRetries}: Creating position`);
 
-          // ATTEMPT 1: Try WITHOUT swap first (normal priority)
-          if (attempt === 1) {
-            const result = await this.meteoraAdapter.createPosition({
-              poolAddress: this.config.meteoraPoolAddress!,
-              solAmount,
-              usdcAmount,
-              priceLower: priceRange.lowerPrice,
-              priceUpper: priceRange.upperPrice,
-            });
-
-            newPositionMint = result.positionMint;
-            createSignatures.push(result.signature);
-
-            log.info('✅ Position created successfully WITHOUT swap', {
-              positionMint: newPositionMint,
-              signature: result.signature,
-            });
-
-            break; // Success!
-          }
-
-          // ATTEMPT 2+: If retrying due to network error (not insufficient funds)
-          // Use escalated Jito tips
-          if (attempt > 1 && !usedSwap) {
-            // Calculate escalated tip: base → 1.5x → 2x → 2.5x
-            const escalationFactor = 1 + (attempt - 1) * 0.5;
-            const maxEscalationFactor = 3; // Cap at 3x base tip
-            const finalFactor = Math.min(escalationFactor, maxEscalationFactor);
-
-            log.warn(`⚠️  Retrying with escalated Jito tip`, {
-              attempt,
-              escalationFactor: finalFactor,
-            });
-
-            const result = await this.meteoraAdapter.createPosition({
-              poolAddress: this.config.meteoraPoolAddress!,
-              solAmount,
-              usdcAmount,
-              priceLower: priceRange.lowerPrice,
-              priceUpper: priceRange.upperPrice,
-            });
-
-            newPositionMint = result.positionMint;
-            createSignatures.push(result.signature);
-
-            log.info('✅ Position created successfully with escalated tips', {
-              positionMint: newPositionMint,
-              signature: result.signature,
-              attempt,
-            });
-
-            break; // Success!
-          }
-
-          // ATTEMPTS 2+: Should only reach here if first attempt failed with insufficient funds
-          // This means we need to swap
-          if (!usedSwap) {
-            log.errorBanner('Insufficient funds detected - attempting swap + create bundle', {
-              attempt,
-              requiredSol: solAmount,
-              requiredUsdc: usdcAmount,
-            });
-
-            // Step 1: Check wallet balances
-            const wallet = getWalletKeypair();
-            const solBalance = await connection.getBalance(wallet.publicKey);
-            const actualSol = solBalance / Math.pow(10, 9);
-            const actualUsdc = await this.getUsdcBalance();
-
-            log.info('Wallet balances', {
-              actualSol,
-              actualUsdc,
-              requiredSol: solAmount,
-              requiredUsdc: usdcAmount,
-            });
-
-            // Step 2: Calculate swap needed
-            const swapParams = this.jupiterSwapper.calculateRebalanceSwap(
-              actualSol,
-              actualUsdc,
-              currentPrice,
-              50 // Target 50% SOL
-            );
-
-            if (!swapParams) {
-              throw new Error('Cannot calculate swap parameters - wallet may have no funds');
-            }
-
-            log.info('Calculated swap needed', swapParams);
-
-            // Step 3: Get swap transaction
-            const swapTxResult = await this.jupiterSwapper.getSwapTransaction(swapParams);
-
-            log.info('Got swap transaction', {
-              inputAmount: swapTxResult.inputAmount,
-              outputAmount: swapTxResult.outputAmount,
-              priceImpact: swapTxResult.priceImpactPct,
-            });
-
-            // Step 4: Get create position transaction for bundling
-            log.info('🔗 Building atomic Jito bundle: [swap + create position + tip]');
-
-            // Calculate escalation for bundle attempts
-            const bundleAttempt = attempt - 1; // First swap attempt is attempt 2, so bundleAttempt = 1
-
-            // Build create position transaction WITHOUT embedded Jito tip
-            // Tip will be added as separate transaction at end of bundle
-            // For bundles, only the bundle tip matters (not priority fees inside txs)
-            const createTxResult = await this.meteoraAdapter.getCreatePositionTransaction({
-              poolAddress: this.config.meteoraPoolAddress!,
-              solAmount,
-              usdcAmount,
-              priceLower: priceRange.lowerPrice,
-              priceUpper: priceRange.upperPrice,
-            }, undefined); // NO jitoConfig - avoid duplicate tips!
-
-            log.info('Got create position transaction', {
-              positionMint: createTxResult.positionKeypair.publicKey.toBase58(),
-              solAmount: createTxResult.solAmount,
-              usdcAmount: createTxResult.usdcAmount,
-            });
-
-            // Step 5: Sign both transactions
-            swapTxResult.transaction.sign([wallet]);
-            createTxResult.transaction.feePayer = wallet.publicKey;
-            createTxResult.transaction.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-            createTxResult.transaction.partialSign(wallet, createTxResult.positionKeypair);
-
-            // Step 6: Create Jito tip transaction (REQUIRED for bundles to land!)
-            const { submitJitoBundle, getBundleStatus, createBundleTipTransaction } = await import('../utils/jitoUtils.js');
-
-            const tipPriority = bundleAttempt === 1 ? 'normal' : 'high';
-            const tipTx = await createBundleTipTransaction(
-              wallet,
-              {
-                priority: tipPriority,
-                attempt: bundleAttempt - 1,
-              },
-              connection
-            );
-
-            log.info('Created Jito tip transaction for bundle', {
-              priority: tipPriority,
-              attempt: bundleAttempt - 1,
-            });
-
-            // Step 7: Submit as Jito bundle (swap + create + tip)
-            if (this.config.useJito) {
-              log.info('📦 Submitting atomic Jito bundle with tip');
-
-              const bundle = await submitJitoBundle([
-                Buffer.from(swapTxResult.transaction.serialize()).toString('base64'),
-                Buffer.from(createTxResult.transaction.serialize()).toString('base64'),
-                Buffer.from(tipTx.serialize()).toString('base64'), // Tip MUST be last
-              ], true);
-
-              log.info('Bundle submitted to Jito', { bundleId: bundle.bundleId });
-
-              // Poll bundle status (max 30 seconds)
-              let bundleConfirmed = false;
-              const maxPollTime = 30000; // 30 seconds
-              const pollInterval = 2000; // 2 seconds
-              const startPoll = Date.now();
-
-              while (!bundleConfirmed && Date.now() - startPoll < maxPollTime) {
-                await new Promise(resolve => setTimeout(resolve, pollInterval));
-
-                const status = await getBundleStatus(bundle.bundleId);
-
-                if (status.status === 'landed') {
-                  bundleConfirmed = true;
-                  log.info('✅ Jito bundle landed on-chain', {
-                    bundleId: bundle.bundleId,
-                    slot: status.landedSlot,
-                    transactions: status.transactions,
-                  });
-
-                  // Extract signatures from bundle status
-                  if (status.transactions && status.transactions.length >= 2) {
-                    createSignatures.push(...status.transactions);
-                  }
-                  break;
-                } else if (status.status === 'failed') {
-                  throw new Error(`Jito bundle failed: ${bundle.bundleId}`);
-                }
-
-                log.debug('Bundle status', { status: status.status, elapsed: Date.now() - startPoll });
-              }
-
-              if (!bundleConfirmed) {
-                throw new Error('Jito bundle confirmation timeout after 30s');
-              }
-            } else {
-              // Fallback: Execute sequentially if Jito disabled
-              log.warn('⚠️  Jito disabled, executing swap and create sequentially');
-
-              const swapSig = await connection.sendTransaction(swapTxResult.transaction, {
-                skipPreflight: true,
-                maxRetries: 3,
-              });
-
-              log.info('Swap transaction submitted', { signature: swapSig });
-              const swapBlockhash = await connection.getLatestBlockhash();
-              await connection.confirmTransaction({
-                signature: swapSig,
-                ...swapBlockhash,
-              });
-              log.info('✅ Swap confirmed');
-
-              const createSig = await connection.sendRawTransaction(
-                createTxResult.transaction.serialize(),
-                {
-                  skipPreflight: false,
-                  preflightCommitment: 'confirmed',
-                }
-              );
-
-              log.info('Create position transaction submitted', { signature: createSig });
-              const createBlockhash = await connection.getLatestBlockhash();
-              await connection.confirmTransaction({
-                signature: createSig,
-                ...createBlockhash,
-              });
-              log.info('✅ Position created');
-
-              createSignatures.push(swapSig, createSig);
-            }
-
-            newPositionMint = createTxResult.positionKeypair.publicKey.toBase58();
-
-            log.info('✅ Position created successfully WITH swap', {
-              positionMint: newPositionMint,
-              signatures: createSignatures,
-            });
-
-            usedSwap = true;
-            break; // Success!
-          }
-
-        } catch (error) {
-          lastError = error instanceof Error ? error : new Error(String(error));
-
-          // Check if insufficient funds error
-          const isInsufficientFunds = this.isInsufficientFundsError(lastError);
-
-          log.errorBanner(`Attempt ${attempt} failed: ${lastError.message}`, {
-            attempt,
-            maxRetries: this.config.autoTuneMaxRetries,
-            isInsufficientFunds,
-            willRetry: attempt < this.config.autoTuneMaxRetries,
+          // Create position directly (swap already executed if needed)
+          const result = await this.meteoraAdapter.createPosition({
+            poolAddress: this.config.meteoraPoolAddress!,
+            solAmount,
+            usdcAmount,
+            priceLower: priceRange.lowerPrice,
+            priceUpper: priceRange.upperPrice,
           });
 
-          // If insufficient funds on first attempt, retry with swap
-          if (isInsufficientFunds && attempt === 1) {
-            usedSwap = true;
-            log.warn('⚠️  Will retry with Jupiter swap bundling');
-            continue;
-          }
+          newPositionMint = result.positionMint;
+          createSignatures.push(result.signature);
 
-          // If not insufficient funds, escalate Jito tips and retry
-          if (!isInsufficientFunds && attempt < this.config.autoTuneMaxRetries) {
-            log.info('Non-fund error detected, will retry with escalated tips on next attempt');
-            continue;
-          }
+          log.info('✅ Position created successfully', {
+            positionMint: newPositionMint,
+            signature: result.signature,
+            solscan: `https://solscan.io/tx/${result.signature}`,
+          });
 
-          // Max retries reached
+          break; // Success - exit retry loop
+
+        } catch (error) {
+          lastError = error as Error;
+          log.error(`❌ Attempt ${attempt} failed`, {
+            error: lastError.message,
+            attempt,
+            maxRetries: this.config.autoTuneMaxRetries,
+          });
+
           if (attempt >= this.config.autoTuneMaxRetries) {
-            log.errorBanner('MAX RETRIES REACHED - Rebalance failed', {
-              attempts: attempt,
+            log.error('🔴 All position creation attempts failed', {
+              totalAttempts: attempt,
               lastError: lastError.message,
             });
             throw lastError;
           }
+
+          // Wait before retry
+          const waitMs = 1000 * attempt; // Exponential backoff
+          log.info(`Waiting ${waitMs}ms before retry...`);
+          await new Promise(resolve => setTimeout(resolve, waitMs));
         }
       }
 
@@ -965,6 +893,361 @@ export class AutoTuneOrchestrator {
         error: errorMessage,
         durationMs,
       };
+    }
+  }
+
+  /**
+   * Create initial position when auto-tune starts with no existing positions
+   * Uses configuration from .env (INITIAL_DEPOSIT_SOL, INITIAL_DEPOSIT_USDC, PRICE_RANGE_BPS)
+   * Includes pre-flight balance check and automatic swap if needed
+   */
+  private async createInitialPosition(): Promise<void> {
+    const startTime = Date.now();
+
+    log.info('🆕 Creating initial position for auto-tune', {
+      poolAddress: this.config.meteoraPoolAddress,
+      depositSol: this.config.initialDepositSol,
+      depositUsdc: this.config.initialDepositUsdc,
+      binCount: this.config.autoTuneBinCount,
+    });
+
+    try {
+      // Get current price and pool info
+      const connection = getConnection();
+      const poolPubkey = new PublicKey(this.config.meteoraPoolAddress!);
+      const dlmmPool = await DLMM.create(connection, poolPubkey);
+
+      const activeBinData = await getActiveBin(dlmmPool);
+      const activeBinPrice = activeBinData.pricePerToken;
+      const currentBinId = activeBinData.binId;
+      const binStep = dlmmPool.lbPair.binStep;
+
+      log.info('Pool state', {
+        currentPrice: activeBinPrice,
+        activeBinId: currentBinId,
+        binStep,
+      });
+
+      // Calculate centered price range for initial position
+      const priceRange = calculateCenteredPriceRange(
+        activeBinPrice,
+        currentBinId,
+        binStep,
+        this.config.autoTuneBinCount,
+        DECIMALS.SOL,
+        DECIMALS.USDC
+      );
+
+      log.info('Calculated price range for initial position', {
+        lowerPrice: priceRange.lowerPrice,
+        upperPrice: priceRange.upperPrice,
+        binCount: this.config.autoTuneBinCount,
+      });
+
+      // Use AUTO_TUNE_DEPOSIT_TOKEN and AUTO_TUNE_DEPOSIT_AMOUNT (same as rebalance)
+      // Calculate balanced deposits for the centered price range
+      const baseToken = this.config.autoTuneDepositToken;
+      const baseAmount = this.config.autoTuneDepositAmount;
+
+      let solAmount: number;
+      let usdcAmount: number;
+
+      if (baseToken === 'SOL') {
+        // Base is SOL: calculate USDC needed for balanced position
+        solAmount = baseAmount;
+        // For balanced position around active bin, we need roughly equal USD value
+        usdcAmount = solAmount * activeBinPrice;
+      } else {
+        // Base is USDC: calculate SOL needed for balanced position
+        usdcAmount = baseAmount;
+        // For balanced position, roughly equal USD value
+        solAmount = usdcAmount / activeBinPrice;
+      }
+
+      log.info('Calculated initial deposit amounts (balanced for centered range)', {
+        baseToken,
+        baseAmount,
+        sol: solAmount,
+        usdc: usdcAmount,
+        activeBinPrice,
+        totalValueUsd: solAmount * activeBinPrice + usdcAmount,
+      });
+
+      // ========================================================================
+      // PRE-FLIGHT CHECK: Determine if we need to swap before position creation
+      // ========================================================================
+      const wallet = getWalletKeypair();
+      const solBalance = await connection.getBalance(wallet.publicKey);
+      const actualSol = solBalance / Math.pow(10, 9);
+      const actualUsdc = await this.getUsdcBalance();
+
+      log.info('💰 Pre-flight wallet balance check', {
+        actualSol,
+        actualUsdc,
+        requiredSol: solAmount,
+        requiredUsdc: usdcAmount,
+        hasSufficientSol: actualSol >= solAmount,
+        hasSufficientUsdc: actualUsdc >= usdcAmount,
+      });
+
+      // Determine if swap is needed BEFORE any attempts
+      const needsSwap = actualSol < solAmount || actualUsdc < usdcAmount;
+
+      if (needsSwap) {
+        log.warn('⚠️  Insufficient balance detected - swap will be required', {
+          missingToken: actualSol < solAmount ? 'SOL' : 'USDC',
+          shortfall: actualSol < solAmount
+            ? { token: 'SOL', need: solAmount, have: actualSol, missing: solAmount - actualSol }
+            : { token: 'USDC', need: usdcAmount, have: actualUsdc, missing: usdcAmount - actualUsdc },
+        });
+
+        // Get current price for swap calculation
+        const solPriceData = await getSolPrice();
+        const currentPrice = solPriceData.usd;
+
+        // Calculate exact swap needed to cover the shortfall
+        let swapParams: { inputMint: string; outputMint: string; amount: number };
+
+        if (actualSol < solAmount) {
+          // Need more SOL: swap USDC → SOL
+          const missingSol = solAmount - actualSol;
+          const missingUsdValue = missingSol * currentPrice;
+          // Add 1% buffer for price impact and fees
+          const swapAmount = missingUsdValue * 1.01;
+
+          swapParams = {
+            inputMint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
+            outputMint: 'So11111111111111111111111111111111111111112', // SOL
+            amount: swapAmount,
+          };
+
+          log.info('Swapping USDC → SOL to cover shortfall', {
+            missingSol,
+            swapAmountUsdc: swapAmount,
+          });
+        } else {
+          // Need more USDC: swap SOL → USDC
+          const missingUsdc = usdcAmount - actualUsdc;
+          const missingSolEquiv = missingUsdc / currentPrice;
+          // Add 1% buffer for price impact and fees
+          const swapAmount = missingSolEquiv * 1.01;
+
+          swapParams = {
+            inputMint: 'So11111111111111111111111111111111111111112', // SOL
+            outputMint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
+            amount: swapAmount,
+          };
+
+          log.info('Swapping SOL → USDC to cover shortfall', {
+            missingUsdc,
+            swapAmountSol: swapAmount,
+          });
+        }
+
+        log.info('Calculated swap needed', swapParams);
+
+        // Check if we should use single-transaction composition or Jito bundles
+        if (this.config.useJito) {
+          // Jito bundle mode: Use separate transactions with bundle submission
+          log.info('🔗 Building atomic Jito bundle: [swap + create position + tip]');
+
+          // Get swap transaction
+          const swapTxResult = await this.jupiterSwapper.getSwapTransaction(swapParams);
+
+          log.info('Got swap transaction', {
+            inputAmount: swapTxResult.inputAmount,
+            outputAmount: swapTxResult.outputAmount,
+            priceImpact: swapTxResult.priceImpactPct,
+          });
+
+          // Get create position transaction
+          const createTxResult = await this.meteoraAdapter.getCreatePositionTransaction({
+            poolAddress: this.config.meteoraPoolAddress!,
+            solAmount,
+            usdcAmount,
+            priceLower: priceRange.lowerPrice,
+            priceUpper: priceRange.upperPrice,
+          }, undefined);
+
+          log.info('Got create position transaction', {
+            positionMint: createTxResult.positionKeypair.publicKey.toBase58(),
+          });
+
+          // Sign both transactions
+          swapTxResult.transaction.sign([wallet]);
+          createTxResult.transaction.feePayer = wallet.publicKey;
+          createTxResult.transaction.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+          createTxResult.transaction.partialSign(wallet, createTxResult.positionKeypair);
+
+          // Create Jito tip transaction
+          const { submitJitoBundle, getBundleStatus, createBundleTipTransaction } = await import('../utils/jitoUtils.js');
+
+          const tipTx = await createBundleTipTransaction(
+            wallet,
+            { priority: 'normal', attempt: 0 },
+            connection
+          );
+
+          log.info('Created Jito tip transaction for bundle');
+
+          // Submit as Jito bundle
+          log.info('📦 Submitting atomic Jito bundle with tip');
+
+          const bundle = await submitJitoBundle([
+            Buffer.from(swapTxResult.transaction.serialize()).toString('base64'),
+            Buffer.from(createTxResult.transaction.serialize()).toString('base64'),
+            Buffer.from(tipTx.serialize()).toString('base64'),
+          ], true);
+
+          log.info('Bundle submitted', { bundleId: bundle.bundleId });
+
+          // Poll for bundle status
+          let bundleConfirmed = false;
+          const maxPollTime = 30000;
+          const pollInterval = 2000;
+          const startPoll = Date.now();
+
+          while (!bundleConfirmed && Date.now() - startPoll < maxPollTime) {
+            await new Promise(resolve => setTimeout(resolve, pollInterval));
+
+            const status = await getBundleStatus(bundle.bundleId);
+
+            if (status.status === 'landed') {
+              bundleConfirmed = true;
+              const positionMint = createTxResult.positionKeypair.publicKey.toBase58();
+
+              log.info('✅ Jito bundle landed! Initial position created with swap', {
+                bundleId: bundle.bundleId,
+                positionMint,
+                slot: status.landedSlot,
+              });
+
+              // Save position mint to state
+              this.state.currentPositionMint = positionMint;
+              this.state.lastPositionCreated = {
+                positionMint,
+                initialDeposit: { sol: solAmount, usdc: usdcAmount },
+                timestamp: Date.now(),
+              };
+              saveAutoTuneState(this.state);
+              return;
+            } else if (status.status === 'failed') {
+              throw new Error(`Jito bundle failed: ${bundle.bundleId}`);
+            }
+          }
+
+          if (!bundleConfirmed) {
+            throw new Error('Jito bundle confirmation timeout after 30s');
+          }
+        } else {
+          // Single-transaction composition mode (NEW!)
+          log.info('🔧 Using single-transaction composition for atomic swap + create');
+
+          // Get swap instructions (not full transaction)
+          const swapInstructions = await this.jupiterSwapper.getSwapInstructions(swapParams);
+
+          log.info('Got swap instructions', {
+            setupCount: swapInstructions.setupInstructions?.length || 0,
+            hasSwap: !!swapInstructions.swapInstruction,
+            hasCleanup: !!swapInstructions.cleanupInstruction,
+            inputAmount: swapInstructions.inputAmount,
+            outputAmount: swapInstructions.outputAmount,
+            priceImpact: swapInstructions.priceImpactPct,
+          });
+
+          // Get create position transaction
+          const createTxResult = await this.meteoraAdapter.getCreatePositionTransaction({
+            poolAddress: this.config.meteoraPoolAddress!,
+            solAmount,
+            usdcAmount,
+            priceLower: priceRange.lowerPrice,
+            priceUpper: priceRange.upperPrice,
+          }, undefined);
+
+          log.info('Got create position transaction', {
+            positionMint: createTxResult.positionKeypair.publicKey.toBase58(),
+          });
+
+          // Compose into single atomic transaction
+          const composed = await composeSwapAndCreatePosition(
+            connection,
+            wallet,
+            swapInstructions,
+            createTxResult.transaction,
+            createTxResult.positionKeypair
+          );
+
+          log.info('✅ Composed single atomic transaction', {
+            totalInstructions: composed.transaction.message.compiledInstructions.length,
+            signers: composed.additionalSigners.length + 1,
+          });
+
+          // Sign and send with correct blockhash for confirmation
+          const signature = await signAndSendComposedTransaction(
+            connection,
+            composed.transaction,
+            [wallet, ...composed.additionalSigners],
+            composed.blockhash,
+            composed.lastValidBlockHeight
+          );
+
+          const positionMint = createTxResult.positionKeypair.publicKey.toBase58();
+
+          log.info('✅ Single atomic transaction confirmed! Swap + position created', {
+            signature,
+            positionMint,
+            solscan: `https://solscan.io/tx/${signature}`,
+          });
+
+          // Save position mint to state
+          this.state.currentPositionMint = positionMint;
+          this.state.lastPositionCreated = {
+            positionMint,
+            initialDeposit: { sol: solAmount, usdc: usdcAmount },
+            timestamp: Date.now(),
+          };
+          saveAutoTuneState(this.state);
+        }
+      } else {
+        // No swap needed - create position directly
+        log.info('✅ Wallet has sufficient balance - creating position without swap');
+
+        const result = await this.meteoraAdapter.createPosition({
+          poolAddress: this.config.meteoraPoolAddress!,
+          solAmount,
+          usdcAmount,
+          priceLower: priceRange.lowerPrice,
+          priceUpper: priceRange.upperPrice,
+        });
+
+        log.info('✅ Initial position created successfully', {
+          positionMint: result.positionMint,
+          signature: result.signature,
+        });
+
+        // Save position mint to state
+        this.state.currentPositionMint = result.positionMint;
+        this.state.lastPositionCreated = {
+          positionMint: result.positionMint,
+          initialDeposit: { sol: solAmount, usdc: usdcAmount },
+          timestamp: Date.now(),
+        };
+        saveAutoTuneState(this.state);
+      }
+
+      const durationMs = Date.now() - startTime;
+      log.info('✅ Initial position creation completed', {
+        positionMint: this.state.currentPositionMint,
+        durationMs,
+      });
+
+    } catch (error) {
+      const durationMs = Date.now() - startTime;
+      log.error('Failed to create initial position', {
+        error: error instanceof Error ? error.message : String(error),
+        durationMs,
+      });
+      throw error;
     }
   }
 

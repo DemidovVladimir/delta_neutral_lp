@@ -29,7 +29,9 @@ async function checkPool() {
     const priceRangeBpsLower = config.priceRangeBpsLower || -340;
     const priceRangeBpsUpper = config.priceRangeBpsUpper || 340;
 
-    const currentPrice = parseFloat(poolInfo.currentPrice);
+    const currentPrice = typeof poolInfo.currentPrice === 'number'
+      ? poolInfo.currentPrice
+      : parseFloat(poolInfo.currentPrice);
     const priceLower = currentPrice * (1 + priceRangeBpsLower / 10000);
     const priceUpper = currentPrice * (1 + priceRangeBpsUpper / 10000);
 

@@ -81,8 +81,8 @@ async function runMainnetTest(): Promise<TestResults> {
     const wallet = getWalletKeypair();
     const cfg = getConfig();
 
-    log.info('Wallet:', wallet.publicKey.toBase58());
-    log.info('Pool:', cfg.meteoraPoolAddress);
+    log.info('Wallet:', { address: wallet.publicKey.toBase58() });
+    log.info('Pool:', { address: cfg.meteoraPoolAddress });
 
     // Check balances
     log.info('\n[2/5] Checking balances...');

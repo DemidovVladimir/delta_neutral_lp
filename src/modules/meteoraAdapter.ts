@@ -759,8 +759,10 @@ export class MeteoraAdapter {
         // Convert BN amounts to numbers with proper decimals
         const solAmount = parseFloat(pos.positionData.totalXAmount) / 10 ** DECIMALS.SOL;
         const usdcAmount = parseFloat(pos.positionData.totalYAmount) / 10 ** DECIMALS.USDC;
-        const claimableSol = pos.positionData.feeX.toNumber() / 10 ** DECIMALS.SOL;
-        const claimableUsdc = pos.positionData.feeY.toNumber() / 10 ** DECIMALS.USDC;
+
+        // Use parseFloat for fees to avoid BN precision issues
+        const claimableSol = parseFloat(pos.positionData.feeX.toString()) / 10 ** DECIMALS.SOL;
+        const claimableUsdc = parseFloat(pos.positionData.feeY.toString()) / 10 ** DECIMALS.USDC;
 
         totalSol += solAmount;
         totalUsdc += usdcAmount;
@@ -1179,21 +1181,35 @@ export class MeteoraAdapter {
       const connection = getConnection();
       const wallet = getWalletKeypair();
 
+      log.info('Step 1: Creating DLMM pool instance...');
       const positionPubkey = new PublicKey(positionMint);
       const poolPubkey = new PublicKey(this.config.meteoraPoolAddress!);
       const dlmmPool = await DLMM.create(connection, poolPubkey);
+      log.info('✅ DLMM pool instance created');
 
       // Get position data
+      log.info('Step 2: Fetching user positions...');
       const { userPositions } = await dlmmPool.getPositionsByUserAndLbPair(wallet.publicKey);
+      log.info('✅ User positions fetched', { count: userPositions.length });
+
+      log.info('Step 3: Finding position in user positions...');
       const position = userPositions.find((p: any) => p.publicKey.equals(positionPubkey));
 
       if (!position) {
+        log.error('❌ Position not found!', {
+          searchingFor: positionMint,
+          availablePositions: userPositions.map((p: any) => p.publicKey.toBase58()),
+        });
         throw new Error('Position not found');
       }
+      log.info('✅ Position found');
 
       // Calculate claimable fees before withdrawal
-      const claimableSol = position.positionData.feeX.toNumber() / 10 ** DECIMALS.SOL;
-      const claimableUsdc = position.positionData.feeY.toNumber() / 10 ** DECIMALS.USDC;
+      log.info('Step 4: Calculating claimable fees...');
+      // Use parseFloat with toString() to avoid BN precision issues
+      const claimableSol = parseFloat(position.positionData.feeX.toString()) / 10 ** DECIMALS.SOL;
+      const claimableUsdc = parseFloat(position.positionData.feeY.toString()) / 10 ** DECIMALS.USDC;
+      log.info('✅ Fees calculated');
 
       log.info('Position details', {
         lowerBinId: position.positionData.lowerBinId,
@@ -1201,9 +1217,16 @@ export class MeteoraAdapter {
         claimableFees: { sol: claimableSol, usdc: claimableUsdc },
       });
 
+      log.info('🔄 Calling Meteora SDK removeLiquidity...', {
+        fromBinId: position.positionData.lowerBinId,
+        toBinId: position.positionData.upperBinId,
+        withdrawPercentage: '100%',
+      });
+
       // SDK's removeLiquidity with shouldClaimAndClose=true creates ONE TRANSACTION
       // that includes all instructions for withdraw + claim + close atomically
-      const withdrawTxs = await dlmmPool.removeLiquidity({
+      // Add timeout to prevent hanging forever
+      const removeLiquidityPromise = dlmmPool.removeLiquidity({
         user: wallet.publicKey,
         position: positionPubkey,
         fromBinId: position.positionData.lowerBinId,
@@ -1212,6 +1235,15 @@ export class MeteoraAdapter {
         shouldClaimAndClose: true, // ATOMIC: withdraw + claim + close in ONE TX
         skipUnwrapSOL: false,
       });
+
+      // Add 30 second timeout
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('removeLiquidity timeout after 30s')), 30000)
+      );
+
+      const withdrawTxs = await Promise.race([removeLiquidityPromise, timeoutPromise]) as any[];
+
+      log.info('✅ SDK removeLiquidity returned', { txCount: withdrawTxs.length });
 
       if (withdrawTxs.length === 0) {
         throw new Error('No withdraw transactions returned from SDK');
@@ -1231,7 +1263,8 @@ export class MeteoraAdapter {
 
       // Sign and send transaction
       tx.feePayer = wallet.publicKey;
-      tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
+      tx.recentBlockhash = blockhash;
       tx.sign(wallet);
 
       const signature = await connection.sendRawTransaction(tx.serialize(), {
@@ -1245,11 +1278,11 @@ export class MeteoraAdapter {
         solscan: `https://solscan.io/tx/${signature}`,
       });
 
-      // Wait for confirmation
-      const latestBlockhash = await connection.getLatestBlockhash();
+      // Wait for confirmation using the SAME blockhash we used when building the transaction
       await connection.confirmTransaction({
         signature,
-        ...latestBlockhash,
+        blockhash,
+        lastValidBlockHeight,
       });
 
       log.info('✅ Withdraw + Claim + Close completed successfully (1 TX)', {
@@ -1340,8 +1373,9 @@ export class MeteoraAdapter {
       }
 
       // Calculate claimable fees before operations
-      const claimableSol = position.positionData.feeX.toNumber() / 10 ** DECIMALS.SOL;
-      const claimableUsdc = position.positionData.feeY.toNumber() / 10 ** DECIMALS.USDC;
+      // Use parseFloat with toString() to avoid BN precision issues
+      const claimableSol = parseFloat(position.positionData.feeX.toString()) / 10 ** DECIMALS.SOL;
+      const claimableUsdc = parseFloat(position.positionData.feeY.toString()) / 10 ** DECIMALS.USDC;
 
       log.info('Step 1: Withdraw + Claim + Close (shouldClaimAndClose=true)', {
         steps: ['SDK handles: Withdraw 100% → Claim fees → Close position'],
@@ -1563,8 +1597,9 @@ export class MeteoraAdapter {
       let totalClaimableUsdc = 0;
 
       for (const pos of ourPositions) {
-        totalClaimableSol += pos.positionData.feeX.toNumber() / 10 ** DECIMALS.SOL;
-        totalClaimableUsdc += pos.positionData.feeY.toNumber() / 10 ** DECIMALS.USDC;
+        // Use parseFloat with toString() to avoid BN precision issues
+        totalClaimableSol += parseFloat(pos.positionData.feeX.toString()) / 10 ** DECIMALS.SOL;
+        totalClaimableUsdc += parseFloat(pos.positionData.feeY.toString()) / 10 ** DECIMALS.USDC;
       }
 
       if (totalClaimableSol === 0 && totalClaimableUsdc === 0) {

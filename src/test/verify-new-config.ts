@@ -2,6 +2,8 @@
  * Verify the new configuration with bin step 4 and ±2% range
  */
 
+// Wrap in IIFE to avoid global scope conflicts
+(function() {
 // New configuration
 const BIN_STEP = 4;
 const PRICE_RANGE_BPS_LOWER = -200; // -2%
@@ -87,3 +89,5 @@ console.log('  New: ±2.0% = ' + binWidth + ' bins (optimal for bin step 4)');
 console.log('  Improvement: ' + (oldBinWidth - binWidth) + ' fewer bins = better capital efficiency');
 
 console.log('\n');
+})();
+

@@ -35,4 +35,4 @@ EXPOSE 3001
 ENTRYPOINT ["dumb-init", "--"]
 
 # Default command: run TypeScript directly with Bun
-CMD ["bun", "run", "src/scripts/auto-tune.ts"]
+CMD ["bun", "run", "src/cli/auto-tune.ts"]
