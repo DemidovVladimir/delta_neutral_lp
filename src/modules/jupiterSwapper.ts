@@ -51,7 +51,7 @@
  */
 
 import { VersionedTransaction } from '@solana/web3.js';
-import { getConnection, getWalletKeypair } from '../core/agentKit.js';
+import { getConnection, getWalletKeypair } from '../utils/solana.js';
 import { log } from '../utils/logger.js';
 import { getConfig } from '../config/env.js';
 import { TransactionError } from '../types/index.js';
@@ -154,7 +154,7 @@ export class JupiterSwapper {
       url.searchParams.append('outputMint', params.outputMint);
       url.searchParams.append('amount', inputAmount);
       url.searchParams.append('slippageBps', slippageBps.toString());
-      url.searchParams.append('onlyDirectRoutes', 'false');
+      url.searchParams.append('onlyDirectRoutes', 'false'); // Allow all routes for best prices
       url.searchParams.append('asLegacyTransaction', 'false'); // Use versioned transactions
 
       log.debug('Fetching Jupiter swap quote', {
@@ -239,8 +239,11 @@ export class JupiterSwapper {
           quoteResponse: quote,
           userPublicKey: walletPubkey,
           wrapAndUnwrapSol: true, // Automatically wrap/unwrap SOL
-          dynamicComputeUnitLimit: true, // Let Jupiter optimize compute units
-          prioritizationFeeLamports: this.config.jupiterPriorityFeeLamports ?? 80000,
+          // Let Jupiter simulate and determine optimal compute units
+          // When dynamicComputeUnitLimit is not set, Jupiter will simulate the transaction
+          // and set compute units based on actual usage + buffer
+          // Use higher priority fee for swaps (3x normal) to ensure fast confirmation
+          computeUnitPriceMicroLamports: (this.config.priorityFeeMicroLamports || 50000) * 3,
         }),
       });
 
@@ -311,20 +314,52 @@ export class JupiterSwapper {
       const wallet = getWalletKeypair();
       swapTx.transaction.sign([wallet]);
 
-      // Execute transaction
+      // Execute transaction (use sendRawTransaction for VersionedTransaction)
       const connection = getConnection();
-      const signature = await connection.sendTransaction(swapTx.transaction, {
-        skipPreflight: true,
-        maxRetries: 3,
+      const rawTransaction = swapTx.transaction.serialize();
+
+      const signature = await connection.sendRawTransaction(rawTransaction, {
+        skipPreflight: false, // Enable preflight to catch errors early
+        preflightCommitment: 'confirmed',
+        maxRetries: 5, // More retries for better delivery
       });
 
-      log.debug('Swap transaction sent', { signature });
+      log.info('🔄 Swap transaction sent, waiting for confirmation...', {
+        signature,
+        solscan: `https://solscan.io/tx/${signature}`,
+      });
 
-      // Confirm transaction
-      const confirmation = await connection.confirmTransaction(signature, 'confirmed');
+      // Poll for confirmation with timeout (30 seconds max)
+      const confirmationTimeout = 30000; // 30 seconds
+      const startConfirmTime = Date.now();
+      let confirmed = false;
 
-      if (confirmation.value.err) {
-        throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
+      while (!confirmed && Date.now() - startConfirmTime < confirmationTimeout) {
+        try {
+          const status = await connection.getSignatureStatus(signature);
+
+          if (status?.value?.confirmationStatus === 'confirmed' ||
+              status?.value?.confirmationStatus === 'finalized') {
+            confirmed = true;
+
+            if (status.value.err) {
+              throw new Error(`Transaction failed: ${JSON.stringify(status.value.err)}`);
+            }
+
+            log.debug('Transaction confirmed', { confirmationStatus: status.value.confirmationStatus });
+            break;
+          }
+
+          // Wait 1 second before next poll
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        } catch (error) {
+          log.debug('Confirmation poll error (will retry)', { error: String(error) });
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }
+
+      if (!confirmed) {
+        throw new Error(`Transaction confirmation timeout after ${confirmationTimeout / 1000}s. Signature: ${signature}`);
       }
 
       const durationMs = Date.now() - startTime;
@@ -335,6 +370,14 @@ export class JupiterSwapper {
         outputAmount: swapTx.outputAmount,
         priceImpactPct: swapTx.priceImpactPct,
         durationMs,
+      });
+
+      // Track swap transaction fees (async, don't wait)
+      const { trackTransactionFee } = await import('../utils/transactionUtils.js');
+      const { getSolPrice } = await import('../core/priceOracle.js');
+      const solPriceData = await getSolPrice();
+      trackTransactionFee(connection, signature, 'swap', solPriceData.usd).catch(err => {
+        log.warn('Failed to track swap transaction fee', { error: err.message });
       });
 
       return {

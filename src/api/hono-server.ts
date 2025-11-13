@@ -12,7 +12,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { MeteoraAdapter } from '../modules/meteoraAdapter.js';
 import { getSolPrice, getMultiTokenPrices } from '../core/priceOracle.js';
-import { getConnection } from '../core/agentKit.js';
+import { getConnection } from '../utils/solana.js';
 import { PublicKey } from '@solana/web3.js';
 import DLMMModule from '@meteora-ag/dlmm';
 import { getConfig } from '../config/env.js';

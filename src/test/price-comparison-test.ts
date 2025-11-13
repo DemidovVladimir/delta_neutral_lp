@@ -6,16 +6,16 @@
  */
 
 import { getSolPrice, clearPriceCache } from '../core/priceOracle.js';
-import { initializeAgentKit } from '../core/agentKit.js';
+import { initializeSolana } from '../utils/solana.js';
 import { log } from '../utils/logger.js';
 
 async function testPriceComparison() {
   log.info('=== Testing Dual-Source Price Comparison ===');
 
   try {
-    // Initialize agent kit (required for connection)
-    log.info('Initializing agent kit...');
-    await initializeAgentKit();
+    // Initialize Solana (required for connection)
+    log.info('Initializing Solana...');
+    await initializeSolana();
 
     // Test 1: Fetch prices from both sources
     log.info('\n--- Test 1: Dual-Source Price Fetching ---');

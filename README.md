@@ -13,13 +13,14 @@ This bot earns LP fees from Meteora DLMM pools while minimizing directional expo
 ### Key Features
 
 - ✅ **Automated Position Creation** - No manual setup required
-- 📊 **Delta-Neutral Strategy** - Maintains ΔSOL ≈ 0 through automatic rebalancing
+- 🤖 **Auto-Tune Rebalancing** - Automatic position rebalancing with fee auto-compounding
+- 📊 **Delta-Neutral Strategy** - Maintains ΔSOL ≈ 0 through automatic rebalancing (planned)
 - 🔄 **Meteora DLMM Integration** - Concentrated liquidity with customizable ranges
-- ⚡ **Drift Protocol Hedging** - Perpetual shorts for delta neutrality
-- 🎯 **Jito Bundle Support** - MEV protection and guaranteed execution ordering
+- ⚡ **Drift Protocol Hedging** - Perpetual shorts for delta neutrality (planned)
+- 🔁 **Jupiter Swap Integration** - Automatic token swapping for position balancing
 - 📈 **Real-time Pool Analytics** - Jupiter v6 + Meteora API integration
-- 🛡️ **Risk Management** - Configurable limits on delta, margin, and funding rates
-- 📝 **Comprehensive Logging** - Structured JSON logs with action journal
+- 🛡️ **Risk Management** - Configurable limits with dual reserve system
+- 📝 **Console Logging** - Simplified output with error banners
 
 ## 🏗️ Architecture
 
@@ -48,10 +49,11 @@ This bot earns LP fees from Meteora DLMM pools while minimizing directional expo
 ### Core Modules
 
 - **MeteoraAdapter** - Manages DLMM LP positions (deposits, withdrawals, fee claims)
-- **DriftEngine** - Handles perpetual short positions and collateral management
-- **RiskController** - Enforces delta thresholds, margin requirements, funding rate caps
-- **Bundler** - Executes transactions with Jito bundles and priority fees
-- **Orchestrator** - Main hedge loop and emergency flow coordination
+- **AutoTuneOrchestrator** - Automated position rebalancing with intelligent retry logic
+- **JupiterSwapper** - Token swapping for position balancing
+- **PriceOracle** - Jupiter v6 + Pyth price feeds
+- **DriftEngine** - Handles perpetual short positions (planned)
+- **RiskController** - Enforces delta thresholds and limits (planned)
 
 ## 🚀 Quick Start
 
@@ -94,22 +96,38 @@ INITIAL_DEPOSIT_USDC=1000
 PRICE_RANGE_BPS_LOWER=-100  # -1% from current price
 PRICE_RANGE_BPS_UPPER=100    # +1% from current price
 
-# Risk Parameters
-DELTA_THRESHOLD_SOL=2
-MIN_COLLATERAL_RATIO=0.15
-MAX_SHORT_NOTIONAL_USD=12000
-FUNDING_RATE_CAP_BPS=80
+# Auto-Tune Configuration
+AUTO_TUNE_ENABLED=true
+AUTO_TUNE_BIN_COUNT=20
+AUTO_TUNE_CHECK_INTERVAL_MS=30000
+AUTO_TUNE_IMBALANCE_THRESHOLD=0.8
+AUTO_TUNE_DEPOSIT_TOKEN=SOL
+AUTO_TUNE_DEPOSIT_AMOUNT=1.0
+
+# Wallet Reserves
+MINIMUM_WALLET_BALANCE_SOL=0.2
+RENT_RESERVE_SOL=0.1
+
+# Jupiter Swap Configuration
+SWAP_ENABLED=true
+SWAP_SLIPPAGE_BPS=50
 
 # Transaction Execution (Optimized for 2025)
-USE_JITO=false  # Disabled by default due to DNS issues
-JITO_RELAY_URL=https://mainnet.block-engine.jito.wtf/api/v1/bundles
 PRIORITY_FEE_MICRO_LAMPORTS=50000  # 50,000 µL/CU = moderate priority
 MAX_COMPUTE_UNITS=600000
+JUPITER_PRIORITY_FEE_LAMPORTS=80000
 ```
 
 ### Running the Bot
 
 ```bash
+# Auto-Tune Mode (Automated Rebalancing)
+pnpm auto-tune           # Start auto-tune orchestrator (REAL FUNDS!)
+pnpm auto-tune:watch     # Start with watch mode (visual display)
+
+# API Server
+pnpm api                 # Start API server on port 3001
+
 # Run tests (recommended for initial validation)
 pnpm test:local          # Test on localnet
 pnpm test:mainnet        # Test on mainnet (REAL FUNDS!)
@@ -128,7 +146,7 @@ pnpm lint               # Run ESLint
 pnpm format             # Format code with Prettier
 ```
 
-**Note**: The main hedge loop and CLI commands are planned for future implementation. Currently, you can test individual modules using the test scripts above.
+**Note**: The auto-tune feature is fully functional for automated position rebalancing. The main hedge loop for Drift integration is planned for future implementation.
 
 ## 📊 How It Works
 
@@ -166,8 +184,7 @@ Tests include:
 - ✅ Jupiter API v6 multi-token price fetching
 - ✅ Meteora DLMM API pool analytics
 - ✅ Position composition calculations
-- ✅ Jito dynamic tip escalation
-- ✅ Price oracle utilities
+- ✅ Price oracle utilities (Jupiter + Pyth)
 
 ### Localnet Testing
 
@@ -233,9 +250,17 @@ This script queries Meteora's API to find pools and displays:
 | `MIN_COLLATERAL_RATIO` | Min collateral ratio | `0.15` |
 | `MAX_SHORT_NOTIONAL_USD` | Max short position size | `12000` |
 | `FUNDING_RATE_CAP_BPS` | Max funding rate (BPS) | `80` |
-| `USE_JITO` | Enable Jito bundles | `false` |
+| `AUTO_TUNE_ENABLED` | Enable auto-tune mode | `false` |
+| `AUTO_TUNE_BIN_COUNT` | Number of bins | `20` |
+| `AUTO_TUNE_DEPOSIT_TOKEN` | Deposit token (SOL/USDC) | `SOL` |
+| `AUTO_TUNE_DEPOSIT_AMOUNT` | Deposit amount | `1.0` |
+| `MINIMUM_WALLET_BALANCE_SOL` | Permanent reserve | `0.2` |
+| `RENT_RESERVE_SOL` | Temporary reserve | `0.1` |
+| `SWAP_ENABLED` | Enable Jupiter swaps | `true` |
+| `SWAP_SLIPPAGE_BPS` | Slippage tolerance (BPS) | `50` |
 | `PRIORITY_FEE_MICRO_LAMPORTS` | Priority fee (µL/CU) | `50000` |
 | `MAX_COMPUTE_UNITS` | Max compute units | `600000` |
+| `JUPITER_PRIORITY_FEE_LAMPORTS` | Jupiter swap priority fee | `80000` |
 
 ### Custom Price Ranges
 
@@ -264,53 +289,128 @@ LP_OWNER=your_wallet_address
 
 - **Private Keys**: Never commit `.env` files. Use environment variables or secret managers
 - **RPC Endpoints**: Use authenticated RPCs to prevent rate limiting
-- **Jito Bundles**: Enable for MEV protection on sensitive transactions
+- **Wallet Reserves**: Configure minimum balance to prevent accidental drainage
 - **Risk Limits**: Set conservative limits for initial testing
+- **Start Small**: Test with small deposit amounts first (e.g., 0.1-0.5 SOL)
 
-## 💰 Fee Optimization (2025)
+## 💰 Transaction Costs (2025)
 
-The bot has been optimized for minimal transaction costs to support small position sizes:
+The bot has been optimized for minimal transaction costs using priority fees:
 
-### Transaction Cost Breakdown
+### Cost Breakdown
 
-**Per Rebalance (2 transactions + Jito tip):**
-- Swap transaction: ~35,000 lamports (~$0.0056)
-- Create position: ~35,000 lamports (~$0.0056)
-- Jito tip: ~5,000-20,000 lamports (~$0.0008-$0.003)
-- **Total: ~80,000-95,000 lamports (~$0.013-$0.015)**
+**Per Auto-Tune Rebalance Cycle:**
+- Phase 1 (withdraw+claim+close): ~30,000 lamports (~$0.0048)
+- Swap (if needed): ~80,000 lamports (~$0.013)
+- Phase 2 (create position): ~30,000 lamports (~$0.0048)
+- **Total without swap**: ~60,000 lamports (~$0.01)
+- **Total with swap**: ~140,000 lamports (~$0.022)
 
 ### Key Optimizations
 
-1. **Optimized Compute Units**: Reduced from 1,200,000 to 600,000 CUs (50% reduction)
-2. **Market-Rate Priority Fees**: 50,000 µL/CU (typical 2025 value)
-3. **Single Jito Tip**: Eliminated duplicate tips in bundles (50% savings)
-4. **Bundle Efficiency**: Priority fees optional for Jito bundles
+1. **Optimized Compute Units**: 600,000 CUs per transaction
+2. **Market-Rate Priority Fees**: 50,000 µL/CU (moderate priority for 2025)
+3. **Sequential Execution**: Simple, reliable transaction flow
+4. **No External Dependencies**: Direct @solana/web3.js usage
 
-### Cost Comparison
+### Cost Analysis by Position Size
 
-| Position Size | Old Cost/Rebalance | New Cost/Rebalance | Savings |
-|---------------|--------------------|--------------------|---------|
-| 0.2 SOL (~$32) | ~$0.388 (1.2%) | ~$0.015 (0.05%) | 96% |
-| 1.0 SOL (~$160) | ~$0.388 (0.24%) | ~$0.015 (0.01%) | 96% |
-| 5.0 SOL (~$800) | ~$0.388 (0.05%) | ~$0.015 (0.002%) | 96% |
+| Position Size | Cost per Rebalance | Cost % | Break-even Fees |
+|---------------|--------------------|---------|-----------------|
+| 0.5 SOL (~$80) | ~$0.022 | 0.03% | $0.022 LP fees |
+| 1.0 SOL (~$160) | ~$0.022 | 0.01% | $0.022 LP fees |
+| 5.0 SOL (~$800) | ~$0.022 | 0.003% | $0.022 LP fees |
 
-**With optimized fees, even 0.2 SOL positions are profitable!**
+**Even 0.5 SOL positions are profitable with typical LP fees!**
 
 ## 📈 Monitoring
 
 The bot logs all operations to:
-- **Console**: Real-time activity (structured JSON)
+- **Console**: Real-time activity with simplified format (HH:mm:ss timestamps)
 - **Action Journal**: Historical execution log (`data/journal.json`)
 - **State Snapshots**: Current position state (`data/state.json`)
+- **Auto-Tune State**: Rebalance history (`data/auto-tune-state.json`)
 
 ### Key Metrics to Monitor
 
-- **Delta**: Should stay within threshold
-- **Collateral Ratio**: Should stay above minimum
-- **Funding Rate**: Avoid positions when funding is extreme
+- **Position Composition**: SOL/USDC percentage (triggers rebalance at 80%+)
+- **Total Claimed Fees**: Accumulated fees across all rebalances
+- **Rebalance Count**: Number of successful rebalances
 - **Pool APR/APY**: From Meteora API analytics
-- **Claimable Fees**: Accumulating trading fees
-- **Transaction Costs**: Should stay under 0.1% of position size
+- **Transaction Costs**: Typically ~$0.01-$0.022 per rebalance
+- **Wallet Balances**: Ensure reserves are maintained
+
+### Financial Tracking (NEW!)
+
+The bot automatically tracks **all financial metrics** in `data/state.json` for complete profit calculation:
+
+**Tracked Metrics:**
+- 💸 **Transaction Fees** (costs): All Solana transaction fees paid
+- 💰 **LP Fees** (revenue): Fees earned from providing liquidity
+- 📊 **Claim History**: Complete history of all fee claims with timestamps
+- 📈 **Current Unclaimed Fees**: Real-time tracking of claimable fees
+
+```bash
+# View complete financial summary
+pnpm tsx src/test/view-transaction-fees.ts
+```
+
+**Example output:**
+```
+=== 📊 Delta-Neutral Bot - Financial Summary ===
+
+💸 TRANSACTION FEES (COSTS)
+
+📊 Transaction Fee Summary
+  totalFeeSol: 0.00028
+  totalFeeUsd: 0.04
+  operationCount: 11
+
+  └─ withdrawClaimClose
+    count: 3
+    totalFeeSol: 0.000015
+    totalFeeUsd: 0.0021
+
+  └─ createPosition
+    count: 4
+    totalFeeSol: 0.00004
+    totalFeeUsd: 0.0057
+
+  └─ swap
+    count: 2
+    totalFeeSol: 0.00021
+    totalFeeUsd: 0.030
+
+💰 LP FEES (REVENUE)
+
+Total Claimed Fees: { sol: 0.005124, usdc: 0.85, claimCount: 2 }
+Current Unclaimed Fees: { sol: 0.000012, usdc: 0.02 }
+
+Recent Claims:
+  └─ 1/13/2025, 9:10:30 PM: 0.002500 SOL + 0.42 USDC
+  └─ 1/13/2025, 9:12:15 PM: 0.002624 SOL + 0.43 USDC
+
+📈 NET PROFIT CALCULATION
+
+Revenue (LP fees earned):    $0.90
+Costs (transaction fees):   -$0.04
+────────────────────────────────────────
+Gross Profit:                $0.86
+
+⚠️  Note: This does NOT include impermanent loss/gain.
+```
+
+**Profit formula:**
+```typescript
+// Complete profit calculation
+const lpFeesUsd = (state.lpFees.totalClaimedFees.sol * solPrice) + state.lpFees.totalClaimedFees.usdc;
+const txFeesUsd = state.transactionFees.totalFeeUsd;
+const impermanentLoss = calculateIL(); // compare current vs initial position value
+
+const netProfit = lpFeesUsd - txFeesUsd - impermanentLoss;
+```
+
+All transaction signatures are saved for audit trail on [Solscan](https://solscan.io).
 
 ## 🤝 Contributing
 
@@ -340,6 +440,62 @@ pnpm test:integration  # Test utilities
 pnpm test:local        # Test on localnet
 ```
 
+## 🔄 Solana SDK Migration Roadmap
+
+### Current State: `@solana/web3.js` 1.x
+
+The bot currently uses **@solana/web3.js 1.x** for all Solana interactions. This is the stable, widely-adopted version with excellent ecosystem support.
+
+### Future: Migration to `@solana/kit`
+
+[`@solana/kit`](https://github.com/anza-xyz/kit) (formerly web3.js 2.x) represents the next generation of Solana JavaScript SDKs with significant improvements:
+
+#### Benefits of @solana/kit
+
+- **83% Smaller Bundles**: Tree-shakable architecture reduces bundle size from 111KB → 18KB
+- **900% Faster Crypto**: Native Web Crypto API support for Ed25519 operations
+- **Zero Dependencies**: No third-party dependencies, reducing supply chain risk
+- **Modular Design**: Import only what you need (`@solana/rpc`, `@solana/signers`, etc.)
+- **Modern JavaScript**: Native bigint, Web Crypto API, no polyfills needed
+
+#### Migration Strategy
+
+**Why Not Migrate Now?**
+
+1. **External SDK Dependencies**:
+   - Meteora DLMM SDK still uses web3.js 1.x
+   - Jupiter Aggregator uses web3.js 1.x
+   - Requires `@solana/compat` layer for interoperability
+
+2. **Production Stability**:
+   - Current bot is working perfectly with 33+ rebalances
+   - Migration introduces risk of breaking changes
+   - Limited production battle-testing of @solana/kit
+
+3. **Ecosystem Maturity**:
+   - Wait for major protocols (Meteora, Jupiter) to migrate first
+   - Better documentation and migration guides needed
+   - More production examples required
+
+**Migration Timeline (Proposed)**
+
+- **Q2 2025**: Monitor ecosystem adoption (Meteora/Jupiter migration status)
+- **Q3 2025**: Begin phased migration if ecosystem has stabilized
+  - Phase 1: Migrate internal utilities (`utils/solana.ts`)
+  - Phase 2: Add `@solana/compat` layer for external SDKs
+  - Phase 3: Comprehensive testing on testnet/localnet
+  - Phase 4: Gradual mainnet rollout with monitoring
+- **Q4 2025**: Complete migration (if stable)
+
+**Resources**
+
+- [Solana Kit GitHub](https://github.com/anza-xyz/kit)
+- [Migration Guide](https://romankurnovskii.com/en/blog/solana-migration-v1-v2)
+- [Triton One Blog](https://blog.triton.one/intro-to-the-new-solana-kit-formerly-web3-js-2/)
+- [Helius Developer Guide](https://www.helius.dev/blog/how-to-start-building-with-the-solana-web3-js-2-0-sdk)
+
+**Current Assessment**: ⏳ **Monitoring** - Not migrating until ecosystem matures
+
 ## 📝 License
 
 MIT License - see [LICENSE](LICENSE) file for details.
@@ -351,9 +507,8 @@ This software is for educational purposes only. Use at your own risk. The author
 ## 🙏 Acknowledgments
 
 - [Meteora](https://meteora.ag) - DLMM protocol
-- [Drift Protocol](https://drift.trade) - Perpetual futures
-- [Solana Agent Kit](https://github.com/sendaifun/solana-agent-kit) - Blockchain agent framework
-- [meteora-lp-army-bot](https://github.com/user/meteora-lp-army-bot) - Inspiration for utilities
+- [Jupiter](https://jup.ag) - Best-in-class swap aggregator
+- [Solana](https://solana.com) - High-performance blockchain
 
 ## 📞 Support
 

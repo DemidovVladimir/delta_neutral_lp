@@ -21,7 +21,7 @@ import { LAMPORTS_PER_SOL, PublicKey } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID, getAssociatedTokenAddress, getAccount } from '@solana/spl-token';
 import { config } from 'dotenv';
 import { MeteoraAdapter } from '../modules/meteoraAdapter.js';
-import { initializeAgentKit, getWalletKeypair, getConnection } from '../core/agentKit.js';
+import { initializeSolana, getWalletKeypair, getConnection } from '../utils/solana.js';
 import { getSolPrice } from '../core/priceOracle.js';
 import { log } from '../utils/logger.js';
 import { getConfig } from '../config/env.js';
@@ -77,7 +77,7 @@ async function runMainnetTest(): Promise<TestResults> {
 
     // Initialize
     log.info('\n[1/5] Initializing wallet...');
-    await initializeAgentKit();
+    await initializeSolana();
     const wallet = getWalletKeypair();
     const cfg = getConfig();
 

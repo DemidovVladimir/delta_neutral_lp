@@ -58,7 +58,7 @@ import { MeteoraAdapter } from './meteoraAdapter.js';
 import { JupiterSwapper } from './jupiterSwapper.js';
 import { getConfig } from '../config/env.js';
 import { log } from '../utils/logger.js';
-import { getConnection, getWalletKeypair } from '../core/agentKit.js';
+import { getConnection, getWalletKeypair } from '../utils/solana.js';
 import { DECIMALS } from '../config/constants.js';
 import { getSolPrice } from '../core/priceOracle.js';
 import {
@@ -72,7 +72,13 @@ import {
   PositionBalance,
   RebalanceResult,
 } from '../types/index.js';
-import { saveAutoTuneState, loadAutoTuneState } from './persistence.js';
+import {
+  saveAutoTuneState,
+  loadAutoTuneState,
+  addClaimedLpFees,
+  updateUnclaimedLpFees,
+} from './persistence.js';
+import { trackBatchTransactionFees } from '../utils/transactionUtils.js';
 
 // Token mint addresses
 const USDC_MINT = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
@@ -339,7 +345,7 @@ export class AutoTuneOrchestrator {
           this.state.currentPositionMint = result.newPositionMint;
           this.state.consecutiveErrors = 0;
 
-          // Accumulate claimed fees
+          // Accumulate claimed fees (for backward compatibility with auto-tune-state.json)
           this.state.totalClaimedFees.sol += result.claimedFees.sol;
           this.state.totalClaimedFees.usdc += result.claimedFees.usdc;
 
@@ -348,6 +354,13 @@ export class AutoTuneOrchestrator {
             sol: 0,
             usdc: 0,
           };
+
+          // Track claimed fees in state.json for unified profit calculation
+          addClaimedLpFees(
+            result.claimedFees.sol,
+            result.claimedFees.usdc,
+            result.signatures[0] // Use first signature (withdraw+claim+close tx)
+          );
 
           // Save last position created details
           this.state.lastPositionCreated = {
@@ -358,6 +371,24 @@ export class AutoTuneOrchestrator {
             },
             timestamp: Date.now(),
           };
+
+          // Track transaction fees for rebalance operations
+          if (result.signatures.length > 0) {
+            const connection = getConnection();
+            const solPriceData = await getSolPrice();
+
+            // Track fees asynchronously (don't wait for it to complete)
+            trackBatchTransactionFees(
+              connection,
+              result.signatures,
+              'rebalance',
+              solPriceData.usd
+            ).catch(err => {
+              log.warn('Failed to track rebalance transaction fees', {
+                error: err instanceof Error ? err.message : String(err),
+              });
+            });
+          }
 
           // Save state immediately after successful rebalance
           saveAutoTuneState(this.state);
@@ -462,11 +493,14 @@ export class AutoTuneOrchestrator {
         this.config.autoTuneImbalanceThreshold
       );
 
-      // Update unclaimed fees in state
+      // Update unclaimed fees in auto-tune state (for backward compatibility)
       this.state.unclaimedFees = {
         sol: position.claimableSol,
         usdc: position.claimableUsdc,
       };
+
+      // Update unclaimed fees in state.json for unified tracking
+      updateUnclaimedLpFees(position.claimableSol, position.claimableUsdc);
 
       return {
         solPercent: imbalanceCheck.solPercent,
@@ -730,7 +764,10 @@ export class AutoTuneOrchestrator {
 
         // Execute swap
         const swapResult = await this.jupiterSwapper.executeSwap(swapParams);
-        log.info(`✅ Swap complete: ${swapResult.outputAmount.toFixed(4)} received (impact: ${swapResult.priceImpactPct.toFixed(2)}%)`);
+        const priceImpact = typeof swapResult.priceImpactPct === 'string'
+          ? parseFloat(swapResult.priceImpactPct)
+          : swapResult.priceImpactPct;
+        log.info(`✅ Swap complete: ${swapResult.outputAmount.toFixed(4)} received (impact: ${priceImpact.toFixed(2)}%)`);
 
         // Wait for balance to update
         await new Promise(resolve => setTimeout(resolve, 2000));
@@ -913,23 +950,30 @@ export class AutoTuneOrchestrator {
       const actualSol = solBalance / Math.pow(10, 9);
       const actualUsdc = await this.getUsdcBalance();
 
+      // Account for rent reserve + permanent minimum balance
+      // Total required = deposit + rent reserve + permanent minimum
+      const requiredSol = solAmount + this.config.rentReserveSol + this.config.minimumWalletBalanceSol;
+
       log.info('💰 Pre-flight wallet balance check', {
         actualSol,
         actualUsdc,
-        requiredSol: solAmount,
+        requiredSol,
         requiredUsdc: usdcAmount,
-        hasSufficientSol: actualSol >= solAmount,
+        depositSol: solAmount,
+        rentReserve: this.config.rentReserveSol,
+        permanentMinimum: this.config.minimumWalletBalanceSol,
+        hasSufficientSol: actualSol >= requiredSol,
         hasSufficientUsdc: actualUsdc >= usdcAmount,
       });
 
       // Determine if swap is needed BEFORE any attempts
-      const needsSwap = actualSol < solAmount || actualUsdc < usdcAmount;
+      const needsSwap = actualSol < requiredSol || actualUsdc < usdcAmount;
 
       if (needsSwap) {
         log.warn('⚠️  Insufficient balance detected - swap will be required', {
-          missingToken: actualSol < solAmount ? 'SOL' : 'USDC',
-          shortfall: actualSol < solAmount
-            ? { token: 'SOL', need: solAmount, have: actualSol, missing: solAmount - actualSol }
+          missingToken: actualSol < requiredSol ? 'SOL' : 'USDC',
+          shortfall: actualSol < requiredSol
+            ? { token: 'SOL', need: requiredSol, have: actualSol, missing: requiredSol - actualSol }
             : { token: 'USDC', need: usdcAmount, have: actualUsdc, missing: usdcAmount - actualUsdc },
         });
 
@@ -940,12 +984,12 @@ export class AutoTuneOrchestrator {
         // Calculate exact swap needed to cover the shortfall
         let swapParams: { inputMint: string; outputMint: string; amount: number };
 
-        if (actualSol < solAmount) {
+        if (actualSol < requiredSol) {
           // Need more SOL: swap USDC → SOL
-          const missingSol = solAmount - actualSol;
+          const missingSol = requiredSol - actualSol;
           const missingUsdValue = missingSol * currentPrice;
-          // Add 1% buffer for price impact and fees
-          const swapAmount = missingUsdValue * 1.01;
+          // Add 2% buffer for price impact and fees
+          const swapAmount = missingUsdValue * 1.02;
 
           swapParams = {
             inputMint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
@@ -961,8 +1005,8 @@ export class AutoTuneOrchestrator {
           // Need more USDC: swap SOL → USDC
           const missingUsdc = usdcAmount - actualUsdc;
           const missingSolEquiv = missingUsdc / currentPrice;
-          // Add 1% buffer for price impact and fees
-          const swapAmount = missingSolEquiv * 1.01;
+          // Add 2% buffer for price impact and fees
+          const swapAmount = missingSolEquiv * 1.02;
 
           swapParams = {
             inputMint: 'So11111111111111111111111111111111111111112', // SOL
@@ -976,11 +1020,14 @@ export class AutoTuneOrchestrator {
           });
         }
 
-        log.info(`🔄 Swapping ${actualSol < solAmount ? swapParams.amount.toFixed(2) + ' USDC → SOL' : swapParams.amount.toFixed(4) + ' SOL → USDC'}`);
+        log.info(`🔄 Swapping ${actualSol < requiredSol ? swapParams.amount.toFixed(2) + ' USDC → SOL' : swapParams.amount.toFixed(4) + ' SOL → USDC'}`);
 
         // Execute swap sequentially (same as rebalance flow)
         const swapResult = await this.jupiterSwapper.executeSwap(swapParams);
-        log.info(`✅ Swap complete: ${swapResult.outputAmount.toFixed(4)} received (impact: ${swapResult.priceImpactPct.toFixed(2)}%)`);
+        const priceImpact = typeof swapResult.priceImpactPct === 'string'
+          ? parseFloat(swapResult.priceImpactPct)
+          : swapResult.priceImpactPct;
+        log.info(`✅ Swap complete: ${swapResult.outputAmount.toFixed(4)} received (impact: ${priceImpact.toFixed(2)}%)`);
 
         // Wait for balance to update
         await new Promise(resolve => setTimeout(resolve, 2000));

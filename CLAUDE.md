@@ -8,8 +8,8 @@ This is a delta-neutral liquidity provision bot for Solana that:
 - **Automatically creates** Meteora DLMM positions (SOL/USDC) with configurable ranges
 - Provides liquidity on **Meteora DLMM** (SOL/USDC pool)
 - Maintains a **Drift** perpetual short position to keep delta-neutral (ΔSOL ≈ 0)
-- Uses **solana-agent-kit** for on-chain execution with Jito bundles and priority fees
-- Implements emergency flows as atomic transactions or multi-tx bundles
+- Uses **direct @solana/web3.js SDK** for on-chain execution with priority fees
+- Implements sequential transaction flows with intelligent retry logic
 
 The bot aims to earn LP fees while minimizing directional exposure to SOL price movements.
 
@@ -88,12 +88,12 @@ The codebase follows a modular adapter pattern:
 
 3. **JupiterSwapper** (`src/modules/jupiterSwapper.ts`)
    - ✅ Jupiter V6 API integration for token swaps
-   - ✅ **Transaction Builder**: Returns unsigned VersionedTransactions for Jito bundling
+   - ✅ **Sequential Execution**: Execute swap, wait for confirmation, then create position
    - ✅ **Swap Quote**: Fetches optimal routes with price impact analysis
    - ✅ Slippage protection with configurable tolerance (default: 50 BPS = 0.5%)
    - ✅ Helper methods for SOL ↔ USDC swaps
-   - ✅ **Auto-balance calculation**: Determines optimal swap to achieve 50/50 balance
-   - ✅ **Intelligent error handling**: Distinguishes insufficient funds vs network errors
+   - ✅ **Target-based swapping**: Calculates exact shortfall based on deposit amount
+   - ✅ **Intelligent error handling**: Comprehensive logging and retry logic
 
 4. **Persistence Layer** (`src/modules/persistence.ts`)
    - ✅ State snapshot management (positions, exposure, timestamps)
@@ -132,15 +132,16 @@ The codebase follows a modular adapter pattern:
      - ✅ Meteora API client for pool analytics
      - ✅ Position imbalance detection
      - ✅ Centered price range calculation for rebalancing
-   - **jitoUtils** (`src/utils/jitoUtils.ts`)
-     - ✅ Jito tip instruction creation
-     - ✅ Dynamic tip escalation (4k→6k→8k lamports)
-     - ✅ **Jito Bundle Submission**: `submitJitoBundle()` for atomic multi-tx bundles
-     - ✅ **Bundle Status Tracking**: `getBundleStatus()` to monitor bundle confirmation
-     - ✅ MEV protection and guaranteed transaction ordering
-   - **agentKit** (`src/core/agentKit.ts`)
-     - ✅ Solana Agent Kit initialization
-     - ✅ Wallet keypair management
+   - **solana** (`src/utils/solana.ts`)
+     - ✅ Direct @solana/web3.js integration
+     - ✅ Wallet keypair management and parsing
+     - ✅ Connection initialization and validation
+     - ✅ No wrapper libraries - simple and direct
+   - **logger** (`src/utils/logger.ts`)
+     - ✅ Console-only logging (no file output)
+     - ✅ Simplified timestamp format (HH:mm:ss)
+     - ✅ Error banner for critical failures
+     - ✅ Reduced verbosity for cleaner output
 
 7. **API Server** (`src/api/hono-server.ts`)
    - ✅ Hono framework with Bun runtime
@@ -172,34 +173,39 @@ The codebase follows a modular adapter pattern:
 
 ### Recent Improvements (January 2025)
 
-Integrated improvements from `meteora-lp-army-bot` project:
+**Major Simplification & Cleanup:**
 
-1. **Jupiter API v6 Upgrade**
+1. **Removed External Dependencies**
+   - ✅ Removed `solana-agent-kit` - now using direct @solana/web3.js
+   - ✅ Removed Jito bundling - simplified to sequential execution with priority fees
+   - ✅ Cleaner codebase with fewer layers of abstraction
+
+2. **Jupiter Swap Integration**
+   - **Pre-flight balance checking** to detect insufficient funds before any operations
+   - **Target-based swap calculation** with dual reserve system (permanent + temporary)
+   - **Sequential execution**: Swap → Wait for confirmation → Create position
+   - 2% slippage buffer for price impact protection
+
+3. **Logging Improvements**
+   - Console-only output (no file logging)
+   - Simplified timestamp format (HH:mm:ss)
+   - Reduced verbosity (~40% fewer log lines)
+   - Error banners for critical failures
+
+4. **Jupiter API v6 Upgrade**
    - Multi-token price fetching in single request
-   - Direct SOL/USDC rate via `vsToken=So11111111111111111111111111111111111111112`
+   - Direct SOL/USDC rate via `vsToken` parameter
    - Better rate limiting and error handling
 
-2. **Meteora DLMM API Integration**
+5. **Meteora DLMM API Integration**
    - Real-time pool analytics (APR, APY, volume, fees, TVL)
    - 2.5-second cache to prevent stale data
    - Complete pool metadata (bin step, active bin, reserves)
 
-3. **Enhanced Price Utilities**
+6. **Enhanced Price Utilities**
    - Precise bin price calculations using Decimal.js
    - Position composition calculator (token X/Y percentages)
    - Support for pools with different decimals
-
-4. **Jito Tip Escalation**
-   - Dynamic tip strategy: 4000→6000→8000 lamports
-   - Automatic retry logic for failed bundles
-   - Better MEV protection for time-sensitive transactions
-
-5. **Jupiter Swap Integration (January 2025)**
-   - **Pre-flight balance checking** to detect insufficient funds before any operations
-   - **Target-based swap calculation** with dual reserve system (permanent + temporary)
-   - **Sequential execution**: Swap → Wait for confirmation → Create position
-   - Swap executed as separate transaction BEFORE position creation
-   - 2% slippage buffer for price impact protection
 
 See [INTEGRATION_SUMMARY.md](INTEGRATION_SUMMARY.md) for detailed changelog.
 
@@ -207,14 +213,14 @@ See [INTEGRATION_SUMMARY.md](INTEGRATION_SUMMARY.md) for detailed changelog.
 
 **Current implementation:**
 - Uses `skipPreflight: false` with `preflightCommitment: 'confirmed'`
-- Priority fees via ComputeBudget instructions
-- Jito tip instructions for MEV protection with dynamic escalation
+- Priority fees via ComputeBudget instructions (50,000 µL/CU default)
+- **No Jito bundling** - simplified to sequential execution
 - **Three-Phase Rebalance Flow**:
   1. **Phase 1**: Withdraw+Claim+Close (single atomic TX)
   2. **Swap Phase** (if needed): Execute Jupiter swap, wait for confirmation (2s settle time)
   3. **Phase 2**: Create new position with updated balance
 - **Pre-flight Balance Check**: Determines if swap is needed BEFORE any operations
-- **Sequential Swap Execution**: Swap executed as separate transaction before position creation
+- **Sequential Execution**: All transactions execute one after another with confirmations
 - **Target-Based Swapping**:
   - Calculates exact shortfall based on `AUTO_TUNE_DEPOSIT_AMOUNT` + claimed fees
   - Respects dual reserves: `MINIMUM_WALLET_BALANCE_SOL` (permanent) + `RENT_RESERVE_SOL` (temporary)
@@ -224,10 +230,10 @@ See [INTEGRATION_SUMMARY.md](INTEGRATION_SUMMARY.md) for detailed changelog.
   - Swap already executed if needed, so retries are for network errors only
   - Max 3 retries before giving up
 
-**Planned improvements:**
-- **Emergency flow**: Multi-step atomic bundles
-  - Ordering: withdraw → claim fees → swap → adjust hedge
-  - Fallback to sequential txs with confirmation gating
+**Design philosophy:**
+- Simplicity over complexity - sequential execution is more reliable
+- No Jito dependency - reduces external dependencies and DNS issues
+- Direct @solana/web3.js usage - no wrapper libraries
 
 ### Configuration (.env)
 
@@ -283,16 +289,15 @@ See [INTEGRATION_SUMMARY.md](INTEGRATION_SUMMARY.md) for detailed changelog.
 - `FUNDING_RATE_CAP_BPS`: Maximum acceptable funding rate in basis points (default: 80)
 
 **Execution parameters (Optimized for 2025 fee market):**
-- `USE_JITO`: Enable Jito bundle submission (default: false, DNS issues)
-- `JITO_RELAY_URL`: Jito relay endpoint
 - `PRIORITY_FEE_MICRO_LAMPORTS`: Priority fee in micro-lamports per CU (default: 50000 = moderate priority)
 - `MAX_COMPUTE_UNITS`: Maximum compute units per transaction (default: 600000)
+- `JUPITER_PRIORITY_FEE_LAMPORTS`: Fixed priority fee for Jupiter swaps (default: 80000 lamports)
 
-**Note on Jito Bundles:**
-- For bundles: Priority fees are OPTIONAL (Jito tip provides priority)
-- For single transactions: Use moderate priority fees (50,000 µL/CU typical)
-- Jito tips range from 5,000-20,000 lamports (~$0.0008-$0.003)
-- Priority fees: ~30,000 lamports (~$0.0048) with optimized settings
+**Note on Priority Fees:**
+- Priority fees are added via ComputeBudget instructions
+- Formula: `priorityFee = computeUnits × microLamportsPerCU / 1,000,000`
+- With 600k CUs @ 50,000 µL/CU: ~30,000 lamports (~$0.0048) per tx
+- Jupiter swaps use fixed 80,000 lamport fee (~$0.013) for reliability
 
 ### State Management
 
@@ -308,15 +313,14 @@ The **Auto-Tune Orchestrator** provides fully automated position rebalancing for
 
 ### How It Works
 
-1. **Monitors** position composition at configurable intervals (default: every 10s)
+1. **Monitors** position composition at configurable intervals (default: every 30s)
 2. **Detects** when position becomes imbalanced (e.g., >80% in one token)
-3. **Executes** atomic rebalance transaction combining:
-   - Withdraw 100% from old position
-   - Claim all accumulated fees
-   - Close empty position (reclaim rent ~0.057 SOL)
-   - Create new position centered at current price
+3. **Executes** three-phase rebalance flow:
+   - **Phase 1**: Withdraw 100% + Claim + Close (single atomic TX)
+   - **Swap Phase** (if needed): Execute Jupiter swap, wait for confirmation
+   - **Phase 2**: Create new position centered at current price
 
-**All operations execute in a SINGLE transaction** for atomicity and cost savings!
+**Sequential execution with pre-flight checks for reliability!**
 
 ### Key Features
 
@@ -563,9 +567,10 @@ When implementing features, follow the module interfaces defined in the PRD (age
 - **Sequential execution**: Auto-tune uses three-phase flow: Phase 1 (withdraw+claim+close) → Swap (if needed) → Phase 2 (create new position).
 - **Target-based swapping**: Swap calculations are based on `AUTO_TUNE_DEPOSIT_AMOUNT` target, not generic 50/50 rebalancing. Respects dual reserve system (permanent + temporary).
 - **Pre-flight checks**: Balance check runs BEFORE any operations to determine if swap is needed, avoiding wasted gas on failed transactions.
-- All production execution uses **solana-agent-kit** for direct control over bundles and fees
+- **Direct Solana SDK**: All execution uses direct @solana/web3.js - no wrapper libraries or external dependencies
+- **Simplified architecture**: Removed Jito bundling and solana-agent-kit for cleaner, more maintainable code
+- **Console-only logging**: All logs go to terminal (no file output) with simplified format
 - Test emergency flows thoroughly with dry-run flag before mainnet
 - Monitor funding rates closely - high sustained funding can erode profitability
 - The bot maintains delta neutrality via band rebalancing, not continuous hedging
-- Jito bundles provide ordering guarantees critical for atomic emergency exits
 - **Always update** `progress.md` after every run, add bug reports to `bugs.md`, and document architectural decisions in `decisions.md`

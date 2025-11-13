@@ -48,7 +48,7 @@ const DLMM: any = DLMMModule.default || DLMMModule;
 import { getSolPrice } from '../core/priceOracle.js';
 import { getConfig } from '../config/env.js';
 import { log } from '../utils/logger.js';
-import { getConnection, getWalletKeypair } from '../core/agentKit.js';
+import { getConnection, getWalletKeypair } from '../utils/solana.js';
 import {
   loadCreatedPositionMints,
   saveCreatedPositionMints,
@@ -133,6 +133,9 @@ export class MeteoraAdapter {
    * Discover all positions owned by the wallet from the blockchain
    * Merges discovered positions with saved positions in state.json
    * This ensures positions are not lost if state.json is corrupted or deleted
+   *
+   * NOTE: In auto-tune mode, only returns the FIRST position found since auto-tune
+   * manages a single position at a time (old positions should be closed during rebalance)
    */
   async discoverPositionsFromBlockchain(): Promise<string[]> {
     try {
@@ -159,7 +162,22 @@ export class MeteoraAdapter {
         mints: discoveredMints,
       });
 
-      // Merge with saved positions (avoid duplicates)
+      // For auto-tune mode, only use the FIRST position (should be only one active)
+      // Auto-tune manages a single position, old ones should be closed
+      if (this.config.autoTuneEnabled) {
+        if (discoveredMints.length > 1) {
+          log.warn('Multiple positions found in auto-tune mode - using only the first one', {
+            found: discoveredMints.length,
+            using: discoveredMints[0],
+            ignored: discoveredMints.slice(1),
+          });
+        }
+        this.positionMints = [discoveredMints[0]];
+        saveCreatedPositionMints(this.positionMints);
+        return [discoveredMints[0]];
+      }
+
+      // For non-auto-tune mode, merge with saved positions (avoid duplicates)
       const mergedMints = Array.from(new Set([...this.positionMints, ...discoveredMints]));
 
       // Update in-memory positions
@@ -482,8 +500,21 @@ export class MeteoraAdapter {
       const feeDetails = await getTransactionFees(connection, signature);
       logTransactionFees(signature, feeDetails, 'Position Creation');
 
+      // Track fees in state (async, don't wait)
+      const solPriceData = await getSolPrice();
+      const { trackTransactionFee } = await import('../utils/transactionUtils.js');
+      trackTransactionFee(connection, signature, 'createPosition', solPriceData.usd).catch(err => {
+        log.warn('Failed to track transaction fee in state', { error: err.message });
+      });
+
       // Add to our position list and save to state
-      this.positionMints.push(positionMint);
+      // For auto-tune mode, we only manage one position at a time
+      // Replace the array instead of appending to avoid accumulating closed positions
+      if (this.config.autoTuneEnabled) {
+        this.positionMints = [positionMint];
+      } else {
+        this.positionMints.push(positionMint);
+      }
       saveCreatedPositionMints(this.positionMints);
 
       log.info('Position mint saved to state', {
@@ -1256,6 +1287,13 @@ export class MeteoraAdapter {
       // Fetch and log transaction fees
       const feeDetails = await getTransactionFees(connection, signature);
       logTransactionFees(signature, feeDetails, 'Withdraw + Claim + Close');
+
+      // Track fees in state (async, don't wait)
+      const solPriceData = await getSolPrice();
+      const { trackTransactionFee } = await import('../utils/transactionUtils.js');
+      trackTransactionFee(connection, signature, 'withdrawClaimClose', solPriceData.usd).catch(err => {
+        log.warn('Failed to track transaction fee in state', { error: err.message });
+      });
 
       // Remove from our position list
       this.positionMints = this.positionMints.filter(mint => mint !== positionMint);

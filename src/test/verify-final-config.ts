@@ -5,7 +5,7 @@
 
 import { PublicKey } from '@solana/web3.js';
 import DLMMModule from '@meteora-ag/dlmm';
-import { getConnection } from '../core/agentKit.js';
+import { getConnection } from '../utils/solana.js';
 
 // @ts-ignore - ESM default export handling
 const DLMM: any = DLMMModule.default || DLMMModule;

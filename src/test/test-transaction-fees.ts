@@ -4,7 +4,7 @@
  * This demonstrates how transaction fees are calculated and logged
  */
 
-import { getConnection } from '../core/agentKit.js';
+import { getConnection } from '../utils/solana.js';
 import { getTransactionFees } from '../utils/transactionUtils.js';
 
 // Example: Test with a recent mainnet transaction

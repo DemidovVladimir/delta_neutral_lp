@@ -1,12 +1,9 @@
-import { SolanaAgentKit, KeypairWallet } from 'solana-agent-kit';
 import { Connection, Keypair, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import bs58 from 'bs58';
 import { getConfig } from '../config/env.js';
 import { log } from '../utils/logger.js';
 import { RPC_CONFIG, MIN_SOL_BALANCE } from '../config/constants.js';
 import { ConfigError } from '../types/index.js';
-
-let agentKitInstance: SolanaAgentKit | null = null;
 
 /**
  * Parse private key from various formats
@@ -43,16 +40,32 @@ function parsePrivateKey(privateKeyStr: string): Keypair {
 }
 
 /**
- * Initialize SolanaAgentKit with configuration
+ * Get the wallet keypair
  */
-export async function initializeAgentKit(): Promise<SolanaAgentKit> {
-  if (agentKitInstance) {
-    return agentKitInstance;
-  }
+export function getWalletKeypair(): Keypair {
+  const config = getConfig();
+  return parsePrivateKey(config.privateKey);
+}
 
+/**
+ * Get the Solana connection
+ */
+export function getConnection(): Connection {
+  const config = getConfig();
+  return new Connection(config.rpcUrl, {
+    commitment: RPC_CONFIG.commitment,
+    confirmTransactionInitialTimeout: RPC_CONFIG.confirmationTimeout,
+  });
+}
+
+/**
+ * Initialize Solana connection and validate wallet
+ * Used for startup validation and logging
+ */
+export async function initializeSolana(): Promise<void> {
   const config = getConfig();
 
-  log.info('Initializing SolanaAgentKit', {
+  log.info('Initializing Solana connection', {
     rpcUrl: config.rpcUrl,
     lpOwner: config.lpOwner,
   });
@@ -103,68 +116,7 @@ export async function initializeAgentKit(): Promise<SolanaAgentKit> {
     });
   }
 
-  // Initialize SolanaAgentKit
-  try {
-    // Create KeypairWallet
-    const wallet = new KeypairWallet(keypair, config.rpcUrl);
-
-    agentKitInstance = new SolanaAgentKit(
-      wallet,
-      config.rpcUrl,
-      {} // Config object (empty for now, can add API keys later)
-    );
-
-    log.info('SolanaAgentKit initialized successfully', {
-      wallet: walletAddress,
-    });
-
-    return agentKitInstance;
-  } catch (error) {
-    throw new ConfigError('Failed to initialize SolanaAgentKit', {
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
-}
-
-/**
- * Get the initialized AgentKit instance
- */
-export function getAgentKit(): SolanaAgentKit {
-  if (!agentKitInstance) {
-    throw new Error('AgentKit not initialized. Call initializeAgentKit() first.');
-  }
-  return agentKitInstance;
-}
-
-/**
- * Get the wallet keypair
- */
-export function getWalletKeypair(): Keypair {
-  const config = getConfig();
-  return parsePrivateKey(config.privateKey);
-}
-
-/**
- * Get the Solana connection
- */
-export function getConnection(): Connection {
-  const config = getConfig();
-  return new Connection(config.rpcUrl, {
-    commitment: RPC_CONFIG.commitment,
-    confirmTransactionInitialTimeout: RPC_CONFIG.confirmationTimeout,
+  log.info('Solana initialized successfully', {
+    wallet: walletAddress,
   });
-}
-
-/**
- * Check if AgentKit is initialized
- */
-export function isAgentKitInitialized(): boolean {
-  return agentKitInstance !== null;
-}
-
-/**
- * Reset AgentKit instance (for testing)
- */
-export function resetAgentKit(): void {
-  agentKitInstance = null;
 }

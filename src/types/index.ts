@@ -205,6 +205,40 @@ export interface StateSnapshot {
   lpExposure: LpExposure;
   price: Price;
   createdPositionMints?: string[]; // Auto-created position NFT mints (for persistence)
+
+  // Transaction fees paid (costs)
+  transactionFees?: {
+    totalFeeSol: number; // Total fees paid in SOL across all transactions
+    totalFeeUsd: number; // Total fees paid in USD (approximate)
+    operationCount: number; // Number of operations tracked
+    breakdown: {
+      [operation: string]: {
+        // e.g., "createPosition", "withdraw", "claim", "swap"
+        count: number;
+        totalFeeSol: number;
+        totalFeeUsd: number;
+        signatures: string[]; // Transaction signatures for audit trail
+      };
+    };
+  };
+
+  // LP fees earned (revenue)
+  lpFees?: {
+    totalClaimedFees: {
+      sol: number; // Total SOL fees claimed from LP positions
+      usdc: number; // Total USDC fees claimed from LP positions
+    };
+    currentUnclaimedFees: {
+      sol: number; // Current unclaimed SOL fees (from getLpExposure)
+      usdc: number; // Current unclaimed USDC fees (from getLpExposure)
+    };
+    claimHistory: Array<{
+      timestamp: number;
+      sol: number;
+      usdc: number;
+      signature?: string; // Transaction signature (if available)
+    }>;
+  };
 }
 
 export interface JournalEntry {

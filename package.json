@@ -32,7 +32,6 @@
     "decimal.js": "^10.6.0",
     "dotenv": "^16.4.5",
     "hono": "^4.10.4",
-    "solana-agent-kit": "^2.0.10",
     "undici": "^7.16.0",
     "winston": "^3.17.0"
   },
