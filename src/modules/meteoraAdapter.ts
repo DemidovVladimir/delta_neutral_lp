@@ -208,13 +208,21 @@ export class MeteoraAdapter {
   async ensurePositionsLoaded(): Promise<void> {
     // If positions already loaded, skip discovery
     if (this.positionMints.length > 0) {
-      log.debug('Positions already loaded', { count: this.positionMints.length });
+      log.info('✅ Positions already loaded in memory', {
+        count: this.positionMints.length,
+        mints: this.positionMints,
+      });
       return;
     }
 
     // No saved positions, try to discover from blockchain
-    log.info('No saved positions found, attempting blockchain discovery...');
-    await this.discoverPositionsFromBlockchain();
+    log.warn('⚠️  Position list is EMPTY - attempting blockchain discovery...');
+    const discovered = await this.discoverPositionsFromBlockchain();
+    log.info('Blockchain discovery complete', {
+      found: discovered.length,
+      mints: discovered,
+      currentPositionMints: this.positionMints,
+    });
   }
 
   /**
@@ -706,12 +714,13 @@ export class MeteoraAdapter {
     // Ensure positions are loaded from state or blockchain
     await this.ensurePositionsLoaded();
 
-    log.debug('Reading LP exposure', {
+    log.info('📊 Reading LP exposure', {
       positionCount: this.positionMints.length,
+      mints: this.positionMints,
     });
 
     if (this.positionMints.length === 0) {
-      log.warn('No position mints available');
+      log.warn('⚠️  No position mints available after ensurePositionsLoaded()');
       return {
         solAmount: 0,
         usdcAmount: 0,
@@ -1295,9 +1304,17 @@ export class MeteoraAdapter {
         log.warn('Failed to track transaction fee in state', { error: err.message });
       });
 
-      // Remove from our position list
+      // Remove from our position list (in-memory only, don't save to disk yet!)
+      // We'll save the new position mint when createPosition() is called during rebalance
+      // This prevents a race condition where state.json briefly contains an empty array
       this.positionMints = this.positionMints.filter(mint => mint !== positionMint);
-      saveCreatedPositionMints(this.positionMints);
+
+      // DO NOT save empty array to disk here - it creates a race condition!
+      // The orchestrator will call createPosition() next, which will save the new position mint
+      log.info('Position removed from in-memory list (not saved to disk yet)', {
+        removedMint: positionMint,
+        remainingCount: this.positionMints.length,
+      });
 
       return {
         signature,

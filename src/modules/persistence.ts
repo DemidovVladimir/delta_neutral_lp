@@ -278,6 +278,8 @@ export function addTransactionFee(
   operation: string
 ): void {
   try {
+    // CRITICAL: Always load FRESH state from disk to avoid race conditions
+    // This function may run async after createPosition() saves new position mints
     const state = loadState();
 
     // Initialize state if not exists
@@ -297,6 +299,10 @@ export function addTransactionFee(
         source: 'cached',
       },
     };
+
+    // IMPORTANT: Preserve createdPositionMints from loaded state
+    // DO NOT overwrite it - it may have been updated by createPosition()
+    // since this function runs async in the background
 
     // Initialize transactionFees if not exists
     if (!snapshot.transactionFees) {
@@ -331,7 +337,7 @@ export function addTransactionFee(
     // Update timestamp
     snapshot.timestamp = Date.now();
 
-    // Save updated state
+    // Save updated state (preserves createdPositionMints from loadState())
     saveState(snapshot);
 
     log.debug('Transaction fee added to state', {

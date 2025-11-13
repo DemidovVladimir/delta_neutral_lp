@@ -16,7 +16,8 @@ RUN addgroup -g 1001 -S nodejs && \
 COPY --chown=nodejs:nodejs package.json bun.lock ./
 
 # Install production dependencies only
-RUN bun install --frozen-lockfile --production
+# Note: Remove --frozen-lockfile if you need to update dependencies
+RUN bun install --production
 
 # Copy source code
 COPY --chown=nodejs:nodejs src ./src

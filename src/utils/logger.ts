@@ -1,6 +1,36 @@
 import winston from 'winston';
 
-// Human-readable format for console - simplified output
+// Detect if running in GCP (Cloud Run, Compute Engine, etc.)
+const isGCP = process.env.NODE_ENV === 'production' ||
+              process.env.GCP_PROJECT ||
+              process.env.K_SERVICE || // Cloud Run
+              process.env.GAE_SERVICE; // App Engine
+
+// Structured JSON format for GCP Cloud Logging
+// GCP automatically parses these fields: severity, message, timestamp, etc.
+const gcpFormat = winston.format.combine(
+  winston.format.timestamp(),
+  winston.format.errors({ stack: true }),
+  winston.format((info) => {
+    // Map Winston levels to GCP severity levels
+    const levelMap: Record<string, string> = {
+      error: 'ERROR',
+      warn: 'WARNING',
+      info: 'INFO',
+      debug: 'DEBUG',
+    };
+
+    // Add GCP severity field
+    if (info.level && typeof info.level === 'string') {
+      (info as any).severity = levelMap[info.level] || info.level.toUpperCase();
+    }
+
+    return info;
+  })(),
+  winston.format.json()
+);
+
+// Human-readable format for console (local development)
 const consoleFormat = winston.format.combine(
   winston.format.timestamp({ format: 'HH:mm:ss' }),
   winston.format.colorize(),
@@ -15,19 +45,38 @@ const consoleFormat = winston.format.combine(
   })
 );
 
-// Console-only logging - no file output
+// Use structured JSON logging in GCP, console format locally
+const format = isGCP ? gcpFormat : consoleFormat;
+
+// Console-only logging - GCP captures stdout/stderr automatically
 const transports: winston.transport[] = [
   new winston.transports.Console({
-    format: consoleFormat,
+    format,
   })
 ];
 
-// Create the logger
+// Create the logger with appropriate log level
+// In production/GCP, default to 'info' to reduce log volume
 const logger = winston.createLogger({
-  level: process.env.LOG_LEVEL || 'info',
-  format: consoleFormat,
+  level: process.env.LOG_LEVEL || (isGCP ? 'info' : 'debug'),
+  format,
   transports,
+  // Reduce log noise in production
+  silent: false,
+  exitOnError: false,
 });
+
+// Log sampling for production (reduce cost)
+// Only log 1 out of N routine check cycles in production
+const LOG_SAMPLE_RATE = parseInt(process.env.LOG_SAMPLE_RATE || '10'); // Log 1 in 10 by default
+let logCounter = 0;
+
+// Helper to determine if we should sample this log
+const shouldSample = (forceLog: boolean = false): boolean => {
+  if (!isGCP || forceLog) return true; // Always log locally or if forced
+  logCounter++;
+  return logCounter % LOG_SAMPLE_RATE === 0;
+};
 
 // Helper functions for common log patterns
 export const log = {
@@ -35,6 +84,13 @@ export const log = {
   info: (message: string, meta?: Record<string, any>) => logger.info(message, meta),
   warn: (message: string, meta?: Record<string, any>) => logger.warn(message, meta),
   error: (message: string, meta?: Record<string, any>) => logger.error(message, meta),
+
+  // Sampled info log - only logs 1 in N times in production (saves money!)
+  infoSampled: (message: string, meta?: Record<string, any>) => {
+    if (shouldSample()) {
+      logger.info(message, { ...meta, sampled: true });
+    }
+  },
 
   // Domain-specific logging helpers
   transaction: (signature: string, action: string, meta?: Record<string, any>) => {

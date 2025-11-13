@@ -262,7 +262,7 @@ export class AutoTuneOrchestrator {
     this.state.lastCheck = startTime;
 
     if (!this.watchMode) {
-      log.info('🔍 Auto-tune check cycle started', {
+      log.infoSampled('🔍 Auto-tune check cycle started', {
         iteration: this.state.iteration,
         rebalanceCount: this.state.rebalanceCount,
       });
@@ -305,7 +305,7 @@ export class AutoTuneOrchestrator {
       }
 
       if (!this.watchMode) {
-        log.info('Position balance checked', {
+        log.infoSampled('Position balance checked', {
           solPercent: balance.solPercent,
           usdcPercent: balance.usdcPercent,
           isImbalanced: balance.isImbalanced,
@@ -403,7 +403,7 @@ export class AutoTuneOrchestrator {
         }
       } else {
         if (!this.watchMode) {
-          log.info('✓ Position balanced - no action needed', {
+          log.infoSampled('✓ Position balanced - no action needed', {
             solPercent: balance.solPercent,
             usdcPercent: balance.usdcPercent,
           });
@@ -419,7 +419,7 @@ export class AutoTuneOrchestrator {
       this.displayWatchMode(balance, elapsed);
 
       if (!this.watchMode) {
-        log.info('Auto-tune check cycle completed', {
+        log.infoSampled('Auto-tune check cycle completed', {
           iteration: this.state.iteration,
           durationMs: elapsed,
           nextCheckIn: this.config.autoTuneCheckIntervalMs,

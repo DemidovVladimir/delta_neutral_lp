@@ -26,7 +26,29 @@ pnpm install
 
 ### Running the Bot
 
-**Available Commands:**
+**Production Deployment (Recommended):**
+
+See deployment guides:
+- **[GCP with Pulumi](docs/GCP_PULUMI_DEPLOYMENT.md)** - FREE, already configured! (⭐ Recommended)
+- **[Deployment Options](docs/DEPLOYMENT_SUMMARY.md)** - Compare all options (Hetzner, DigitalOcean, Fly.io, etc.)
+- **[Docker Guide](docs/DOCKER_GUIDE.md)** - Local Docker setup
+
+**Quick Deploy (GCP Pulumi):**
+```bash
+cd deploy/gcp/pulumi
+pulumi up --yes  # One command deployment!
+```
+
+**Local Docker (Development/Testing):**
+
+```bash
+# Build and run in container
+docker compose up -d        # Start bot in background
+docker compose logs -f      # View real-time logs
+docker compose down         # Stop bot
+```
+
+**Available Commands (Direct):**
 
 ```bash
 # Auto-Tune Mode (Automated Position Rebalancing)

@@ -220,9 +220,11 @@ docker pull ${imageNameValue}
 docker stop autotune 2>/dev/null || true
 docker rm autotune 2>/dev/null || true
 
-# Create data directory
+# Create data directory with correct permissions
+# Container runs as UID 1001 (nodejs user)
 mkdir -p /var/lib/autotune/data
-chmod 700 /var/lib/autotune/data
+chown -R 1001:1001 /var/lib/autotune/data
+chmod -R 755 /var/lib/autotune/data
 
 # Fetch only 2 secrets from Secret Manager (RPC_URL and PRIVATE_KEY)
 echo "🔑 Fetching 2 secrets from GCP Secret Manager..."
@@ -234,8 +236,11 @@ ${secretKeys.map((key: string) => {
   return `echo "${key}=$(gcloud secrets versions access latest --secret=${secretName})" >> \${ENV_FILE}`;
 }).join('\n')}
 
-# Set NODE_ENV=production to use static config
+# Set NODE_ENV=production to enable GCP-optimized logging and config
 echo "NODE_ENV=production" >> \${ENV_FILE}
+
+# Optional: Configure log sampling rate (default: 10 = log 1 in 10 routine checks)
+echo "LOG_SAMPLE_RATE=10" >> \${ENV_FILE}
 
 chmod 600 \${ENV_FILE}
 
