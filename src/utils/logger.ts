@@ -1,69 +1,82 @@
 import winston from 'winston';
-import { LOG_CONFIG } from '../config/constants.js';
-import * as fs from 'fs';
-import * as path from 'path';
 
-// Ensure logs directory exists
-if (!fs.existsSync(LOG_CONFIG.logDir)) {
-  fs.mkdirSync(LOG_CONFIG.logDir, { recursive: true });
-}
+// Detect if running in GCP (Cloud Run, Compute Engine, etc.)
+const isGCP = process.env.NODE_ENV === 'production' ||
+              process.env.GCP_PROJECT ||
+              process.env.K_SERVICE || // Cloud Run
+              process.env.GAE_SERVICE; // App Engine
 
-// Custom format for structured logging
-const structuredFormat = winston.format.combine(
-  winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss.SSS' }),
+// Structured JSON format for GCP Cloud Logging
+// GCP automatically parses these fields: severity, message, timestamp, etc.
+const gcpFormat = winston.format.combine(
+  winston.format.timestamp(),
   winston.format.errors({ stack: true }),
+  winston.format((info) => {
+    // Map Winston levels to GCP severity levels
+    const levelMap: Record<string, string> = {
+      error: 'ERROR',
+      warn: 'WARNING',
+      info: 'INFO',
+      debug: 'DEBUG',
+    };
+
+    // Add GCP severity field
+    if (info.level && typeof info.level === 'string') {
+      (info as any).severity = levelMap[info.level] || info.level.toUpperCase();
+    }
+
+    return info;
+  })(),
   winston.format.json()
 );
 
-// Human-readable format for console
+// Human-readable format for console (local development)
 const consoleFormat = winston.format.combine(
-  winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss.SSS' }),
+  winston.format.timestamp({ format: 'HH:mm:ss' }),
   winston.format.colorize(),
   winston.format.printf((info: winston.Logform.TransformableInfo) => {
     const { timestamp, level, message, ...meta } = info;
     let msg = `${timestamp} [${level}] ${message}`;
-    if (Object.keys(meta).length > 0) {
-      msg += ` ${JSON.stringify(meta, null, 2)}`;
+    // Only show metadata if it exists and is not empty
+    if (meta && Object.keys(meta).length > 0) {
+      msg += ` ${JSON.stringify(meta)}`;
     }
     return msg;
   })
 );
 
-// Create the logger
+// Use structured JSON logging in GCP, console format locally
+const format = isGCP ? gcpFormat : consoleFormat;
+
+// Console-only logging - GCP captures stdout/stderr automatically
+const transports: winston.transport[] = [
+  new winston.transports.Console({
+    format,
+  })
+];
+
+// Create the logger with appropriate log level
+// In production/GCP, default to 'info' to reduce log volume
 const logger = winston.createLogger({
-  level: process.env.LOG_LEVEL || 'info',
-  format: structuredFormat,
-  transports: [
-    // Write all logs to file in JSON format
-    new winston.transports.File({
-      filename: path.join(LOG_CONFIG.logDir, 'error.log'),
-      level: 'error',
-      maxsize: LOG_CONFIG.maxFileSize,
-      maxFiles: LOG_CONFIG.maxFiles,
-    }),
-    new winston.transports.File({
-      filename: path.join(LOG_CONFIG.logDir, 'combined.log'),
-      maxsize: LOG_CONFIG.maxFileSize,
-      maxFiles: LOG_CONFIG.maxFiles,
-    }),
-  ],
+  level: process.env.LOG_LEVEL || (isGCP ? 'info' : 'debug'),
+  format,
+  transports,
+  // Reduce log noise in production
+  silent: false,
+  exitOnError: false,
 });
 
-// Add console transport for non-production environments
-if (process.env.NODE_ENV !== 'production') {
-  logger.add(
-    new winston.transports.Console({
-      format: consoleFormat,
-    })
-  );
-} else {
-  // In production, use JSON format for console too (for log aggregation)
-  logger.add(
-    new winston.transports.Console({
-      format: structuredFormat,
-    })
-  );
-}
+// Log sampling for production (reduce cost)
+// Only log 1 out of N routine check cycles in production
+const LOG_SAMPLE_RATE = parseInt(process.env.LOG_SAMPLE_RATE || '10'); // Log 1 in 10 by default
+let logCounter = 0;
+
+// Helper to determine if we should sample this log
+const shouldSample = (forceLog: boolean = false): boolean => {
+  if (!isGCP || forceLog) return true; // Always log locally or if forced
+  logCounter++;
+  return logCounter % LOG_SAMPLE_RATE === 0;
+};
 
 // Helper functions for common log patterns
 export const log = {
@@ -72,56 +85,34 @@ export const log = {
   warn: (message: string, meta?: Record<string, any>) => logger.warn(message, meta),
   error: (message: string, meta?: Record<string, any>) => logger.error(message, meta),
 
-  // Domain-specific logging helpers
-  transaction: (signature: string, action: string, meta?: Record<string, any>) => {
-    logger.info('Transaction', {
-      signature,
-      action,
-      ...meta,
-    });
+  // Sampled info log - only logs 1 in N times in production (saves money!)
+  infoSampled: (message: string, meta?: Record<string, any>) => {
+    if (shouldSample()) {
+      logger.info(message, { ...meta, sampled: true });
+    }
   },
 
-  hedge: (delta: number, targetSol: number, currentSol: number, meta?: Record<string, any>) => {
-    logger.info('Hedge Adjustment', {
-      delta,
-      targetSol,
-      currentSol,
-      adjustment: targetSol - currentSol,
-      ...meta,
-    });
-  },
+  /**
+   * Red banner error logging - highly visible for critical failures
+   * Use this for transaction failures that require immediate attention
+   */
+  errorBanner: (message: string, meta?: Record<string, any>) => {
+    const banner = '═'.repeat(80);
+    const padding = '║';
 
-  risk: (event: string, value: number, threshold: number, meta?: Record<string, any>) => {
-    logger.warn('Risk Event', {
-      event,
-      value,
-      threshold,
-      breach: value > threshold,
-      ...meta,
-    });
-  },
+    // Log to console with red color
+    console.error('\n');
+    console.error(`\x1b[41m\x1b[37m${banner}\x1b[0m`);
+    console.error(`\x1b[41m\x1b[37m${padding} ❌ ERROR ❌${' '.repeat(80 - padding.length - ' ❌ ERROR ❌'.length)}${padding}\x1b[0m`);
+    console.error(`\x1b[41m\x1b[37m${banner}\x1b[0m`);
+    console.error(`\x1b[31m\x1b[1m${message}\x1b[0m`);
 
-  emergency: (reason: string, meta?: Record<string, any>) => {
-    logger.error('Emergency Flow Triggered', {
-      reason,
-      timestamp: new Date().toISOString(),
-      ...meta,
-    });
-  },
+    if (meta && Object.keys(meta).length > 0) {
+      console.error('\x1b[33mDetails:\x1b[0m', JSON.stringify(meta, null, 2));
+    }
 
-  performance: (action: string, durationMs: number, meta?: Record<string, any>) => {
-    logger.debug('Performance', {
-      action,
-      durationMs,
-      ...meta,
-    });
-  },
-
-  state: (state: string, data: Record<string, any>) => {
-    logger.info('State Update', {
-      state,
-      ...data,
-    });
+    console.error(`\x1b[41m\x1b[37m${banner}\x1b[0m`);
+    console.error('\n');
   },
 };
 

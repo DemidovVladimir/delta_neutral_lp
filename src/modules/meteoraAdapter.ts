@@ -37,7 +37,7 @@
  * ```
  */
 
-import { PublicKey, Keypair, LAMPORTS_PER_SOL, ComputeBudgetProgram, Transaction } from '@solana/web3.js';
+import { PublicKey, Keypair, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import BN from 'bn.js';
 import DLMMModule from '@meteora-ag/dlmm';
 import { StrategyType } from '@meteora-ag/dlmm';
@@ -48,16 +48,13 @@ const DLMM: any = DLMMModule.default || DLMMModule;
 import { getSolPrice } from '../core/priceOracle.js';
 import { getConfig } from '../config/env.js';
 import { log } from '../utils/logger.js';
-import { getConnection, getWalletKeypair } from '../core/agentKit.js';
+import { getConnection, getWalletKeypair } from '../utils/solana.js';
 import {
   loadCreatedPositionMints,
   saveCreatedPositionMints,
 } from './persistence.js';
 import {
   LpExposure,
-  DepositParams,
-  WithdrawParams,
-  ClaimResult,
   CreatePositionParams,
   CreatePositionResult,
   MeteoraPairInfo,
@@ -69,8 +66,7 @@ import {
   calculateTokenPercentages,
   getMeteoraPairInfo,
 } from '../utils/meteoraUtils.js';
-import { getTransactionFees, logTransactionFees, getBatchTransactionFees } from '../utils/transactionUtils.js';
-import { createEnhancedJitoTipInstruction, JitoTipConfig } from '../utils/jitoUtils.js';
+import { getTransactionFees, logTransactionFees } from '../utils/transactionUtils.js';
 
 export class MeteoraAdapter {
   private config = getConfig();
@@ -134,6 +130,9 @@ export class MeteoraAdapter {
    * Discover all positions owned by the wallet from the blockchain
    * Merges discovered positions with saved positions in state.json
    * This ensures positions are not lost if state.json is corrupted or deleted
+   *
+   * NOTE: In auto-tune mode, only returns the FIRST position found since auto-tune
+   * manages a single position at a time (old positions should be closed during rebalance)
    */
   async discoverPositionsFromBlockchain(): Promise<string[]> {
     try {
@@ -160,7 +159,22 @@ export class MeteoraAdapter {
         mints: discoveredMints,
       });
 
-      // Merge with saved positions (avoid duplicates)
+      // For auto-tune mode, only use the FIRST position (should be only one active)
+      // Auto-tune manages a single position, old ones should be closed
+      if (this.config.autoTuneEnabled) {
+        if (discoveredMints.length > 1) {
+          log.warn('Multiple positions found in auto-tune mode - using only the first one', {
+            found: discoveredMints.length,
+            using: discoveredMints[0],
+            ignored: discoveredMints.slice(1),
+          });
+        }
+        this.positionMints = [discoveredMints[0]];
+        saveCreatedPositionMints(this.positionMints);
+        return [discoveredMints[0]];
+      }
+
+      // For non-auto-tune mode, merge with saved positions (avoid duplicates)
       const mergedMints = Array.from(new Set([...this.positionMints, ...discoveredMints]));
 
       // Update in-memory positions
@@ -191,61 +205,21 @@ export class MeteoraAdapter {
   async ensurePositionsLoaded(): Promise<void> {
     // If positions already loaded, skip discovery
     if (this.positionMints.length > 0) {
-      log.debug('Positions already loaded', { count: this.positionMints.length });
+      log.info('✅ Positions already loaded in memory', {
+        count: this.positionMints.length,
+        mints: this.positionMints,
+      });
       return;
     }
 
     // No saved positions, try to discover from blockchain
-    log.info('No saved positions found, attempting blockchain discovery...');
-    await this.discoverPositionsFromBlockchain();
-  }
-
-  /**
-   * Add priority fees and optional Jito tip to a transaction
-   *
-   * @param tx - Transaction to enhance
-   * @param jitoConfig - Optional Jito tip configuration
-   */
-  private async enhanceTransaction(tx: Transaction, jitoConfig?: JitoTipConfig): Promise<void> {
-    const wallet = getWalletKeypair();
-
-    // Check if transaction already has ComputeBudget instructions
-    const hasComputeBudgetInstructions = tx.instructions.some(
-      (ix) => ix.programId.equals(ComputeBudgetProgram.programId)
-    );
-
-    if (hasComputeBudgetInstructions) {
-      log.warn('Transaction already contains ComputeBudget instructions, skipping addition to avoid duplicates');
-    } else {
-      // 1. Add ComputeBudget instructions (priority fees)
-      const computeUnitPrice = ComputeBudgetProgram.setComputeUnitPrice({
-        microLamports: this.config.priorityFeeMicroLamports,
-      });
-
-      const computeUnitLimit = ComputeBudgetProgram.setComputeUnitLimit({
-        units: this.config.maxComputeUnits,
-      });
-
-      // Add at beginning of transaction (order matters!)
-      tx.instructions.unshift(computeUnitLimit);
-      tx.instructions.unshift(computeUnitPrice);
-
-      log.debug('Added priority fee instructions', {
-        priorityFeeMicroLamports: this.config.priorityFeeMicroLamports,
-        maxComputeUnits: this.config.maxComputeUnits,
-      });
-    }
-
-    // 2. Add Jito tip if enabled and config provided
-    if (this.config.useJito && jitoConfig) {
-      const jitoTipIx = await createEnhancedJitoTipInstruction(wallet.publicKey, jitoConfig);
-      tx.add(jitoTipIx);
-
-      log.debug('Added Jito tip instruction', {
-        priority: jitoConfig.priority,
-        attempt: jitoConfig.attempt || 0,
-      });
-    }
+    log.warn('⚠️  Position list is EMPTY - attempting blockchain discovery...');
+    const discovered = await this.discoverPositionsFromBlockchain();
+    log.info('Blockchain discovery complete', {
+      found: discovered.length,
+      mints: discovered,
+      currentPositionMints: this.positionMints,
+    });
   }
 
   /**
@@ -334,11 +308,19 @@ export class MeteoraAdapter {
       const totalXAmount = new BN(params.solAmount * 10 ** DECIMALS.SOL);
       const totalYAmount = new BN(params.usdcAmount * 10 ** DECIMALS.USDC);
 
-      // Create strategy parameters for balanced deposit
+      // Create strategy parameters based on config
+      // Map config string to StrategyType enum
+      const strategyTypeMap = {
+        'spot': StrategyType.Spot,
+        'curve': StrategyType.Curve,
+        'bidask': StrategyType.BidAsk,
+      };
+      const strategyType = strategyTypeMap[this.config.meteoraStrategyType];
+
       const strategyParameters = {
         maxBinId,
         minBinId,
-        strategyType: StrategyType.Spot, // Spot strategy for balanced liquidity
+        strategyType, // Configurable via METEORA_STRATEGY_TYPE env var
       };
 
       // Build position initialization and liquidity add transaction
@@ -351,11 +333,9 @@ export class MeteoraAdapter {
         slippage: SLIPPAGE_BPS.default / 10000, // Convert BPS to decimal (50 BPS = 0.005)
       });
 
-      // Add priority fees and Jito tip (normal priority for position creation)
-      await this.enhanceTransaction(tx, {
-        priority: 'normal',
-        attempt: 0,
-      });
+      // Add priority fees
+      // TODO: Consider bringing this back if needed, just trying without to save fees
+      // await this.enhanceTransaction(tx);
 
       // Sign and send transaction
       tx.partialSign(wallet);
@@ -389,8 +369,21 @@ export class MeteoraAdapter {
       const feeDetails = await getTransactionFees(connection, signature);
       logTransactionFees(signature, feeDetails, 'Position Creation');
 
+      // Track fees in state (async, don't wait)
+      const solPriceData = await getSolPrice();
+      const { trackTransactionFee } = await import('../utils/transactionUtils.js');
+      trackTransactionFee(connection, signature, 'createPosition', solPriceData.usd).catch(err => {
+        log.warn('Failed to track transaction fee in state', { error: err.message });
+      });
+
       // Add to our position list and save to state
-      this.positionMints.push(positionMint);
+      // For auto-tune mode, we only manage one position at a time
+      // Replace the array instead of appending to avoid accumulating closed positions
+      if (this.config.autoTuneEnabled) {
+        this.positionMints = [positionMint];
+      } else {
+        this.positionMints.push(positionMint);
+      }
       saveCreatedPositionMints(this.positionMints);
 
       log.info('Position mint saved to state', {
@@ -582,12 +575,13 @@ export class MeteoraAdapter {
     // Ensure positions are loaded from state or blockchain
     await this.ensurePositionsLoaded();
 
-    log.debug('Reading LP exposure', {
+    log.info('📊 Reading LP exposure', {
       positionCount: this.positionMints.length,
+      mints: this.positionMints,
     });
 
     if (this.positionMints.length === 0) {
-      log.warn('No position mints available');
+      log.warn('⚠️  No position mints available after ensurePositionsLoaded()');
       return {
         solAmount: 0,
         usdcAmount: 0,
@@ -645,8 +639,10 @@ export class MeteoraAdapter {
         // Convert BN amounts to numbers with proper decimals
         const solAmount = parseFloat(pos.positionData.totalXAmount) / 10 ** DECIMALS.SOL;
         const usdcAmount = parseFloat(pos.positionData.totalYAmount) / 10 ** DECIMALS.USDC;
-        const claimableSol = pos.positionData.feeX.toNumber() / 10 ** DECIMALS.SOL;
-        const claimableUsdc = pos.positionData.feeY.toNumber() / 10 ** DECIMALS.USDC;
+
+        // Use parseFloat for fees to avoid BN precision issues
+        const claimableSol = parseFloat(pos.positionData.feeX.toString()) / 10 ** DECIMALS.SOL;
+        const claimableUsdc = parseFloat(pos.positionData.feeY.toString()) / 10 ** DECIMALS.USDC;
 
         totalSol += solAmount;
         totalUsdc += usdcAmount;
@@ -724,315 +720,164 @@ export class MeteoraAdapter {
   }
 
   /**
-   * Deposit to LP position
+   * Withdraw 100%, claim fees, and close position in a SINGLE ATOMIC transaction
+   *
+   * This uses the Meteora SDK's `shouldClaimAndClose=true` parameter which ensures
+   * all three operations execute atomically within ONE transaction:
+   * 1. Withdraw 100% liquidity
+   * 2. Claim all accumulated fees
+   * 3. Close position and reclaim rent
+   *
+   * @param positionMint - Position NFT public key as string
+   * @returns Object containing signature and claimed fees
    */
-  async depositToLp(params: DepositParams): Promise<string> {
-    log.info('Depositing to LP', params);
+  async withdrawClaimAndClose(positionMint: string): Promise<{
+    signature: string;
+    claimedFees: {
+      sol: number;
+      usdc: number;
+    };
+  }> {
+    log.info('Withdraw + Claim + Close (SINGLE ATOMIC TRANSACTION)', { positionMint });
 
     try {
       const connection = getConnection();
       const wallet = getWalletKeypair();
 
-      // Get the first position (or specified position)
-      if (this.positionMints.length === 0) {
-        throw new Error('No positions available to deposit to');
-      }
-
-      const positionPubkey = new PublicKey(this.positionMints[0]);
+      log.info('Step 1: Creating DLMM pool instance...');
+      const positionPubkey = new PublicKey(positionMint);
       const poolPubkey = new PublicKey(this.config.meteoraPoolAddress!);
       const dlmmPool = await DLMM.create(connection, poolPubkey);
-
-      // Determine amounts based on parameters
-      let totalXAmount = new BN(0);
-      let totalYAmount = new BN(0);
-
-      if (params.singleSided === 'sol' && params.sol) {
-        totalXAmount = new BN(params.sol * 10 ** DECIMALS.SOL);
-      } else if (params.singleSided === 'usdc' && params.usdc) {
-        totalYAmount = new BN(params.usdc * 10 ** DECIMALS.USDC);
-      } else if (!params.singleSided) {
-        // Balanced deposit
-        if (params.sol) totalXAmount = new BN(params.sol * 10 ** DECIMALS.SOL);
-        if (params.usdc) totalYAmount = new BN(params.usdc * 10 ** DECIMALS.USDC);
-      } else {
-        throw new Error('Invalid deposit parameters');
-      }
-
-      // Get position data to determine bin range
-      const { userPositions } = await dlmmPool.getPositionsByUserAndLbPair(wallet.publicKey);
-      const position = userPositions.find((p: any) => p.publicKey.equals(positionPubkey));
-
-      if (!position) {
-        throw new Error('Position not found');
-      }
-
-      // Create strategy based on deposit mode
-      const strategyParameters = {
-        minBinId: position.positionData.lowerBinId,
-        maxBinId: position.positionData.upperBinId,
-        strategyType: StrategyType.Spot,
-      };
-
-      // Build add liquidity transaction
-      const tx = await dlmmPool.addLiquidityByStrategy({
-        positionPubKey: positionPubkey,
-        totalXAmount,
-        totalYAmount,
-        strategy: strategyParameters,
-        user: wallet.publicKey,
-        slippage: SLIPPAGE_BPS.default / 10000,
-      });
-
-      // Add priority fees and Jito tip (normal priority for deposits)
-      await this.enhanceTransaction(tx, {
-        priority: 'normal',
-        attempt: 0,
-      });
-
-      // Sign and send
-      tx.partialSign(wallet);
-      const signature = await connection.sendRawTransaction(tx.serialize(), {
-        skipPreflight: false,
-        preflightCommitment: 'confirmed',
-      });
-
-      log.info('Deposit transaction submitted', {
-        signature,
-        solscan: `https://solscan.io/tx/${signature}`,
-      });
-
-      const latestBlockhash = await connection.getLatestBlockhash();
-      await connection.confirmTransaction({
-        signature,
-        ...latestBlockhash,
-      });
-
-      log.info('✅ Deposit successful', {
-        signature,
-        solscan: `https://solscan.io/tx/${signature}`,
-        params,
-      });
-
-      // Fetch and log transaction fees
-      const feeDetails = await getTransactionFees(connection, signature);
-      logTransactionFees(signature, feeDetails, 'Deposit');
-
-      return signature;
-    } catch (error) {
-      log.error('Failed to deposit to LP', {
-        error: error instanceof Error ? error.message : String(error),
-        params,
-      });
-      throw error;
-    }
-  }
-
-  /**
-   * Withdraw from LP position
-   */
-  async withdrawFromLp(params: WithdrawParams): Promise<string> {
-    log.info('Withdrawing from LP', params);
-
-    try {
-      const connection = getConnection();
-      const wallet = getWalletKeypair();
-
-      if (this.positionMints.length === 0) {
-        throw new Error('No positions available to withdraw from');
-      }
-
-      // Determine which position to withdraw from
-      let selectedPositionMint: string;
-      if (params.positionMint) {
-        // Use the specified position
-        if (!this.positionMints.includes(params.positionMint)) {
-          throw new Error(`Position mint ${params.positionMint} not found in managed positions`);
-        }
-        selectedPositionMint = params.positionMint;
-      } else {
-        // Default to first position for backward compatibility
-        selectedPositionMint = this.positionMints[0];
-      }
-
-      const positionPubkey = new PublicKey(selectedPositionMint);
-      const poolPubkey = new PublicKey(this.config.meteoraPoolAddress!);
-      const dlmmPool = await DLMM.create(connection, poolPubkey);
+      log.info('✅ DLMM pool instance created');
 
       // Get position data
+      log.info('Step 2: Fetching user positions...');
       const { userPositions } = await dlmmPool.getPositionsByUserAndLbPair(wallet.publicKey);
+      log.info('✅ User positions fetched', { count: userPositions.length });
+
+      log.info('Step 3: Finding position in user positions...');
       const position = userPositions.find((p: any) => p.publicKey.equals(positionPubkey));
 
       if (!position) {
+        log.error('❌ Position not found!', {
+          searchingFor: positionMint,
+          availablePositions: userPositions.map((p: any) => p.publicKey.toBase58()),
+        });
         throw new Error('Position not found');
       }
+      log.info('✅ Position found');
 
-      // Calculate basis points for withdrawal
-      let bps: BN;
-      if (params.percent !== undefined) {
-        // Convert percent to basis points (1% = 100 BPS, 100% = 10000 BPS)
-        bps = new BN(params.percent * 100);
-      } else if (params.amount !== undefined) {
-        // For amount-based withdrawal, we need to calculate what percentage this represents
-        // This is approximate - would need position value calculation
-        throw new Error('Amount-based withdrawal not yet supported, use percent mode');
-      } else {
-        throw new Error('Invalid withdrawal parameters - must specify percent or amount');
-      }
+      // Calculate claimable fees before withdrawal
+      log.info('Step 4: Calculating claimable fees...');
+      // Use parseFloat with toString() to avoid BN precision issues
+      const claimableSol = parseFloat(position.positionData.feeX.toString()) / 10 ** DECIMALS.SOL;
+      const claimableUsdc = parseFloat(position.positionData.feeY.toString()) / 10 ** DECIMALS.USDC;
+      log.info('✅ Fees calculated');
 
-      // Remove liquidity transaction
-      const txs = await dlmmPool.removeLiquidity({
+      log.info('Position details', {
+        lowerBinId: position.positionData.lowerBinId,
+        upperBinId: position.positionData.upperBinId,
+        claimableFees: { sol: claimableSol, usdc: claimableUsdc },
+      });
+
+      log.info('🔄 Calling Meteora SDK removeLiquidity...', {
+        fromBinId: position.positionData.lowerBinId,
+        toBinId: position.positionData.upperBinId,
+        withdrawPercentage: '100%',
+      });
+
+      // SDK's removeLiquidity with shouldClaimAndClose=true creates ONE TRANSACTION
+      // that includes all instructions for withdraw + claim + close atomically
+      // Add timeout to prevent hanging forever
+      const removeLiquidityPromise = dlmmPool.removeLiquidity({
         user: wallet.publicKey,
         position: positionPubkey,
         fromBinId: position.positionData.lowerBinId,
         toBinId: position.positionData.upperBinId,
-        bps,
-        shouldClaimAndClose: false, // Don't auto-close position
-        skipUnwrapSOL: params.singleSidedOut !== 'usdc', // Unwrap SOL unless single-sided USDC out
+        bps: new BN(10000), // 100%
+        shouldClaimAndClose: true, // ATOMIC: withdraw + claim + close in ONE TX
+        skipUnwrapSOL: false,
       });
 
-      // Sign and send all transactions
-      const signatures: string[] = [];
-      for (let i = 0; i < txs.length; i++) {
-        const tx = txs[i];
+      // Add 30 second timeout
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('removeLiquidity timeout after 30s')), 30000)
+      );
 
-        // Add priority fees and Jito tip (high priority for withdrawals)
-        await this.enhanceTransaction(tx, {
-          priority: 'high',
-          attempt: 0,
-        });
+      const withdrawTxs = await Promise.race([removeLiquidityPromise, timeoutPromise]) as any[];
 
-        tx.partialSign(wallet);
-        const signature = await connection.sendRawTransaction(tx.serialize(), {
-          skipPreflight: false,
-          preflightCommitment: 'confirmed',
-        });
+      log.info('✅ SDK removeLiquidity returned', { txCount: withdrawTxs.length });
 
-        log.info(`Withdrawal transaction ${i + 1}/${txs.length} submitted`, {
-          signature,
-          solscan: `https://solscan.io/tx/${signature}`,
-        });
-
-        const latestBlockhash = await connection.getLatestBlockhash();
-        await connection.confirmTransaction({
-          signature,
-          ...latestBlockhash,
-        });
-
-        signatures.push(signature);
+      if (withdrawTxs.length === 0) {
+        throw new Error('No withdraw transactions returned from SDK');
       }
 
-      const finalSignature = signatures[signatures.length - 1];
+      // Use the first transaction (SDK already added compute budget)
+      const tx = withdrawTxs[0];
 
-      log.info('✅ Withdrawal successful', {
-        transactionCount: signatures.length,
-        signatures,
-        finalSignature,
-        viewOnSolscan: signatures.map(sig => `https://solscan.io/tx/${sig}`),
-        params,
-      });
-
-      // Calculate total transaction fees for all withdrawal transactions
-      const batchFees = await getBatchTransactionFees(connection, signatures);
-      log.info('💰 Total transaction fees - Withdrawal', {
-        transactionCount: signatures.length,
-        totalFeeLamports: batchFees.totalFeeLamports,
-        totalFeeSol: batchFees.totalFeeSol.toFixed(6),
-        totalFeeUsd: (batchFees.totalFeeSol * 163).toFixed(4),
-        totalComputeUnits: batchFees.totalComputeUnits,
-      });
-
-      return finalSignature;
-    } catch (error) {
-      log.error('Failed to withdraw from LP', {
-        error: error instanceof Error ? error.message : String(error),
-        params,
-      });
-      throw error;
-    }
-  }
-
-  /**
-   * Close an empty position to reclaim position NFT rent (~0.057 SOL)
-   *
-   * IMPORTANT: Only the position NFT rent is recoverable.
-   * Bin array rent (~0.14 SOL) is NON-REFUNDABLE as bin arrays are shared pool infrastructure.
-   *
-   * NOTE: Position must be fully withdrawn (0 liquidity) before closing
-   */
-  async closePosition(positionMint: string): Promise<string> {
-    log.info('Closing position and reclaiming rent', { positionMint });
-
-    try {
-      const connection = getConnection();
-      const wallet = getWalletKeypair();
-
-      const positionPubkey = new PublicKey(positionMint);
-      const poolPubkey = new PublicKey(this.config.meteoraPoolAddress!);
-      const dlmmPool = await DLMM.create(connection, poolPubkey);
-
-      // Get position data to verify it's empty
-      const { userPositions } = await dlmmPool.getPositionsByUserAndLbPair(wallet.publicKey);
-      const position = userPositions.find((p: any) => p.publicKey.equals(positionPubkey));
-
-      if (!position) {
-        throw new Error('Position not found');
-      }
-
-      // Check if position is empty (no liquidity left)
-      const hasLiquidity = position.positionData.liquidityShares?.gt(new BN(0));
-      if (hasLiquidity) {
-        throw new Error('Cannot close position with liquidity. Please withdraw 100% first.');
-      }
-
-      // Close position using the SDK's closePosition method
-      // The position parameter needs to be an LbPosition object with publicKey and positionData
-      const closeTx = await dlmmPool.closePosition({
-        owner: wallet.publicKey,
-        position, // Pass the full position object, not just the public key
-      });
-
-      // Add priority fees (low priority for closing, just reclaiming rent)
-      await this.enhanceTransaction(closeTx, {
-        priority: 'low',
-        attempt: 0,
-      });
 
       // Sign and send transaction
-      closeTx.partialSign(wallet);
-      const signature = await connection.sendRawTransaction(closeTx.serialize(), {
+      tx.feePayer = wallet.publicKey;
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
+      tx.recentBlockhash = blockhash;
+      tx.sign(wallet);
+
+      const signature = await connection.sendRawTransaction(tx.serialize(), {
         skipPreflight: false,
         preflightCommitment: 'confirmed',
+        maxRetries: 3,
       });
 
-      log.info('Close position transaction submitted', {
+      log.info('SINGLE TRANSACTION submitted: Withdraw + Claim + Close', {
         signature,
         solscan: `https://solscan.io/tx/${signature}`,
       });
 
-      // Wait for confirmation
-      const latestBlockhash = await connection.getLatestBlockhash();
+      // Wait for confirmation using the SAME blockhash we used when building the transaction
       await connection.confirmTransaction({
         signature,
-        ...latestBlockhash,
+        blockhash,
+        lastValidBlockHeight,
       });
 
-      log.info('✅ Position closed successfully, rent reclaimed (~0.057 SOL)', {
-        positionMint,
+      log.info('✅ Withdraw + Claim + Close completed successfully (1 TX)', {
         signature,
+        claimedFees: { sol: claimableSol, usdc: claimableUsdc },
         solscan: `https://solscan.io/tx/${signature}`,
       });
 
       // Fetch and log transaction fees
       const feeDetails = await getTransactionFees(connection, signature);
-      logTransactionFees(signature, feeDetails, 'Close Position');
+      logTransactionFees(signature, feeDetails, 'Withdraw + Claim + Close');
 
-      // Remove from our position list
+      // Track fees in state (async, don't wait)
+      const solPriceData = await getSolPrice();
+      const { trackTransactionFee } = await import('../utils/transactionUtils.js');
+      trackTransactionFee(connection, signature, 'withdrawClaimClose', solPriceData.usd).catch(err => {
+        log.warn('Failed to track transaction fee in state', { error: err.message });
+      });
+
+      // Remove from our position list (in-memory only, don't save to disk yet!)
+      // We'll save the new position mint when createPosition() is called during rebalance
+      // This prevents a race condition where state.json briefly contains an empty array
       this.positionMints = this.positionMints.filter(mint => mint !== positionMint);
-      saveCreatedPositionMints(this.positionMints);
 
-      return signature;
+      // DO NOT save empty array to disk here - it creates a race condition!
+      // The orchestrator will call createPosition() next, which will save the new position mint
+      log.info('Position removed from in-memory list (not saved to disk yet)', {
+        removedMint: positionMint,
+        remainingCount: this.positionMints.length,
+      });
+
+      return {
+        signature,
+        claimedFees: {
+          sol: claimableSol,
+          usdc: claimableUsdc,
+        },
+      };
     } catch (error) {
-      log.error('Failed to close position', {
+      log.error('Failed to withdraw + claim + close position', {
         error: error instanceof Error ? error.message : String(error),
         positionMint,
       });
@@ -1040,130 +885,4 @@ export class MeteoraAdapter {
     }
   }
 
-  /**
-   * Claim accumulated fees
-   */
-  async claimFees(): Promise<ClaimResult> {
-    // Ensure positions are loaded from state or blockchain
-    await this.ensurePositionsLoaded();
-
-    log.info('Claiming fees from all positions');
-
-    try {
-      const connection = getConnection();
-      const wallet = getWalletKeypair();
-
-      if (this.positionMints.length === 0) {
-        log.warn('No positions to claim fees from');
-        return { sol: 0, usdc: 0, sig: '' };
-      }
-
-      const poolPubkey = new PublicKey(this.config.meteoraPoolAddress!);
-      const dlmmPool = await DLMM.create(connection, poolPubkey);
-
-      // Get all positions
-      const { userPositions } = await dlmmPool.getPositionsByUserAndLbPair(wallet.publicKey);
-      const ourPositions = userPositions.filter((pos: any) =>
-        this.positionMints.includes(pos.publicKey.toBase58())
-      );
-
-      if (ourPositions.length === 0) {
-        log.warn('No matching positions found');
-        return { sol: 0, usdc: 0, sig: '' };
-      }
-
-      // Calculate total claimable fees
-      let totalClaimableSol = 0;
-      let totalClaimableUsdc = 0;
-
-      for (const pos of ourPositions) {
-        totalClaimableSol += pos.positionData.feeX.toNumber() / 10 ** DECIMALS.SOL;
-        totalClaimableUsdc += pos.positionData.feeY.toNumber() / 10 ** DECIMALS.USDC;
-      }
-
-      if (totalClaimableSol === 0 && totalClaimableUsdc === 0) {
-        log.info('No fees to claim');
-        return { sol: 0, usdc: 0, sig: '' };
-      }
-
-      // Claim fees from all positions
-      const claimTxs = await dlmmPool.claimAllRewards({
-        owner: wallet.publicKey,
-        positions: ourPositions,
-      });
-
-      // Sign and send all claim transactions
-      const signatures: string[] = [];
-      for (let i = 0; i < claimTxs.length; i++) {
-        const tx = claimTxs[i];
-
-        // Add priority fees (low priority for fee claims, not time-sensitive)
-        await this.enhanceTransaction(tx, {
-          priority: 'low',
-          attempt: 0,
-        });
-
-        tx.partialSign(wallet);
-        const signature = await connection.sendRawTransaction(tx.serialize(), {
-          skipPreflight: false,
-          preflightCommitment: 'confirmed',
-        });
-
-        log.info(`Fee claim transaction ${i + 1}/${claimTxs.length} submitted`, {
-          signature,
-          solscan: `https://solscan.io/tx/${signature}`,
-        });
-
-        const latestBlockhash = await connection.getLatestBlockhash();
-        await connection.confirmTransaction({
-          signature,
-          ...latestBlockhash,
-        });
-
-        log.info(`Fee claim transaction ${i + 1}/${claimTxs.length} confirmed`, {
-          signature,
-        });
-
-        signatures.push(signature);
-      }
-
-      const finalSignature = signatures[signatures.length - 1];
-
-      // Calculate total transaction fees for all claim transactions
-      const batchFees = await getBatchTransactionFees(connection, signatures);
-
-      log.info('✅ Fees claimed successfully', {
-        sol: totalClaimableSol,
-        usdc: totalClaimableUsdc,
-        transactionCount: signatures.length,
-        signatures,
-        finalSignature,
-        viewOnSolscan: signatures.map(sig => `https://solscan.io/tx/${sig}`),
-      });
-
-      log.info('💰 Total transaction fees - Fee Claiming', {
-        transactionCount: signatures.length,
-        totalFeeLamports: batchFees.totalFeeLamports,
-        totalFeeSol: batchFees.totalFeeSol.toFixed(6),
-        totalFeeUsd: (batchFees.totalFeeSol * 163).toFixed(4), // Approximate
-        totalComputeUnits: batchFees.totalComputeUnits,
-        breakdown: batchFees.breakdown.map(b => ({
-          signature: b.signature,
-          feeSol: b.feeSol.toFixed(6),
-          computeUnits: b.computeUnitsConsumed,
-        })),
-      });
-
-      return {
-        sol: totalClaimableSol,
-        usdc: totalClaimableUsdc,
-        sig: finalSignature,
-      };
-    } catch (error) {
-      log.error('Failed to claim fees', {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      throw error;
-    }
-  }
 }

@@ -140,6 +140,7 @@ Copy this template for each new bug:
 ### By Epic
 - Epic K: 0
 - Epic L: 0
+- Epic L (Auto-Tune): 0
 - Epic M: 0
 - Epic N: 0
 - Epic O: 0
@@ -228,6 +229,24 @@ Custom USDC tokens are rejected with error: `InvalidQuoteToken` (0x17ad)
 **Impact:** Cannot create custom USDC pools on localnet
 **Workaround:** Use existing pools with Base Token/SOL for localnet testing
 **Production Impact:** None (mainnet has real USDC)
+
+---
+
+## Notes on Auto-Tune Implementation
+
+### Auto-Tune Feature (Implemented 2025-11-09)
+**Status:** No bugs encountered
+
+The auto-tune feature was implemented with atomic rebalancing (withdraw + claim + close + create in single transaction). Implementation went smoothly with no bugs filed during development.
+
+**Implementation Details:**
+- All operations bundled into single transaction for atomicity
+- Uses partialSign for wallet + position keypair signatures
+- Normal Jito priority to avoid overpaying
+- Auto-calculation of centered price ranges
+- Simple threshold-based imbalance detection (0.8 = 80%)
+
+**Testing Status:** Pending production testing
 
 ---
 

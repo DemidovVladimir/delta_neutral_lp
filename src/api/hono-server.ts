@@ -4,15 +4,18 @@
  * Exposes REST endpoints using Hono framework for:
  * - Pool analytics and bin data
  * - Oracle price feeds (Pyth + Jupiter)
- * - LP position management
+ * - LP position management (minimal API: create + withdraw-claim-close)
  * - Real-time price updates
+ *
+ * Note: This API server provides minimal endpoints focused on auto-tune bot functionality.
+ * Only `createPosition()` and `withdrawClaimAndClose()` are exposed for LP operations.
  */
 
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { MeteoraAdapter } from '../modules/meteoraAdapter.js';
 import { getSolPrice, getMultiTokenPrices } from '../core/priceOracle.js';
-import { getConnection } from '../core/agentKit.js';
+import { getConnection } from '../utils/solana.js';
 import { PublicKey } from '@solana/web3.js';
 import DLMMModule from '@meteora-ag/dlmm';
 import { getConfig } from '../config/env.js';
@@ -231,81 +234,8 @@ app.post('/api/positions/create', async (c) => {
   }
 });
 
-// Deposit to existing LP position
-app.post('/api/positions/deposit', async (c) => {
-  try {
-    const body = await c.req.json();
-    const { sol, usdc, singleSided } = body;
-
-    const adapter = getMeteoraAdapter();
-    const signature = await adapter.depositToLp({
-      sol: sol ? parseFloat(sol) : undefined,
-      usdc: usdc ? parseFloat(usdc) : undefined,
-      singleSided: singleSided || undefined,
-    });
-
-    return c.json({ signature, success: true });
-  } catch (error) {
-    log.error('Failed to deposit', { error });
-    return c.json(
-      {
-        error: 'Failed to deposit',
-        message: error instanceof Error ? error.message : String(error),
-      },
-      500
-    );
-  }
-});
-
-// Withdraw from LP position
-app.post('/api/positions/withdraw', async (c) => {
-  try {
-    const body = await c.req.json();
-    const { percent, positionMint } = body;
-
-    if (!percent) {
-      return c.json({ error: 'Missing required parameter: percent' }, 400);
-    }
-
-    const adapter = getMeteoraAdapter();
-    const signature = await adapter.withdrawFromLp({
-      percent: parseFloat(percent),
-      positionMint: positionMint ? String(positionMint) : undefined,
-    });
-
-    return c.json({ signature, success: true });
-  } catch (error) {
-    log.error('Failed to withdraw', { error });
-    return c.json(
-      {
-        error: 'Failed to withdraw',
-        message: error instanceof Error ? error.message : String(error),
-      },
-      500
-    );
-  }
-});
-
-// Claim accumulated fees
-app.post('/api/positions/claim-fees', async (c) => {
-  try {
-    const adapter = getMeteoraAdapter();
-    const result = await adapter.claimFees();
-    return c.json(result);
-  } catch (error) {
-    log.error('Failed to claim fees', { error });
-    return c.json(
-      {
-        error: 'Failed to claim fees',
-        message: error instanceof Error ? error.message : String(error),
-      },
-      500
-    );
-  }
-});
-
-// Close empty position and reclaim rent
-app.post('/api/positions/close', async (c) => {
+// Withdraw 100%, claim fees, and close position in ONE ATOMIC transaction
+app.post('/api/positions/withdraw-claim-close', async (c) => {
   try {
     const body = await c.req.json();
     const { positionMint } = body;
@@ -315,18 +245,19 @@ app.post('/api/positions/close', async (c) => {
     }
 
     const adapter = getMeteoraAdapter();
-    const signature = await adapter.closePosition(positionMint);
+    const result = await adapter.withdrawClaimAndClose(positionMint);
 
     return c.json({
-      signature,
+      signature: result.signature,
+      claimedFees: result.claimedFees,
       success: true,
-      message: 'Position NFT closed and rent reclaimed (~0.057 SOL). Note: Bin array rent (~0.14 SOL) is non-refundable.'
+      message: 'Withdraw + Claim + Close completed in 1 atomic transaction. Position closed and rent reclaimed (~0.057 SOL).'
     });
   } catch (error) {
-    log.error('Failed to close position', { error });
+    log.error('Failed to withdraw, claim, and close position', { error });
     return c.json(
       {
-        error: 'Failed to close position',
+        error: 'Failed to withdraw, claim, and close position',
         message: error instanceof Error ? error.message : String(error),
       },
       500

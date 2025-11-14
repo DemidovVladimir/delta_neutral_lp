@@ -6,16 +6,16 @@
  */
 
 import { getSolPrice, clearPriceCache } from '../core/priceOracle.js';
-import { initializeAgentKit } from '../core/agentKit.js';
+import { initializeSolana } from '../utils/solana.js';
 import { log } from '../utils/logger.js';
 
 async function testPythPriceOracle() {
   log.info('=== Testing Pyth Price Oracle ===');
 
   try {
-    // Initialize agent kit (required for connection)
-    log.info('Initializing agent kit...');
-    await initializeAgentKit();
+    // Initialize Solana (required for connection)
+    log.info('Initializing Solana...');
+    await initializeSolana();
 
     // Clear any cached prices to force a fresh fetch
     clearPriceCache();

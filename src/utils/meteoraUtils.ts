@@ -160,7 +160,7 @@ export async function getMeteoraPairInfo(poolKey: string): Promise<MeteoraPairIn
       throw new Error(`Meteora API returned ${response.status}`);
     }
 
-    const data = await response.json();
+    const data = await response.json() as any;
 
     const pairInfo: MeteoraPairInfo = {
       address: data.address,
@@ -224,4 +224,110 @@ export function formatNumber(num: number): string {
   } else {
     return `$${num.toFixed(1)}`;
   }
+}
+
+/**
+ * Check if a position is imbalanced based on token composition
+ *
+ * A position is imbalanced when one token comprises more than the threshold percentage
+ * (e.g., 80% SOL or 80% USDC indicates price has moved significantly)
+ *
+ * @param currentPrice - Current price
+ * @param lowerBinPrice - Position lower bound price
+ * @param upperBinPrice - Position upper bound price
+ * @param imbalanceThreshold - Threshold as decimal (e.g., 0.8 for 80%)
+ * @returns Object with imbalance status and composition details
+ */
+export function checkPositionImbalance(
+  currentPrice: number,
+  lowerBinPrice: number,
+  upperBinPrice: number,
+  imbalanceThreshold: number
+): {
+  isImbalanced: boolean;
+  solPercent: number;
+  usdcPercent: number;
+  reason?: string;
+} {
+  const composition = calculateTokenPercentages(currentPrice, lowerBinPrice, upperBinPrice);
+
+  const thresholdPercent = imbalanceThreshold * 100;
+
+  const isImbalanced =
+    composition.tokenX >= thresholdPercent ||
+    composition.tokenY >= thresholdPercent;
+
+  let reason: string | undefined;
+  if (isImbalanced) {
+    if (composition.tokenX >= thresholdPercent) {
+      reason = `SOL concentration ${composition.tokenX}% exceeds ${thresholdPercent}% threshold`;
+    } else {
+      reason = `USDC concentration ${composition.tokenY}% exceeds ${thresholdPercent}% threshold`;
+    }
+  }
+
+  return {
+    isImbalanced,
+    solPercent: composition.tokenX,
+    usdcPercent: composition.tokenY,
+    reason,
+  };
+}
+
+/**
+ * Calculate price range for a centered position with fixed bin count
+ *
+ * Creates a symmetric range around the current price using the pool's bin step
+ * and a fixed number of bins (e.g., 20 bins = 10 below + 10 above current price)
+ *
+ * @param currentPrice - Current market price
+ * @param currentBinId - Current active bin ID
+ * @param binStep - Pool's bin step (price granularity)
+ * @param binCount - Total number of bins for the position
+ * @param tokenXDecimal - Token X decimals (e.g., SOL = 9)
+ * @param tokenYDecimal - Token Y decimals (e.g., USDC = 6)
+ * @returns Price range bounds and bin IDs
+ */
+export function calculateCenteredPriceRange(
+  currentPrice: number,
+  currentBinId: number,
+  binStep: number,
+  binCount: number,
+  tokenXDecimal: number,
+  tokenYDecimal: number
+): {
+  lowerPrice: number;
+  upperPrice: number;
+  minBinId: number;
+  maxBinId: number;
+} {
+  // Calculate bin offsets (symmetric around current bin)
+  // Bin width is inclusive: maxBinId - minBinId + 1 = binCount
+  // So for binCount = 20, we want maxBinId - minBinId = 19
+  const halfBins = Math.floor(binCount / 2);
+  const minBinId = currentBinId - halfBins;
+  const maxBinId = minBinId + binCount - 1; // Ensures exactly binCount bins
+
+  // Calculate prices from bin IDs
+  const lowerPrice = getPriceFromBinId(minBinId, binStep, tokenXDecimal, tokenYDecimal).toNumber();
+  const upperPrice = getPriceFromBinId(maxBinId, binStep, tokenXDecimal, tokenYDecimal).toNumber();
+
+  log.debug('Calculated centered price range', {
+    currentPrice,
+    currentBinId,
+    binCount,
+    halfBins,
+    minBinId,
+    maxBinId,
+    lowerPrice,
+    upperPrice,
+    rangeWidth: upperPrice - lowerPrice,
+  });
+
+  return {
+    lowerPrice,
+    upperPrice,
+    minBinId,
+    maxBinId,
+  };
 }

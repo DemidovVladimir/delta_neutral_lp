@@ -147,3 +147,102 @@ export async function getBatchTransactionFees(
     breakdown,
   };
 }
+
+/**
+ * Track transaction fee and save to state
+ * This is a convenience wrapper that fetches fees and saves to persistence layer
+ *
+ * @param connection - Solana connection
+ * @param signature - Transaction signature
+ * @param operation - Operation type (e.g., "createPosition", "withdraw", "claim", "swap")
+ * @param solPrice - Current SOL price in USD (for USD conversion)
+ */
+export async function trackTransactionFee(
+  connection: Connection,
+  signature: string,
+  operation: string,
+  solPrice: number
+): Promise<void> {
+  try {
+    // Fetch transaction fees
+    const feeDetails = await getTransactionFees(connection, signature);
+
+    if (feeDetails.feeSol === 0) {
+      log.warn('Transaction fee not found or is zero', { signature, operation });
+      return;
+    }
+
+    const feeUsd = feeDetails.feeSol * solPrice;
+
+    // Import persistence module dynamically to avoid circular dependencies
+    const { addTransactionFee } = await import('../modules/persistence.js');
+
+    // Save to state
+    addTransactionFee(signature, feeDetails.feeSol, feeUsd, operation);
+
+    // Log the fee
+    log.info(`💰 ${operation} fee tracked`, {
+      signature: signature.slice(0, 8) + '...',
+      feeSol: feeDetails.feeSol.toFixed(6),
+      feeUsd: feeUsd.toFixed(4),
+      computeUnits: feeDetails.computeUnitsConsumed || 'N/A',
+    });
+  } catch (error) {
+    log.error('Failed to track transaction fee', {
+      error: error instanceof Error ? error.message : String(error),
+      signature,
+      operation,
+    });
+    // Don't throw - fee tracking is not critical
+  }
+}
+
+/**
+ * Track multiple transaction fees and save to state
+ *
+ * @param connection - Solana connection
+ * @param signatures - Array of transaction signatures
+ * @param operation - Operation type (e.g., "rebalance", "batchClaim")
+ * @param solPrice - Current SOL price in USD
+ */
+export async function trackBatchTransactionFees(
+  connection: Connection,
+  signatures: string[],
+  operation: string,
+  solPrice: number
+): Promise<void> {
+  try {
+    const batchFees = await getBatchTransactionFees(connection, signatures);
+
+    if (batchFees.totalFeeSol === 0) {
+      log.warn('No transaction fees found for batch', { signatures, operation });
+      return;
+    }
+
+    const totalFeeUsd = batchFees.totalFeeSol * solPrice;
+
+    // Import persistence module dynamically to avoid circular dependencies
+    const { addTransactionFee } = await import('../modules/persistence.js');
+
+    // Save to state (aggregate multiple signatures under one operation)
+    for (const detail of batchFees.breakdown) {
+      const feeUsd = detail.feeSol * solPrice;
+      addTransactionFee(detail.signature, detail.feeSol, feeUsd, operation);
+    }
+
+    // Log summary
+    log.info(`💰 ${operation} batch fees tracked`, {
+      transactionCount: signatures.length,
+      totalFeeSol: batchFees.totalFeeSol.toFixed(6),
+      totalFeeUsd: totalFeeUsd.toFixed(4),
+      totalComputeUnits: batchFees.totalComputeUnits,
+    });
+  } catch (error) {
+    log.error('Failed to track batch transaction fees', {
+      error: error instanceof Error ? error.message : String(error),
+      signatures,
+      operation,
+    });
+    // Don't throw - fee tracking is not critical
+  }
+}

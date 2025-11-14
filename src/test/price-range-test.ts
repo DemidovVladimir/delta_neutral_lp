@@ -5,6 +5,8 @@
  * bin width and price ranges for the SOL/USDC pool with bin step 10
  */
 
+// Wrap in IIFE to avoid global scope conflicts
+(function() {
 // Configuration from .env
 const PRICE_RANGE_BPS_LOWER = -340; // -3.4%
 const PRICE_RANGE_BPS_UPPER = 340;  // +3.4%
@@ -82,3 +84,4 @@ testPrices.forEach(price => {
 });
 
 console.log('\n');
+})(); // Close IIFE

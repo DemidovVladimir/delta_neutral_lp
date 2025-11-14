@@ -1,13 +1,11 @@
 /**
  * Type Definitions
  *
- * Shared TypeScript type definitions for the delta-neutral liquidity provision bot.
+ * Shared TypeScript type definitions for the Meteora DLMM liquidity provision bot.
  *
  * Type Categories:
  * - **Core Types**: Prices, token amounts, base data structures
  * - **Meteora LP Types**: Position data, exposure tracking, pool analytics
- * - **Drift Types**: Perpetual positions, collateral, margin (planned)
- * - **Risk Types**: Delta thresholds, margin ratios, limits (planned)
  * - **Transaction Types**: Bundle params, execution results
  * - **State Types**: Persistence, snapshots, action journal
  *
@@ -163,29 +161,6 @@ export interface ClaimResult {
 }
 
 // =============================================================================
-// DRIFT PERP TYPES
-// =============================================================================
-
-export interface DriftState {
-  shortSol: number; // Current short position size (negative for short)
-  collateralUsd: number; // Total collateral in USD
-  marginRatio: number; // Collateral / Notional
-  fundingBpsDay: number; // Funding rate in basis points per day
-  unrealizedPnl: number; // Unrealized P&L in USD
-  liquidationPrice?: number; // Estimated liquidation price
-}
-
-export interface RebalanceParams {
-  targetSol: number; // Target short position size
-  price: number; // Current SOL price
-  maxSlippageBps: number; // Maximum slippage in basis points
-}
-
-export interface CollateralParams {
-  usdc: number; // Amount in USDC
-}
-
-// =============================================================================
 // BUNDLE & TRANSACTION TYPES
 // =============================================================================
 
@@ -222,51 +197,48 @@ export interface TransactionResult {
 }
 
 // =============================================================================
-// RISK TYPES
-// =============================================================================
-
-export interface RiskParams {
-  lpSol: number;
-  price: number;
-  shortSol: number;
-  collateralUsd: number;
-  fundingBpsDay: number;
-}
-
-export interface RiskMetrics {
-  delta: number; // lpSol - shortSol
-  collat: number; // Collateral ratio
-  notional: number; // Position notional in USD
-  exposure: number; // USD exposure
-  marginBuffer: number; // Distance to liquidation
-}
-
-export interface RiskLimits {
-  deltaThresholdSol: number;
-  minCollateralRatio: number;
-  maxShortNotionalUsd: number;
-  fundingRateCapBps: number;
-}
-
-export enum RiskLevel {
-  SAFE = 'SAFE',
-  WARNING = 'WARNING',
-  DANGER = 'DANGER',
-  CRITICAL = 'CRITICAL',
-}
-
-// =============================================================================
 // STATE PERSISTENCE TYPES
 // =============================================================================
 
 export interface StateSnapshot {
   timestamp: number;
   lpExposure: LpExposure;
-  driftState: DriftState;
   price: Price;
-  riskMetrics: RiskMetrics;
-  riskLevel: RiskLevel;
   createdPositionMints?: string[]; // Auto-created position NFT mints (for persistence)
+
+  // Transaction fees paid (costs)
+  transactionFees?: {
+    totalFeeSol: number; // Total fees paid in SOL across all transactions
+    totalFeeUsd: number; // Total fees paid in USD (approximate)
+    operationCount: number; // Number of operations tracked
+    breakdown: {
+      [operation: string]: {
+        // e.g., "createPosition", "withdraw", "claim", "swap"
+        count: number;
+        totalFeeSol: number;
+        totalFeeUsd: number;
+        signatures: string[]; // Transaction signatures for audit trail
+      };
+    };
+  };
+
+  // LP fees earned (revenue)
+  lpFees?: {
+    totalClaimedFees: {
+      sol: number; // Total SOL fees claimed from LP positions
+      usdc: number; // Total USDC fees claimed from LP positions
+    };
+    currentUnclaimedFees: {
+      sol: number; // Current unclaimed SOL fees (from getLpExposure)
+      usdc: number; // Current unclaimed USDC fees (from getLpExposure)
+    };
+    claimHistory: Array<{
+      timestamp: number;
+      sol: number;
+      usdc: number;
+      signature?: string; // Transaction signature (if available)
+    }>;
+  };
 }
 
 export interface JournalEntry {
@@ -281,27 +253,111 @@ export interface JournalEntry {
 }
 
 // =============================================================================
-// ORCHESTRATOR TYPES
+// SWAP TYPES
 // =============================================================================
 
-export interface HedgeLoopState {
-  iteration: number;
-  running: boolean;
-  lastRun: number;
-  consecutiveErrors: number;
+export interface SwapParams {
+  inputMint: string; // Token to swap from
+  outputMint: string; // Token to swap to
+  amount: number; // Amount in human-readable units (e.g., 100 USDC, 1.5 SOL)
+  slippageBps?: number; // Slippage tolerance in basis points (default: 50 = 0.5%)
 }
 
-export interface EmergencyTrigger {
-  reason: string;
-  severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
-  timestamp: number;
-  data?: Record<string, any>;
+export interface SwapQuote {
+  inputMint: string;
+  outputMint: string;
+  inAmount: string; // Raw amount (with decimals)
+  outAmount: string; // Raw amount (with decimals)
+  otherAmountThreshold: string; // Minimum output amount after slippage
+  priceImpactPct: number;
+  routePlan: any[];
 }
 
-export interface EmergencyFlowParams {
-  withdrawPercent?: number; // 0-100, default 100 (full withdrawal)
-  skipSwap?: boolean; // Skip SOL->USDC swap
-  dryRun?: boolean; // Simulate only, don't execute
+export interface SwapTransactionResult {
+  transaction: SolanaTransaction; // Unsigned transaction ready for bundling
+  quote: SwapQuote; // Quote used for the swap
+  inputAmount: number; // Human-readable input amount
+  outputAmount: number; // Expected human-readable output amount
+  priceImpactPct: number;
+}
+
+export interface SwapResult {
+  signature: string;
+  inputMint: string;
+  outputMint: string;
+  inputAmount: number; // Actual amount swapped (human-readable)
+  outputAmount: number; // Actual amount received (human-readable)
+  priceImpactPct: number;
+}
+
+// =============================================================================
+// AUTO-TUNE TYPES
+// =============================================================================
+
+export interface AutoTuneConfig {
+  enabled: boolean; // Enable auto-tune mode
+  binCount: number; // Fixed number of bins (e.g., 20 for concentrated liquidity)
+  checkIntervalMs: number; // How often to check position balance (e.g., 30000 = 30s)
+  imbalanceThreshold: number; // Threshold as decimal (e.g., 0.8 = 80% in one token)
+}
+
+export interface PositionBalance {
+  solPercent: number; // Percentage of position in SOL
+  usdcPercent: number; // Percentage of position in USDC
+  isImbalanced: boolean; // True if position exceeds imbalance threshold
+  currentPrice: number; // Current market price
+  lowerPrice: number; // Position lower bound price
+  upperPrice: number; // Position upper bound price
+  reason?: string; // Reason for imbalance (if any)
+}
+
+export interface AutoTuneState {
+  iteration: number; // Number of iterations (checks) performed
+  running: boolean; // Is auto-tune loop running
+  lastCheck: number; // Timestamp of last balance check
+  lastRebalance: number; // Timestamp of last rebalance
+  rebalanceCount: number; // Total number of rebalances performed
+  consecutiveErrors: number; // Error tracking
+  currentPositionMint?: string; // Active position being monitored
+
+  // Aggregated metrics across all rebalances
+  totalClaimedFees: {
+    sol: number; // Total SOL fees claimed across all rebalances
+    usdc: number; // Total USDC fees claimed across all rebalances
+  };
+
+  // Currently unclaimed fees (ready for claiming)
+  unclaimedFees: {
+    sol: number; // SOL fees currently available to claim
+    usdc: number; // USDC fees currently available to claim
+  };
+
+  // Last position created details
+  lastPositionCreated?: {
+    positionMint: string; // Position NFT address
+    initialDeposit: {
+      sol: number; // Initial SOL deposited
+      usdc: number; // Initial USDC deposited
+    };
+    timestamp: number; // When position was created
+  };
+}
+
+export interface RebalanceResult {
+  success: boolean;
+  oldPositionMint: string; // Position that was closed
+  newPositionMint: string; // New position created
+  claimedFees: {
+    sol: number;
+    usdc: number;
+  };
+  deposited: {
+    sol: number;
+    usdc: number;
+  };
+  signatures: string[]; // All transaction signatures
+  error?: string;
+  durationMs: number;
 }
 
 // =============================================================================

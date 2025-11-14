@@ -4,7 +4,7 @@
 
 import { PublicKey } from '@solana/web3.js';
 import DLMMModule from '@meteora-ag/dlmm';
-import { getConnection } from '../core/agentKit.js';
+import { getConnection } from '../utils/solana.js';
 import { getConfig } from '../config/env.js';
 import { getPriceFromBinId } from '../utils/meteoraUtils.js';
 

@@ -23,8 +23,7 @@ import {
   getPriceFromBinId,
   formatNumber,
 } from '../utils/meteoraUtils.js';
-import { createJitoTipInstruction, calculateRecommendedTip } from '../utils/jitoUtils.js';
-import { initializeAgentKit, getWalletKeypair } from '../core/agentKit.js';
+import { initializeSolana, getWalletKeypair } from '../utils/solana.js';
 import { getConfig } from '../config/env.js';
 
 // Load environment based on NODE_ENV
@@ -32,10 +31,10 @@ const env = process.env.NODE_ENV || 'localnet';
 config({ path: `.env.${env}` });
 
 async function initializeTest() {
-  console.log('Initializing agent kit and loading config...');
+  console.log('Initializing Solana connection and loading config...');
 
   try {
-    await initializeAgentKit();
+    await initializeSolana();
     const cfg = getConfig();
     const wallet = getWalletKeypair();
 
@@ -45,7 +44,7 @@ async function initializeTest() {
 
     return { cfg, wallet, initialized: true };
   } catch (error) {
-    console.warn(`⚠️  Could not initialize agent kit: ${error instanceof Error ? error.message : String(error)}`);
+    console.warn(`⚠️  Could not initialize Solana: ${error instanceof Error ? error.message : String(error)}`);
     console.warn('Some tests requiring RPC connection may fail.\n');
 
     const cfg = getConfig();
@@ -153,31 +152,6 @@ async function testMeteoraUtilities() {
   }
 }
 
-async function testJitoUtilities(walletPubkey: PublicKey) {
-  console.log('\n🧪 Testing Jito Utilities...\n');
-
-  try {
-    // Test dynamic tip escalation
-    console.log('1. Testing dynamic tip escalation...');
-
-    for (let attempt = 0; attempt < 5; attempt++) {
-      const tipIx = createJitoTipInstruction(walletPubkey, attempt);
-      console.log(`✅ Attempt ${attempt}: Tip = ${tipIx.data.readUIntLE(4, 6)} lamports`);
-    }
-
-    // Test recommended tip calculation
-    console.log('\n2. Testing recommended tip calculation...');
-    const normalTip = calculateRecommendedTip(4000, 1.0);
-    const urgentTip = calculateRecommendedTip(4000, 2.0);
-    console.log(`✅ Normal priority (1.0x): ${normalTip} lamports`);
-    console.log(`✅ Urgent priority (2.0x): ${urgentTip} lamports`);
-
-    return true;
-  } catch (error) {
-    console.error('❌ Jito utilities test failed:', error);
-    return false;
-  }
-}
 
 async function main() {
   console.log('═══════════════════════════════════════════════════════════');
@@ -185,13 +159,12 @@ async function main() {
   console.log('═══════════════════════════════════════════════════════════\n');
 
   // Initialize and load config
-  const { cfg, wallet, initialized } = await initializeTest();
+  const { cfg } = await initializeTest();
 
   const results = {
     jupiterV6: false,
     meteoraAPI: false,
     meteoraUtils: false,
-    jitoUtils: false,
   };
 
   // Run all tests
@@ -205,7 +178,6 @@ async function main() {
   }
 
   results.meteoraUtils = await testMeteoraUtilities();
-  results.jitoUtils = await testJitoUtilities(wallet.publicKey);
 
   // Summary
   console.log('\n═══════════════════════════════════════════════════════════');
@@ -218,7 +190,6 @@ async function main() {
   console.log(`Jupiter API v6:        ${results.jupiterV6 ? '✅ PASS' : '❌ FAIL'}`);
   console.log(`Meteora DLMM API:      ${results.meteoraAPI ? '✅ PASS' : '❌ FAIL'}`);
   console.log(`Meteora Utilities:     ${results.meteoraUtils ? '✅ PASS' : '❌ FAIL'}`);
-  console.log(`Jito Utilities:        ${results.jitoUtils ? '✅ PASS' : '❌ FAIL'}`);
 
   console.log(`\n${passed}/${total} tests passed\n`);
 

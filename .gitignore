@@ -15,15 +15,10 @@ mcp.json
 # Private key files
 *.key
 *.pem
-id.json
-keypair.json
+*.json
 wallet.json
 *wallet.json
 *-wallet.json
-devnet-wallet.json
-mainnet-wallet.json
-localnet-wallet.json
-test-wallet.json
 secrets/
 .secrets/
 
@@ -70,7 +65,6 @@ lerna-debug.log*
 coverage/
 .nyc_output/
 *.lcov
-test-ledger/
 
 # =====================================================
 # IDEs & Editors
@@ -116,7 +110,6 @@ temp/
 # =====================================================
 .anchor/
 target/
-test-ledger/
 
 # =====================================================
 # Optional Caches
