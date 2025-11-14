@@ -132,7 +132,6 @@ export const MIN_SOL_BALANCE = 0.05; // 0.05 SOL reserve
 // State persistence
 export const PERSISTENCE_CONFIG = {
   stateFile: 'data/state.json',
-  journalFile: 'data/journal.jsonl',
   snapshotIntervalMs: 60000, // Save state every 60s
 } as const;
 

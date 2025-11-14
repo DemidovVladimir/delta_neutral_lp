@@ -18,8 +18,6 @@
  *    - Close empty position
  *    - Create new position centered at current price with claimed fees auto-compounded
  *
- * All operations execute in a SINGLE transaction for atomicity and cost efficiency.
- *
  * Configuration (via .env):
  * - AUTO_TUNE_ENABLED=true             # Enable auto-tune
  * - AUTO_TUNE_BIN_COUNT=20             # Number of bins (default: 20)

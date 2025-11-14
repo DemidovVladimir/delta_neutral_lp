@@ -14,13 +14,14 @@ This bot earns LP fees from Meteora DLMM pools while minimizing directional expo
 
 - ✅ **Automated Position Creation** - No manual setup required
 - 🤖 **Auto-Tune Rebalancing** - Automatic position rebalancing with fee auto-compounding
+- 🔍 **Robust Position Tracking** - Never loses track of positions, prevents duplicates
 - 📊 **Delta-Neutral Strategy** - Maintains ΔSOL ≈ 0 through automatic rebalancing (planned)
 - 🔄 **Meteora DLMM Integration** - Concentrated liquidity with customizable ranges
 - ⚡ **Drift Protocol Hedging** - Perpetual shorts for delta neutrality (planned)
-- 🔁 **Jupiter Swap Integration** - Automatic token swapping for position balancing
+- 🔁 **Jupiter Ultra API** - Fast, reliable token swapping with error detection
 - 📈 **Real-time Pool Analytics** - Jupiter v6 + Meteora API integration
 - 🛡️ **Risk Management** - Configurable limits with dual reserve system
-- 📝 **Console Logging** - Simplified output with error banners
+- 📝 **Enhanced Logging** - Clear error messages with wallet balance debugging
 
 ## 🏗️ Architecture
 
@@ -115,7 +116,6 @@ SWAP_SLIPPAGE_BPS=50
 # Transaction Execution (Optimized for 2025)
 PRIORITY_FEE_MICRO_LAMPORTS=50000  # 50,000 µL/CU = moderate priority
 MAX_COMPUTE_UNITS=600000
-JUPITER_PRIORITY_FEE_LAMPORTS=80000
 ```
 
 ### Running the Bot
@@ -260,7 +260,6 @@ This script queries Meteora's API to find pools and displays:
 | `SWAP_SLIPPAGE_BPS` | Slippage tolerance (BPS) | `50` |
 | `PRIORITY_FEE_MICRO_LAMPORTS` | Priority fee (µL/CU) | `50000` |
 | `MAX_COMPUTE_UNITS` | Max compute units | `600000` |
-| `JUPITER_PRIORITY_FEE_LAMPORTS` | Jupiter swap priority fee | `80000` |
 
 ### Custom Price Ranges
 
@@ -301,10 +300,10 @@ The bot has been optimized for minimal transaction costs using priority fees:
 
 **Per Auto-Tune Rebalance Cycle:**
 - Phase 1 (withdraw+claim+close): ~30,000 lamports (~$0.0048)
-- Swap (if needed): ~80,000 lamports (~$0.013)
+- Swap (if needed): Controlled by Jupiter Ultra API (~varies by network congestion)
 - Phase 2 (create position): ~30,000 lamports (~$0.0048)
 - **Total without swap**: ~60,000 lamports (~$0.01)
-- **Total with swap**: ~140,000 lamports (~$0.022)
+- **Total with swap**: ~60,000 lamports + Jupiter fees (~varies)
 
 ### Key Optimizations
 

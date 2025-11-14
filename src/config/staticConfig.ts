@@ -19,11 +19,7 @@ export interface StaticBotConfig {
   lpOwner: string;
   priceRangeBpsLower: number;
   priceRangeBpsUpper: number;
-
-  // Execution parameters
-  jupiterPriorityFeeLamports: number;
-  maxComputeUnits: number;
-  priorityFeeMicroLamports: number;
+  meteoraStrategyType: 'spot' | 'curve' | 'bidask';
 
   // Retry configuration
   maxRetries: number;
@@ -65,14 +61,9 @@ export const STATIC_CONFIG: StaticBotConfig = {
   priceRangeBpsLower: -100, // -1%
   priceRangeBpsUpper: 100,  // +1%
 
-  // Priority fees (optimized for 2025 fee market)
-  // Priority fee: 50,000 µL/CU = moderate priority
-  // With 600k CUs: ~30,000 lamports (~$0.0048) per tx
-  priorityFeeMicroLamports: 50000,
-  maxComputeUnits: 600000,
-
-  // Jupiter swap priority fee: 80,000 lamports (~$0.013)
-  jupiterPriorityFeeLamports: 80000,
+  // Meteora strategy type for liquidity distribution
+  // "spot" = balanced liquidity across bins
+  meteoraStrategyType: 'spot',
 
   // Retry configuration
   maxRetries: 3,

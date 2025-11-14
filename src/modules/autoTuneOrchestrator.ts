@@ -81,7 +81,9 @@ import {
 import { trackBatchTransactionFees } from '../utils/transactionUtils.js';
 
 // Token mint addresses
-const USDC_MINT = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
+const SOL_MINT = 'So11111111111111111111111111111111111111112';
+const USDC_MINT_ADDRESS = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+const USDC_MINT = new PublicKey(USDC_MINT_ADDRESS);
 
 // Handle ESM/CommonJS interop for DLMM class
 // @ts-ignore - ESM default export handling
@@ -219,7 +221,16 @@ export class AutoTuneOrchestrator {
     console.log(`   Unclaimed Fees:   ${unclaimedSol.toFixed(6)} SOL + ${unclaimedUsdc.toFixed(2)} USDC\n`);
 
     if (!balance) {
-      console.log('⚠️  NO POSITION FOUND\n');
+      console.log('⚠️  NO POSITION FOUND');
+
+      // Check if we have a position mint in state but couldn't find it
+      if (this.state.currentPositionMint) {
+        console.log(`   Last known position: ${this.state.currentPositionMint.slice(0, 12)}...`);
+        console.log('   Status: Position may be closed or not found on-chain\n');
+      } else {
+        console.log('   No position has been created yet\n');
+      }
+
       console.log('Press Ctrl+C to stop');
       return;
     }
@@ -269,6 +280,11 @@ export class AutoTuneOrchestrator {
     }
 
     try {
+      // Fetch price once for entire check cycle (shared across rebalance + fee tracking)
+      const solPriceData = await getSolPrice();
+      const currentPrice = solPriceData.usd;
+      log.debug('Using SOL price for check cycle', { price: currentPrice, source: solPriceData.source });
+
       // 1. Check position balance
       const balance = await this.checkPositionBalance();
 
@@ -278,6 +294,20 @@ export class AutoTuneOrchestrator {
 
         // Auto-create initial position if enabled
         if (this.config.autoCreatePositions && this.config.meteoraPoolAddress) {
+          // Safety check: discover positions one more time before creating
+          // This prevents duplicate position creation if position exists but wasn't found
+          const discoveredBeforeCreate = await this.meteoraAdapter.discoverPositionsFromBlockchain();
+
+          if (discoveredBeforeCreate.length > 0) {
+            log.warn('⚠️  Position(s) found on blockchain during safety check - skipping creation', {
+              count: discoveredBeforeCreate.length,
+              mints: discoveredBeforeCreate,
+            });
+            this.state.consecutiveErrors = 0;
+            saveAutoTuneState(this.state);
+            return;
+          }
+
           if (!this.watchMode) {
             log.info('🆕 No position found - auto-creating initial position');
           }
@@ -326,7 +356,7 @@ export class AutoTuneOrchestrator {
           });
         }
 
-        const result = await this.executeRebalance();
+        const result = await this.executeRebalance(currentPrice);
 
         if (result.success) {
           if (!this.watchMode) {
@@ -373,16 +403,16 @@ export class AutoTuneOrchestrator {
           };
 
           // Track transaction fees for rebalance operations
+          // Using price fetched at start of check cycle
           if (result.signatures.length > 0) {
             const connection = getConnection();
-            const solPriceData = await getSolPrice();
 
             // Track fees asynchronously (don't wait for it to complete)
             trackBatchTransactionFees(
               connection,
               result.signatures,
               'rebalance',
-              solPriceData.usd
+              currentPrice
             ).catch(err => {
               log.warn('Failed to track rebalance transaction fees', {
                 error: err instanceof Error ? err.message : String(err),
@@ -449,7 +479,17 @@ export class AutoTuneOrchestrator {
    */
   private async checkPositionBalance(): Promise<PositionBalance | null> {
     try {
-      // Get LP exposure from MeteoraAdapter
+      // ALWAYS discover positions from blockchain first to ensure we don't miss unclosed positions
+      const discoveredMints = await this.meteoraAdapter.discoverPositionsFromBlockchain();
+
+      if (discoveredMints.length > 0) {
+        log.info('✅ Position(s) found on blockchain', {
+          count: discoveredMints.length,
+          mints: discoveredMints,
+        });
+      }
+
+      // Get LP exposure from MeteoraAdapter (will use discovered positions)
       const exposure = await this.meteoraAdapter.getLpExposure();
 
       if (exposure.positions.length === 0) {
@@ -460,6 +500,9 @@ export class AutoTuneOrchestrator {
       // Use the first position (auto-tune manages single position)
       const position = exposure.positions[0];
       this.state.currentPositionMint = position.mint;
+
+      // Save position mint to state immediately to prevent loss
+      saveAutoTuneState(this.state);
 
       // Get pool info to fetch bin data
       const connection = getConnection();
@@ -640,38 +683,56 @@ export class AutoTuneOrchestrator {
    * - Simple retry logic: max 3 attempts with exponential backoff
    * - Retries are for network errors only (swap already executed if needed)
    */
-  private async executeRebalance(): Promise<RebalanceResult> {
+  private async executeRebalance(currentPrice: number): Promise<RebalanceResult> {
     const startTime = Date.now();
+    log.debug('Using SOL price for rebalance cycle', { price: currentPrice });
 
     try {
+
       // ========================================================================
       // PHASE 1: WITHDRAW + CLAIM + CLOSE
       // ========================================================================
 
-      // Get current exposure before withdrawal
-      const exposureBefore = await this.meteoraAdapter.getLpExposure();
+      // Discover positions from blockchain first (safety check)
+      const discoveredMints = await this.meteoraAdapter.discoverPositionsFromBlockchain();
 
-      if (exposureBefore.positions.length === 0) {
-        throw new Error('No position to rebalance');
+      if (discoveredMints.length === 0) {
+        throw new Error('No position found on blockchain to rebalance');
       }
 
-      // Use the ACTUAL position from on-chain data, not from stale list
-      const oldPositionMint = exposureBefore.positions[0].mint;
+      if (discoveredMints.length > 1) {
+        log.warn('⚠️  Multiple positions found during rebalance - using first one', {
+          count: discoveredMints.length,
+          using: discoveredMints[0],
+          ignored: discoveredMints.slice(1),
+        });
+      }
+
+      // Use the ACTUAL position from blockchain discovery
+      const oldPositionMint = discoveredMints[0];
       log.info(`🔄 Rebalancing position ${oldPositionMint.slice(0, 8)}...`);
 
       // Execute Phase 1: Withdraw + Claim + Close in ONE transaction
-      const withdrawResult = await this.meteoraAdapter.withdrawClaimAndClose(oldPositionMint);
-      log.info(`✅ Phase 1: Claimed ${withdrawResult.claimedFees.sol.toFixed(4)} SOL + ${withdrawResult.claimedFees.usdc.toFixed(2)} USDC`);
+      let withdrawResult: any;
+      try {
+        withdrawResult = await this.meteoraAdapter.withdrawClaimAndClose(oldPositionMint);
+        log.info(`✅ Phase 1: Claimed ${withdrawResult.claimedFees.sol.toFixed(4)} SOL + ${withdrawResult.claimedFees.usdc.toFixed(2)} USDC`);
+      } catch (error) {
+        // Phase 1 failed - position still exists on-chain
+        // DO NOT clear currentPositionMint - keep it in state so we can retry
+        log.errorBanner('❌ Phase 1 (Withdraw+Claim+Close) failed - position still exists on-chain', {
+          position: oldPositionMint,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        throw error; // Re-throw to prevent Phase 2 execution
+      }
 
       // ========================================================================
       // PHASE 2: CREATE NEW POSITION WITH INTELLIGENT RETRY
       // ========================================================================
 
-      // Get current price for balanced deposit calculation
-      const solPriceData = await getSolPrice();
-      const currentPrice = solPriceData.usd;
-
       // Calculate balanced deposits (config amount + claimed fees)
+      // Using price fetched at start of rebalance cycle
       const { solAmount, usdcAmount } = this.calculateBalancedDeposits(
         withdrawResult.claimedFees.sol,
         withdrawResult.claimedFees.usdc,
@@ -763,14 +824,46 @@ export class AutoTuneOrchestrator {
         }
 
         // Execute swap
-        const swapResult = await this.jupiterSwapper.executeSwap(swapParams);
-        const priceImpact = typeof swapResult.priceImpactPct === 'string'
-          ? parseFloat(swapResult.priceImpactPct)
-          : swapResult.priceImpactPct;
-        log.info(`✅ Swap complete: ${swapResult.outputAmount.toFixed(4)} received (impact: ${priceImpact.toFixed(2)}%)`);
+        try {
+          const swapResult = await this.jupiterSwapper.executeSwap(swapParams);
+          const priceImpactStr = swapResult.priceImpactPct !== undefined
+            ? ` (impact: ${typeof swapResult.priceImpactPct === 'string' ? swapResult.priceImpactPct : swapResult.priceImpactPct.toFixed(2)}%)`
+            : '';
+          log.info(`✅ Swap complete: ${swapResult.outputAmount.toFixed(4)} received${priceImpactStr}`);
 
-        // Wait for balance to update
-        await new Promise(resolve => setTimeout(resolve, 2000));
+          // Wait for balance to update
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        } catch (swapError) {
+          // Swap failed - log current wallet balances to help debug
+          const currentSolBalance = await connection.getBalance(wallet.publicKey);
+          const currentActualSol = currentSolBalance / Math.pow(10, 9);
+          const currentActualUsdc = await this.getUsdcBalance();
+
+          log.errorBanner('❌ Swap failed - current wallet balances', {
+            error: swapError instanceof Error ? swapError.message : String(swapError),
+            walletBalances: {
+              sol: currentActualSol,
+              usdc: currentActualUsdc,
+            },
+            swapParams: {
+              inputMint: swapParams.inputMint === SOL_MINT ? 'SOL' : 'USDC',
+              outputMint: swapParams.outputMint === SOL_MINT ? 'SOL' : 'USDC',
+              amount: swapParams.amount,
+            },
+          });
+
+          // Check if position still exists on blockchain (funds might be locked)
+          const positionsAfterSwapFailure = await this.meteoraAdapter.discoverPositionsFromBlockchain();
+          if (positionsAfterSwapFailure.length > 0) {
+            log.errorBanner('⚠️  UNCLOSED POSITION DETECTED', {
+              message: 'Funds may be locked in position that was not properly closed',
+              positions: positionsAfterSwapFailure,
+              suggestion: 'Manually close position from Meteora dashboard or retry rebalance',
+            });
+          }
+
+          throw swapError; // Re-throw to prevent position creation
+        }
       }
 
       // ========================================================================
@@ -1023,14 +1116,46 @@ export class AutoTuneOrchestrator {
         log.info(`🔄 Swapping ${actualSol < requiredSol ? swapParams.amount.toFixed(2) + ' USDC → SOL' : swapParams.amount.toFixed(4) + ' SOL → USDC'}`);
 
         // Execute swap sequentially (same as rebalance flow)
-        const swapResult = await this.jupiterSwapper.executeSwap(swapParams);
-        const priceImpact = typeof swapResult.priceImpactPct === 'string'
-          ? parseFloat(swapResult.priceImpactPct)
-          : swapResult.priceImpactPct;
-        log.info(`✅ Swap complete: ${swapResult.outputAmount.toFixed(4)} received (impact: ${priceImpact.toFixed(2)}%)`);
+        try {
+          const swapResult = await this.jupiterSwapper.executeSwap(swapParams);
+          const priceImpactStr = swapResult.priceImpactPct !== undefined
+            ? ` (impact: ${typeof swapResult.priceImpactPct === 'string' ? swapResult.priceImpactPct : swapResult.priceImpactPct.toFixed(2)}%)`
+            : '';
+          log.info(`✅ Swap complete: ${swapResult.outputAmount.toFixed(4)} received${priceImpactStr}`);
 
-        // Wait for balance to update
-        await new Promise(resolve => setTimeout(resolve, 2000));
+          // Wait for balance to update
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        } catch (swapError) {
+          // Swap failed - log current wallet balances to help debug
+          const currentSolBalance = await connection.getBalance(wallet.publicKey);
+          const currentActualSol = currentSolBalance / Math.pow(10, 9);
+          const currentActualUsdc = await this.getUsdcBalance();
+
+          log.errorBanner('❌ Initial position swap failed - current wallet balances', {
+            error: swapError instanceof Error ? swapError.message : String(swapError),
+            walletBalances: {
+              sol: currentActualSol,
+              usdc: currentActualUsdc,
+            },
+            swapParams: {
+              inputMint: swapParams.inputMint === SOL_MINT ? 'SOL' : 'USDC',
+              outputMint: swapParams.outputMint === SOL_MINT ? 'SOL' : 'USDC',
+              amount: swapParams.amount,
+            },
+          });
+
+          // Check if position exists on blockchain (funds might be locked)
+          const positionsAfterSwapFailure = await this.meteoraAdapter.discoverPositionsFromBlockchain();
+          if (positionsAfterSwapFailure.length > 0) {
+            log.errorBanner('⚠️  UNCLOSED POSITION DETECTED', {
+              message: 'Funds may be locked in position that was not properly closed',
+              positions: positionsAfterSwapFailure,
+              suggestion: 'Manually close position from Meteora dashboard or skip auto-creation',
+            });
+          }
+
+          throw swapError; // Re-throw to prevent position creation
+        }
 
         // Now create position with updated balance
         const result = await this.meteoraAdapter.createPosition({

@@ -28,11 +28,9 @@ export interface BotConfig {
   initialDepositUsdc?: number;
   priceRangeBpsLower?: number;
   priceRangeBpsUpper?: number;
+  meteoraStrategyType: 'spot' | 'curve' | 'bidask';
   lpOwner?: string;
   meteoraPositionMints?: string[];
-  jupiterPriorityFeeLamports: number;
-  maxComputeUnits: number;
-  priorityFeeMicroLamports: number;
   maxRetries: number;
   autoTuneEnabled: boolean;
   autoTuneBinCount: number;
@@ -137,11 +135,9 @@ function loadProductionConfig(): BotConfig {
     initialDepositUsdc: STATIC_CONFIG.initialDepositUsdc,
     priceRangeBpsLower: STATIC_CONFIG.priceRangeBpsLower,
     priceRangeBpsUpper: STATIC_CONFIG.priceRangeBpsUpper,
+    meteoraStrategyType: STATIC_CONFIG.meteoraStrategyType,
     lpOwner: STATIC_CONFIG.lpOwner,
     meteoraPositionMints: undefined, // Not used in auto-tune mode
-    jupiterPriorityFeeLamports: STATIC_CONFIG.jupiterPriorityFeeLamports,
-    maxComputeUnits: STATIC_CONFIG.maxComputeUnits,
-    priorityFeeMicroLamports: STATIC_CONFIG.priorityFeeMicroLamports,
     maxRetries: STATIC_CONFIG.maxRetries,
     autoTuneEnabled: STATIC_CONFIG.autoTuneEnabled,
     autoTuneBinCount: STATIC_CONFIG.autoTuneBinCount,
@@ -227,16 +223,6 @@ function loadDevelopmentConfig(): BotConfig {
     }
   }
 
-  // Parse execution parameters
-  // Jupiter swap priority fee (for swap transactions only)
-  const jupiterPriorityFeeLamports = parseEnvNumber('JUPITER_PRIORITY_FEE_LAMPORTS', 80000);
-
-  // Optimized compute parameters for 2025 fee market
-  // Typical values: 25,000-100,000 micro-lamports per CU
-  // Formula: priorityFee = computeUnits × microLamportsPerCU / 1,000,000
-  const maxComputeUnits = parseEnvNumber('MAX_COMPUTE_UNITS', 600000);
-  const priorityFeeMicroLamports = parseEnvNumber('PRIORITY_FEE_MICRO_LAMPORTS', 50000); // 50,000 µL/CU = moderate priority
-
   // Parse retry configuration
   const maxRetries = parseEnvNumber('MAX_RETRIES', 3);
 
@@ -254,6 +240,13 @@ function loadDevelopmentConfig(): BotConfig {
     throw new Error('AUTO_TUNE_DEPOSIT_TOKEN must be either SOL or USDC');
   }
   const autoTuneDepositToken = autoTuneDepositTokenStr as 'SOL' | 'USDC';
+
+  // Parse Meteora strategy type
+  const meteoraStrategyTypeStr = parseEnvString('METEORA_STRATEGY_TYPE', false, 'spot');
+  if (meteoraStrategyTypeStr !== 'spot' && meteoraStrategyTypeStr !== 'curve' && meteoraStrategyTypeStr !== 'bidask') {
+    throw new Error('METEORA_STRATEGY_TYPE must be one of: spot, curve, bidask');
+  }
+  const meteoraStrategyType = meteoraStrategyTypeStr as 'spot' | 'curve' | 'bidask';
 
   // Parse swap parameters
   const swapEnabled = parseEnvBoolean('SWAP_ENABLED', true); // Default enabled
@@ -294,11 +287,9 @@ function loadDevelopmentConfig(): BotConfig {
     initialDepositUsdc,
     priceRangeBpsLower,
     priceRangeBpsUpper,
+    meteoraStrategyType,
     lpOwner,
     meteoraPositionMints,
-    jupiterPriorityFeeLamports,
-    maxComputeUnits,
-    priorityFeeMicroLamports,
     maxRetries,
     autoTuneEnabled,
     autoTuneBinCount,

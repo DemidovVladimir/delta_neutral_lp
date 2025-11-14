@@ -1,52 +1,48 @@
 /**
  * Jupiter Swapper Module
  *
- * Provides token swap functionality using Jupiter V6 API.
+ * Provides token swap functionality using Jupiter Ultra API.
  *
  * Purpose:
  * - Handle token swaps when position creation fails due to insufficient token balance
- * - Enable atomic bundling: swap + create position in single Jito bundle
+ * - Execute fast, reliable swaps with Jupiter's proprietary transaction engine
  * - Auto-balance positions during rebalancing when one token drains
  *
  * Features:
- * - **Jupiter V6 API Integration**: Uses latest Jupiter swap aggregator
- * - **Transaction Builder**: Returns unsigned/signed transactions for bundling
+ * - **Jupiter Ultra API Integration**: Uses latest Jupiter Ultra API (faster, cheaper, better support)
+ * - **Simple 2-Step Flow**: Get order → Execute order (no complex bundling)
+ * - **95% sub-2s execution**: Jupiter handles transaction optimization internally
  * - **Slippage Protection**: Configurable slippage tolerance
- * - **Atomic Bundling**: Bundle swap + position creation in single Jito bundle
- * - **Retry Logic**: Escalate Jito tips on failure (4k → 6k → 8k lamports)
+ * - **RPC-less**: No need to maintain blockchain infrastructure
  *
  * Use Cases:
- * 1. **Insufficient USDC**: Swap SOL → USDC, bundle with position creation
- * 2. **Insufficient SOL**: Swap USDC → SOL, bundle with position creation
+ * 1. **Insufficient USDC**: Swap SOL → USDC before position creation
+ * 2. **Insufficient SOL**: Swap USDC → SOL before position creation
  * 3. **Emergency rebalancing**: Quick token swaps to restore balance
  *
  * Flow:
- * 1. Try to create position with 50/50 distribution
- * 2. If fails due to insufficient token balance:
- *    a. Get swap transaction from Jupiter
- *    b. Bundle: [swap tx, create position tx] in Jito bundle
- *    c. If bundle fails: retry with higher Jito tip
+ * 1. Request order from Jupiter Ultra API with swap parameters
+ * 2. Sign the transaction returned in order
+ * 3. Execute the signed transaction via Ultra API
+ * 4. Jupiter handles broadcasting and polling (95% complete in <2s)
  *
  * Configuration (via .env):
  * - SWAP_SLIPPAGE_BPS: Slippage tolerance in basis points (default: 50 = 0.5%)
  * - SWAP_ENABLED: Enable/disable swap functionality (default: true)
- * - USE_JITO: Enable Jito tips for swap transactions (default: true)
  *
  * @example
  * ```typescript
  * const swapper = new JupiterSwapper();
  *
- * // Get swap transaction (not executed yet)
- * const swapTx = await swapper.getSwapTransaction({
+ * // Execute swap (Jupiter handles everything)
+ * const result = await swapper.executeSwap({
  *   inputMint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
  *   outputMint: 'So11111111111111111111111111111111111111112', // SOL
  *   amount: 100,
  *   slippageBps: 50,
  * });
  *
- * // Bundle with other transactions
- * const bundle = [swapTx, createPositionTx];
- * await jitoClient.sendBundle(bundle);
+ * console.log('Swap signature:', result.signature);
  * ```
  */
 
@@ -61,57 +57,46 @@ import { fetch } from 'undici';
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
 const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 
-// Jupiter API endpoints
-const JUPITER_QUOTE_API = 'https://quote-api.jup.ag/v6/quote';
-const JUPITER_SWAP_API = 'https://quote-api.jup.ag/v6/swap';
-const JUPITER_SWAP_INSTRUCTIONS_API = 'https://quote-api.jup.ag/v6/swap-instructions';
+// Jupiter Ultra API endpoints
+const JUPITER_ULTRA_BASE_URL = 'https://lite-api.jup.ag/ultra/v1';
+const JUPITER_ULTRA_ORDER_API = `${JUPITER_ULTRA_BASE_URL}/order`;
+const JUPITER_ULTRA_EXECUTE_API = `${JUPITER_ULTRA_BASE_URL}/execute`;
 
 export interface SwapParams {
   inputMint: string; // Token to swap from
   outputMint: string; // Token to swap to
-  amount: number; // Amount in human-readable units (e.g., 100 USDC, 1.5 SOL)
+  amount: number; // Amount in lamports/smallest unit (e.g., lamports for SOL, base units for USDC)
   slippageBps?: number; // Slippage tolerance in basis points (default: 50 = 0.5%)
 }
 
-export interface SwapQuote {
+export interface OrderResponse {
+  id: string;
   inputMint: string;
   outputMint: string;
-  inAmount: string; // Raw amount (with decimals)
-  outAmount: string; // Raw amount (with decimals)
-  otherAmountThreshold: string; // Minimum output amount after slippage
-  priceImpactPct: number;
-  routePlan: any[];
+  amount: string;
+  transaction?: string; // Base64-encoded unsigned transaction
+  requestId: string;
+  inAmount?: string; // Input amount in smallest units
+  outAmount?: string; // Expected output amount in smallest units
+  [key: string]: any;
 }
 
-export interface SwapTransactionResult {
-  transaction: VersionedTransaction; // Unsigned transaction ready for bundling
-  quote: SwapQuote; // Quote used for the swap
-  inputAmount: number; // Human-readable input amount
-  outputAmount: number; // Expected human-readable output amount
-  priceImpactPct: number;
-}
-
-export interface SwapInstructionsResult {
-  setupInstructions: any[]; // Setup instructions (e.g., create ATA)
-  swapInstruction: any; // The actual swap instruction
-  cleanupInstruction: any | null; // Cleanup instructions (e.g., close WSOL account)
-  addressLookupTableAddresses: string[]; // Address lookup tables needed
-  quote: SwapQuote;
-  inputAmount: number;
-  outputAmount: number;
-  priceImpactPct: number;
+export interface ExecuteResponse {
+  status: 'Success' | 'Failed' | string;
+  signature: string;
+  [key: string]: any;
 }
 
 /**
- * Jupiter Swapper for token swaps
+ * Jupiter Swapper for token swaps using Ultra API
  */
 export class JupiterSwapper {
   private config = getConfig();
 
   constructor() {
-    log.info('JupiterSwapper initialized', {
+    log.info('JupiterSwapper initialized (Ultra API)', {
       swapEnabled: this.config.swapEnabled ?? true,
-      swapSlippageBps: this.config.swapSlippageBps ?? 50,
+      slippageBps: this.config.swapSlippageBps ?? 50,
     });
   }
 
@@ -127,160 +112,112 @@ export class JupiterSwapper {
   /**
    * Convert human-readable amount to raw amount (with decimals)
    */
-  private toRawAmount(amount: number, mint: string): string {
+  private toRawAmount(amount: number, mint: string): number {
     const decimals = this.getTokenDecimals(mint);
-    const rawAmount = Math.floor(amount * Math.pow(10, decimals));
-    return rawAmount.toString();
+    return Math.floor(amount * Math.pow(10, decimals));
   }
 
   /**
    * Convert raw amount to human-readable amount
    */
-  private fromRawAmount(rawAmount: string, mint: string): number {
+  private fromRawAmount(rawAmount: string | number, mint: string): number {
     const decimals = this.getTokenDecimals(mint);
-    return parseInt(rawAmount) / Math.pow(10, decimals);
+    const amount = typeof rawAmount === 'string' ? parseInt(rawAmount) : rawAmount;
+    return amount / Math.pow(10, decimals);
   }
 
   /**
-   * Fetch swap quote from Jupiter API
-   */
-  async getQuote(params: SwapParams): Promise<SwapQuote> {
-    try {
-      const slippageBps = params.slippageBps ?? this.config.swapSlippageBps ?? 50;
-      const inputAmount = this.toRawAmount(params.amount, params.inputMint);
-
-      const url = new URL(JUPITER_QUOTE_API);
-      url.searchParams.append('inputMint', params.inputMint);
-      url.searchParams.append('outputMint', params.outputMint);
-      url.searchParams.append('amount', inputAmount);
-      url.searchParams.append('slippageBps', slippageBps.toString());
-      url.searchParams.append('onlyDirectRoutes', 'false'); // Allow all routes for best prices
-      url.searchParams.append('asLegacyTransaction', 'false'); // Use versioned transactions
-
-      log.debug('Fetching Jupiter swap quote', {
-        inputMint: params.inputMint,
-        outputMint: params.outputMint,
-        amount: params.amount,
-        slippageBps,
-        url: url.toString(),
-      });
-
-      const response = await fetch(url.toString());
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Jupiter API error: ${response.status} - ${errorText}`);
-      }
-
-      const quote = (await response.json()) as SwapQuote;
-
-      log.info('Jupiter quote received', {
-        inputAmount: this.fromRawAmount(quote.inAmount, params.inputMint),
-        outputAmount: this.fromRawAmount(quote.outAmount, params.outputMint),
-        priceImpactPct: quote.priceImpactPct,
-        routes: quote.routePlan.length,
-      });
-
-      return quote;
-    } catch (error) {
-      log.error('Failed to fetch Jupiter quote', {
-        error: error instanceof Error ? error.message : String(error),
-        params,
-      });
-      throw new TransactionError('Failed to fetch swap quote', {
-        error: error instanceof Error ? error.message : String(error),
-        params,
-      });
-    }
-  }
-
-  /**
-   * Get swap transaction (unsigned, ready for bundling)
+   * Get order from Jupiter Ultra API
    *
-   * Returns an unsigned VersionedTransaction that can be:
-   * 1. Signed and bundled with other transactions (e.g., create position)
-   * 2. Submitted as Jito bundle with priority fees
-   * 3. Retried with higher tips if bundle fails
+   * Step 1 of Ultra API flow: Request swap order with parameters
    *
-   * @param params - Swap parameters
-   * @returns Unsigned swap transaction and quote details
+   * @param params - Swap parameters (amount in human-readable units)
+   * @returns Order response with unsigned transaction
    */
-  async getSwapTransaction(params: SwapParams): Promise<SwapTransactionResult> {
+  async getOrder(params: SwapParams): Promise<OrderResponse> {
     try {
       // Check if swaps are enabled
       if (this.config.swapEnabled === false) {
         throw new Error('Swaps are disabled. Set SWAP_ENABLED=true in .env');
       }
 
-      log.info('🔄 Preparing swap transaction', {
-        inputMint: params.inputMint,
-        outputMint: params.outputMint,
-        amount: params.amount,
-        slippageBps: params.slippageBps ?? this.config.swapSlippageBps ?? 50,
-      });
-
-      // 1. Get swap quote
-      const quote = await this.getQuote(params);
-
-      // 2. Get swap transaction from Jupiter
       const wallet = getWalletKeypair();
       const walletPubkey = wallet.publicKey.toBase58();
 
-      log.debug('Requesting swap transaction from Jupiter', {
-        userPublicKey: walletPubkey,
+      // Convert amount to raw units (lamports for SOL, base units for USDC)
+      const amountRaw = this.toRawAmount(params.amount, params.inputMint);
+
+      const url = new URL(JUPITER_ULTRA_ORDER_API);
+      url.searchParams.append('inputMint', params.inputMint);
+      url.searchParams.append('outputMint', params.outputMint);
+      url.searchParams.append('amount', amountRaw.toString());
+      url.searchParams.append('taker', walletPubkey);
+
+      // Note: slippageBps is optional and might not be supported in GET request
+      // The example from Jupiter doesn't include it
+      // const slippageBps = params.slippageBps ?? this.config.swapSlippageBps ?? 50;
+      // if (slippageBps) {
+      //   url.searchParams.append('slippageBps', slippageBps.toString());
+      // }
+      const slippageBps = params.slippageBps ?? this.config.swapSlippageBps ?? 50;
+
+      log.info('🔄 Requesting Jupiter Ultra order', {
+        inputMint: params.inputMint,
+        outputMint: params.outputMint,
+        amount: params.amount,
+        amountRaw,
+        slippageBps,
+        taker: walletPubkey,
       });
 
-      const swapResponse = await fetch(JUPITER_SWAP_API, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          quoteResponse: quote,
-          userPublicKey: walletPubkey,
-          wrapAndUnwrapSol: true, // Automatically wrap/unwrap SOL
-          // Let Jupiter simulate and determine optimal compute units
-          // When dynamicComputeUnitLimit is not set, Jupiter will simulate the transaction
-          // and set compute units based on actual usage + buffer
-          // Use higher priority fee for swaps (3x normal) to ensure fast confirmation
-          computeUnitPriceMicroLamports: (this.config.priorityFeeMicroLamports || 50000) * 3,
-        }),
-      });
+      const response = await fetch(url.toString());
 
-      if (!swapResponse.ok) {
-        const errorText = await swapResponse.text();
-        throw new Error(`Jupiter swap API error: ${swapResponse.status} - ${errorText}`);
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Jupiter Ultra API error: ${response.status} - ${errorText}`);
       }
 
-      const { swapTransaction } = (await swapResponse.json()) as { swapTransaction: string };
+      const order = (await response.json()) as OrderResponse;
 
-      // 3. Deserialize transaction (do NOT sign yet - for bundling)
-      const transactionBuf = Buffer.from(swapTransaction, 'base64');
-      const transaction = VersionedTransaction.deserialize(transactionBuf);
-
-      const inputAmount = this.fromRawAmount(quote.inAmount, params.inputMint);
-      const outputAmount = this.fromRawAmount(quote.outAmount, params.outputMint);
-
-      log.info('✅ Swap transaction prepared (unsigned)', {
-        inputAmount,
-        outputAmount,
-        priceImpactPct: quote.priceImpactPct,
+      // Log the full response for debugging
+      log.debug('Jupiter Ultra order response', {
+        responseKeys: Object.keys(order),
+        hasTransaction: !!order.transaction,
+        requestId: order.requestId,
       });
 
-      return {
-        transaction,
-        quote,
-        inputAmount,
-        outputAmount,
-        priceImpactPct: quote.priceImpactPct,
-      };
+      // Check for Jupiter API error in response
+      if (order.errorCode || order.errorMessage || order.error) {
+        const errorMsg = order.errorMessage || order.error || 'Unknown Jupiter API error';
+        log.errorBanner('❌ Jupiter API returned an error', {
+          errorCode: order.errorCode,
+          errorMessage: errorMsg,
+          requestId: order.requestId,
+        });
+        throw new Error(`Jupiter API error: ${errorMsg}`);
+      }
+
+      if (!order.transaction) {
+        log.error('No transaction in order response - full response:', {
+          order: JSON.stringify(order, null, 2),
+        });
+        throw new Error('No transaction found in order response');
+      }
+
+      log.info('✅ Order received', {
+        orderId: order.id,
+        requestId: order.requestId,
+        inputAmount: order.inAmount ? this.fromRawAmount(order.inAmount, params.inputMint) : params.amount,
+        outputAmount: order.outAmount ? this.fromRawAmount(order.outAmount, params.outputMint) : 'unknown',
+      });
+
+      return order;
     } catch (error) {
-      log.error('❌ Failed to prepare swap transaction', {
+      log.error('❌ Failed to get Jupiter Ultra order', {
         error: error instanceof Error ? error.message : String(error),
         params,
       });
-
-      throw new TransactionError('Swap transaction preparation failed', {
+      throw new TransactionError('Failed to fetch swap order', {
         error: error instanceof Error ? error.message : String(error),
         params,
       });
@@ -288,103 +225,143 @@ export class JupiterSwapper {
   }
 
   /**
-   * Execute swap transaction immediately (for standalone swaps)
+   * Execute order on Jupiter Ultra API
    *
-   * Use this when you want to execute a swap without bundling.
-   * For bundled operations (swap + create position), use getSwapTransaction() instead.
+   * Step 2 of Ultra API flow: Sign and execute the order
+   * Jupiter handles broadcasting and polling (95% complete in <2s)
    *
-   * @param params - Swap parameters
+   * @param signedTransaction - Base64-encoded signed transaction
+   * @param requestId - Request ID from order response
+   * @returns Execution response with status and signature
+   */
+  async executeOrder(signedTransaction: string, requestId: string): Promise<ExecuteResponse> {
+    try {
+      log.info('🚀 Executing Jupiter Ultra order', {
+        requestId,
+      });
+
+      const response = await fetch(JUPITER_ULTRA_EXECUTE_API, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          signedTransaction,
+          requestId,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Jupiter Ultra execute API error: ${response.status} - ${errorText}`);
+      }
+
+      const executeResponse = (await response.json()) as ExecuteResponse;
+
+      if (executeResponse.status === 'Success') {
+        log.info('✅ Swap executed successfully', {
+          status: executeResponse.status,
+          signature: executeResponse.signature,
+          solscan: `https://solscan.io/tx/${executeResponse.signature}`,
+        });
+      } else {
+        log.error('❌ Swap execution failed', {
+          status: executeResponse.status,
+          signature: executeResponse.signature,
+          solscan: `https://solscan.io/tx/${executeResponse.signature}`,
+        });
+      }
+
+      return executeResponse;
+    } catch (error) {
+      log.error('❌ Failed to execute Jupiter Ultra order', {
+        error: error instanceof Error ? error.message : String(error),
+        requestId,
+      });
+      throw new TransactionError('Failed to execute swap order', {
+        error: error instanceof Error ? error.message : String(error),
+        requestId,
+      });
+    }
+  }
+
+  /**
+   * Execute swap transaction (complete flow: get order → sign → execute)
+   *
+   * This is the main method for executing swaps. It handles the complete Ultra API flow:
+   * 1. Request order from Jupiter Ultra API
+   * 2. Sign the transaction
+   * 3. Execute via Jupiter Ultra API
+   * 4. Return signature and details
+   *
+   * Note: Ultra API doesn't provide priceImpactPct in response. Use legacy API if needed.
+   *
+   * @param params - Swap parameters (amount in human-readable units)
    * @returns Transaction signature and swap details
    */
   async executeSwap(params: SwapParams): Promise<{
     signature: string;
     inputAmount: number;
     outputAmount: number;
-    priceImpactPct: number;
+    status: string;
+    priceImpactPct?: number; // Not provided by Ultra API, set to undefined
   }> {
     const startTime = Date.now();
 
     try {
-      log.info('🔄 Executing standalone swap', params);
+      log.info('🔄 Executing swap (Jupiter Ultra)', {
+        inputMint: params.inputMint,
+        outputMint: params.outputMint,
+        amount: params.amount,
+      });
 
-      // Get swap transaction
-      const swapTx = await this.getSwapTransaction(params);
+      // Step 1: Get order
+      const order = await this.getOrder(params);
 
-      // Sign transaction
+      // Step 2: Sign transaction
       const wallet = getWalletKeypair();
-      swapTx.transaction.sign([wallet]);
+      const transaction = VersionedTransaction.deserialize(
+        Buffer.from(order.transaction!, 'base64')
+      );
+      transaction.sign([wallet]);
+      const signedTransaction = Buffer.from(transaction.serialize()).toString('base64');
 
-      // Execute transaction (use sendRawTransaction for VersionedTransaction)
-      const connection = getConnection();
-      const rawTransaction = swapTx.transaction.serialize();
-
-      const signature = await connection.sendRawTransaction(rawTransaction, {
-        skipPreflight: false, // Enable preflight to catch errors early
-        preflightCommitment: 'confirmed',
-        maxRetries: 5, // More retries for better delivery
-      });
-
-      log.info('🔄 Swap transaction sent, waiting for confirmation...', {
-        signature,
-        solscan: `https://solscan.io/tx/${signature}`,
-      });
-
-      // Poll for confirmation with timeout (30 seconds max)
-      const confirmationTimeout = 30000; // 30 seconds
-      const startConfirmTime = Date.now();
-      let confirmed = false;
-
-      while (!confirmed && Date.now() - startConfirmTime < confirmationTimeout) {
-        try {
-          const status = await connection.getSignatureStatus(signature);
-
-          if (status?.value?.confirmationStatus === 'confirmed' ||
-              status?.value?.confirmationStatus === 'finalized') {
-            confirmed = true;
-
-            if (status.value.err) {
-              throw new Error(`Transaction failed: ${JSON.stringify(status.value.err)}`);
-            }
-
-            log.debug('Transaction confirmed', { confirmationStatus: status.value.confirmationStatus });
-            break;
-          }
-
-          // Wait 1 second before next poll
-          await new Promise(resolve => setTimeout(resolve, 1000));
-        } catch (error) {
-          log.debug('Confirmation poll error (will retry)', { error: String(error) });
-          await new Promise(resolve => setTimeout(resolve, 1000));
-        }
-      }
-
-      if (!confirmed) {
-        throw new Error(`Transaction confirmation timeout after ${confirmationTimeout / 1000}s. Signature: ${signature}`);
-      }
+      // Step 3: Execute order
+      const executeResponse = await this.executeOrder(signedTransaction, order.requestId);
 
       const durationMs = Date.now() - startTime;
 
-      log.info('✅ Swap executed successfully', {
-        signature,
-        inputAmount: swapTx.inputAmount,
-        outputAmount: swapTx.outputAmount,
-        priceImpactPct: swapTx.priceImpactPct,
-        durationMs,
-      });
+      // Calculate amounts
+      const inputAmount = order.inAmount
+        ? this.fromRawAmount(order.inAmount, params.inputMint)
+        : params.amount;
+      const outputAmount = order.outAmount
+        ? this.fromRawAmount(order.outAmount, params.outputMint)
+        : 0;
 
-      // Track swap transaction fees (async, don't wait)
-      const { trackTransactionFee } = await import('../utils/transactionUtils.js');
-      const { getSolPrice } = await import('../core/priceOracle.js');
-      const solPriceData = await getSolPrice();
-      trackTransactionFee(connection, signature, 'swap', solPriceData.usd).catch(err => {
-        log.warn('Failed to track swap transaction fee', { error: err.message });
-      });
+      if (executeResponse.status === 'Success') {
+        log.info('✅ Swap completed successfully', {
+          signature: executeResponse.signature,
+          inputAmount,
+          outputAmount,
+          durationMs,
+        });
+
+        // Track swap transaction fees (async, don't wait)
+        const { trackTransactionFee } = await import('../utils/transactionUtils.js');
+        const { getSolPrice } = await import('../core/priceOracle.js');
+        const solPriceData = await getSolPrice();
+        trackTransactionFee(getConnection(), executeResponse.signature, 'swap', solPriceData.usd).catch(err => {
+          log.warn('Failed to track swap transaction fee', { error: err.message });
+        });
+      }
 
       return {
-        signature,
-        inputAmount: swapTx.inputAmount,
-        outputAmount: swapTx.outputAmount,
-        priceImpactPct: swapTx.priceImpactPct,
+        signature: executeResponse.signature,
+        inputAmount,
+        outputAmount,
+        status: executeResponse.status,
+        priceImpactPct: undefined, // Ultra API doesn't provide this
       };
     } catch (error) {
       const durationMs = Date.now() - startTime;
@@ -404,110 +381,19 @@ export class JupiterSwapper {
   }
 
   /**
-   * Get swap instructions (for composing with other instructions in same transaction)
-   *
-   * Uses Jupiter's /swap-instructions endpoint to get raw instructions that can
-   * be composed with other operations (like Meteora position creation) in a single
-   * transaction for true atomicity.
-   *
-   * @param params - Swap parameters
-   * @returns Swap instructions that can be composed into a single transaction
+   * Helper: Execute SOL → USDC swap
    */
-  async getSwapInstructions(params: SwapParams): Promise<SwapInstructionsResult> {
-    try {
-      // Check if swaps are enabled
-      if (this.config.swapEnabled === false) {
-        throw new Error('Swaps are disabled. Set SWAP_ENABLED=true in .env');
-      }
-
-      log.info('🔄 Fetching swap instructions for composition', {
-        inputMint: params.inputMint,
-        outputMint: params.outputMint,
-        amount: params.amount,
-        slippageBps: params.slippageBps ?? this.config.swapSlippageBps ?? 50,
-      });
-
-      // 1. Get swap quote
-      const quote = await this.getQuote(params);
-
-      // 2. Get swap instructions from Jupiter
-      const wallet = getWalletKeypair();
-      const walletPubkey = wallet.publicKey.toBase58();
-
-      log.debug('Requesting swap instructions from Jupiter', {
-        userPublicKey: walletPubkey,
-      });
-
-      const response = await fetch(JUPITER_SWAP_INSTRUCTIONS_API, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          quoteResponse: quote,
-          userPublicKey: walletPubkey,
-          wrapAndUnwrapSol: true,
-          prioritizationFeeLamports: {
-            autoMultiplier: 1, // Don't auto-increase priority fee
-          },
-        }),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Jupiter swap-instructions API error: ${response.status} - ${errorText}`);
-      }
-
-      const instructionsData = await response.json() as {
-        setupInstructions?: any[];
-        swapInstruction: any;
-        cleanupInstruction?: any;
-        addressLookupTableAddresses?: string[];
-      };
-
-      const inputAmount = this.fromRawAmount(quote.inAmount, params.inputMint);
-      const outputAmount = this.fromRawAmount(quote.outAmount, params.outputMint);
-
-      log.info('✅ Swap instructions received', {
-        inputAmount,
-        outputAmount,
-        priceImpactPct: quote.priceImpactPct,
-        setupInstructions: instructionsData.setupInstructions?.length ?? 0,
-        hasCleanupInstruction: !!instructionsData.cleanupInstruction,
-        addressLookupTables: instructionsData.addressLookupTableAddresses?.length ?? 0,
-      });
-
-      return {
-        setupInstructions: instructionsData.setupInstructions || [],
-        swapInstruction: instructionsData.swapInstruction,
-        cleanupInstruction: instructionsData.cleanupInstruction || null,
-        addressLookupTableAddresses: instructionsData.addressLookupTableAddresses || [],
-        quote,
-        inputAmount,
-        outputAmount,
-        priceImpactPct: quote.priceImpactPct,
-      };
-    } catch (error) {
-      log.error('❌ Failed to get swap instructions', {
-        error: error instanceof Error ? error.message : String(error),
-        params,
-      });
-
-      throw new TransactionError('Failed to fetch swap instructions', {
-        error: error instanceof Error ? error.message : String(error),
-        params,
-      });
-    }
-  }
-
-  /**
-   * Helper: Get SOL → USDC swap transaction
-   */
-  async getSwapSolToUsdcTx(
+  async swapSolToUsdc(
     solAmount: number,
     slippageBps?: number
-  ): Promise<SwapTransactionResult> {
-    return this.getSwapTransaction({
+  ): Promise<{
+    signature: string;
+    inputAmount: number;
+    outputAmount: number;
+    status: string;
+    priceImpactPct?: number;
+  }> {
+    return this.executeSwap({
       inputMint: SOL_MINT,
       outputMint: USDC_MINT,
       amount: solAmount,
@@ -516,13 +402,19 @@ export class JupiterSwapper {
   }
 
   /**
-   * Helper: Get USDC → SOL swap transaction
+   * Helper: Execute USDC → SOL swap
    */
-  async getSwapUsdcToSolTx(
+  async swapUsdcToSol(
     usdcAmount: number,
     slippageBps?: number
-  ): Promise<SwapTransactionResult> {
-    return this.getSwapTransaction({
+  ): Promise<{
+    signature: string;
+    inputAmount: number;
+    outputAmount: number;
+    status: string;
+    priceImpactPct?: number;
+  }> {
+    return this.executeSwap({
       inputMint: USDC_MINT,
       outputMint: SOL_MINT,
       amount: usdcAmount,

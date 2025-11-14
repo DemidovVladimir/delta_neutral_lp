@@ -92,58 +92,6 @@ export const log = {
     }
   },
 
-  // Domain-specific logging helpers
-  transaction: (signature: string, action: string, meta?: Record<string, any>) => {
-    logger.info('Transaction', {
-      signature,
-      action,
-      ...meta,
-    });
-  },
-
-  hedge: (delta: number, targetSol: number, currentSol: number, meta?: Record<string, any>) => {
-    logger.info('Hedge Adjustment', {
-      delta,
-      targetSol,
-      currentSol,
-      adjustment: targetSol - currentSol,
-      ...meta,
-    });
-  },
-
-  risk: (event: string, value: number, threshold: number, meta?: Record<string, any>) => {
-    logger.warn('Risk Event', {
-      event,
-      value,
-      threshold,
-      breach: value > threshold,
-      ...meta,
-    });
-  },
-
-  emergency: (reason: string, meta?: Record<string, any>) => {
-    logger.error('Emergency Flow Triggered', {
-      reason,
-      timestamp: new Date().toISOString(),
-      ...meta,
-    });
-  },
-
-  performance: (action: string, durationMs: number, meta?: Record<string, any>) => {
-    logger.debug('Performance', {
-      action,
-      durationMs,
-      ...meta,
-    });
-  },
-
-  state: (state: string, data: Record<string, any>) => {
-    logger.info('State Update', {
-      state,
-      ...data,
-    });
-  },
-
   /**
    * Red banner error logging - highly visible for critical failures
    * Use this for transaction failures that require immediate attention

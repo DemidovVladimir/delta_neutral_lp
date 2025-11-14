@@ -3,12 +3,12 @@
  *
  * Handles saving and loading bot state to/from JSON files:
  * - data/state.json: Latest state snapshot
- * - data/journal.jsonl: Append-only action log
+ * - data/auto-tune-state.json: Auto-tune orchestrator state
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { StateSnapshot, JournalEntry, AutoTuneState } from '../types/index.js';
+import { StateSnapshot, AutoTuneState } from '../types/index.js';
 import { log } from '../utils/logger.js';
 import { PERSISTENCE_CONFIG } from '../config/constants.js';
 
@@ -71,27 +71,6 @@ export function loadState(): StateSnapshot | null {
   }
 }
 
-/**
- * Append action to journal
- */
-export function appendToJournal(entry: JournalEntry): void {
-  try {
-    const line = JSON.stringify(entry) + '\n';
-    fs.appendFileSync(PERSISTENCE_CONFIG.journalFile, line, 'utf-8');
-
-    log.debug('Journal entry appended', {
-      action: entry.action,
-      success: entry.success,
-      durationMs: entry.durationMs,
-    });
-  } catch (error) {
-    log.error('Failed to append to journal', {
-      error: error instanceof Error ? error.message : String(error),
-      file: PERSISTENCE_CONFIG.journalFile,
-    });
-    // Don't throw - journal is not critical
-  }
-}
 
 /**
  * Load created position mints from saved state
@@ -147,37 +126,6 @@ export function saveCreatedPositionMints(mints: string[]): void {
   });
 }
 
-/**
- * Clear state file (useful for testing)
- */
-export function clearState(): void {
-  try {
-    if (fs.existsSync(PERSISTENCE_CONFIG.stateFile)) {
-      fs.unlinkSync(PERSISTENCE_CONFIG.stateFile);
-      log.info('State file cleared');
-    }
-  } catch (error) {
-    log.error('Failed to clear state', {
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
-}
-
-/**
- * Clear journal file (useful for testing)
- */
-export function clearJournal(): void {
-  try {
-    if (fs.existsSync(PERSISTENCE_CONFIG.journalFile)) {
-      fs.unlinkSync(PERSISTENCE_CONFIG.journalFile);
-      log.info('Journal file cleared');
-    }
-  } catch (error) {
-    log.error('Failed to clear journal', {
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
-}
 
 /**
  * Auto-tune state file path
@@ -248,18 +196,41 @@ export function loadAutoTuneState(): AutoTuneState | null {
 }
 
 /**
- * Clear auto-tune state file (useful for testing)
+ * Clear all state files (useful for testing and cleanup)
+ * Removes: state.json and auto-tune-state.json
  */
-export function clearAutoTuneState(): void {
+export function clearAllState(): void {
+  let clearedFiles = 0;
+  const errors: string[] = [];
+
+  // Clear main state file
+  try {
+    if (fs.existsSync(PERSISTENCE_CONFIG.stateFile)) {
+      fs.unlinkSync(PERSISTENCE_CONFIG.stateFile);
+      clearedFiles++;
+      log.debug('State file cleared', { file: PERSISTENCE_CONFIG.stateFile });
+    }
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    errors.push(`state.json: ${msg}`);
+  }
+
+  // Clear auto-tune state file
   try {
     if (fs.existsSync(AUTO_TUNE_STATE_FILE)) {
       fs.unlinkSync(AUTO_TUNE_STATE_FILE);
-      log.info('Auto-tune state file cleared');
+      clearedFiles++;
+      log.debug('Auto-tune state file cleared', { file: AUTO_TUNE_STATE_FILE });
     }
   } catch (error) {
-    log.error('Failed to clear auto-tune state', {
-      error: error instanceof Error ? error.message : String(error),
-    });
+    const msg = error instanceof Error ? error.message : String(error);
+    errors.push(`auto-tune-state.json: ${msg}`);
+  }
+
+  if (errors.length > 0) {
+    log.error('Failed to clear some state files', { errors });
+  } else {
+    log.info('✅ All state files cleared', { clearedCount: clearedFiles });
   }
 }
 

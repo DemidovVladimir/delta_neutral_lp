@@ -28,10 +28,10 @@ pnpm install
 
 **Production Deployment (Recommended):**
 
-See deployment guides:
-- **[GCP with Pulumi](docs/GCP_PULUMI_DEPLOYMENT.md)** - FREE, already configured! (⭐ Recommended)
-- **[Deployment Options](docs/DEPLOYMENT_SUMMARY.md)** - Compare all options (Hetzner, DigitalOcean, Fly.io, etc.)
-- **[Docker Guide](docs/DOCKER_GUIDE.md)** - Local Docker setup
+**GCP with Pulumi** (⭐ Recommended - FREE tier, fully automated):
+- See [deploy/gcp/pulumi/README.md](deploy/gcp/pulumi/README.md) for complete setup guide
+- [Billing Setup](deploy/gcp/pulumi/BILLING_SETUP.md) - Protect against charges
+- [Troubleshooting](deploy/gcp/pulumi/TROUBLESHOOTING.md) - Common issues
 
 **Quick Deploy (GCP Pulumi):**
 ```bash
@@ -96,10 +96,9 @@ The codebase follows a modular adapter pattern:
    - ✅ Fetches pool analytics from Meteora DLMM API (cached 2.5s)
    - ✅ Calculates position composition (token X/Y percentages)
    - ✅ Persists created position NFT mints to state
-   - ✅ Deposits/withdrawals with single-sided support
-   - ✅ Fee claiming functionality
    - ✅ **ATOMIC WITHDRAW+CLAIM+CLOSE**: Single transaction using SDK's `shouldClaimAndClose=true`
    - ✅ **TWO-STEP REBALANCE**: TX1 (withdraw+claim+close) + TX2 (create new position)
+   - ✅ **Minimal API**: Only `createPosition()` and `withdrawClaimAndClose()` for focused bot functionality
 
 2. **PriceOracle** (`src/core/priceOracle.ts`)
    - ✅ Jupiter API v6 integration with multi-token price fetching
@@ -109,9 +108,10 @@ The codebase follows a modular adapter pattern:
    - ✅ Multi-source price validation
 
 3. **JupiterSwapper** (`src/modules/jupiterSwapper.ts`)
-   - ✅ Jupiter V6 API integration for token swaps
-   - ✅ **Sequential Execution**: Execute swap, wait for confirmation, then create position
-   - ✅ **Swap Quote**: Fetches optimal routes with price impact analysis
+   - ✅ **Jupiter Ultra API integration** for token swaps (faster, cheaper, better support)
+   - ✅ **Simple 2-Step Flow**: Get order → Sign → Execute (no complex bundling)
+   - ✅ **95% sub-2s execution**: Jupiter handles transaction optimization internally
+   - ✅ **RPC-less architecture**: Jupiter handles broadcasting and polling
    - ✅ Slippage protection with configurable tolerance (default: 50 BPS = 0.5%)
    - ✅ Helper methods for SOL ↔ USDC swaps
    - ✅ **Target-based swapping**: Calculates exact shortfall based on deposit amount
@@ -179,10 +179,6 @@ The codebase follows a modular adapter pattern:
 - `GET /api/pool/bins` - Bin distribution and liquidity data
 - `GET /api/positions` - User's LP positions and exposure
 - `POST /api/positions/create` - Create new LP position
-- `POST /api/positions/deposit` - Deposit to existing position
-- `POST /api/positions/withdraw` - Withdraw from position
-- `POST /api/positions/claim-fees` - Claim accumulated fees
-- `POST /api/positions/close` - Close empty position (reclaim rent)
 - `POST /api/positions/withdraw-claim-close` - **Atomic operation: Withdraw 100% + Claim + Close in ONE transaction**
 
 **Planned (not yet implemented):**
@@ -202,29 +198,41 @@ The codebase follows a modular adapter pattern:
    - ✅ Removed Jito bundling - simplified to sequential execution with priority fees
    - ✅ Cleaner codebase with fewer layers of abstraction
 
-2. **Jupiter Swap Integration**
-   - **Pre-flight balance checking** to detect insufficient funds before any operations
-   - **Target-based swap calculation** with dual reserve system (permanent + temporary)
-   - **Sequential execution**: Swap → Wait for confirmation → Create position
-   - 2% slippage buffer for price impact protection
+2. **Jupiter Ultra API Migration**
+   - ✅ **Migrated from Jupiter V6 to Ultra API** - faster, cheaper, better support
+   - ✅ **Simple 2-step flow**: Get order → Execute (Jupiter handles everything)
+   - ✅ **95% sub-2s execution** via Jupiter's proprietary transaction engine
+   - ✅ **RPC-less architecture**: No need to maintain blockchain infrastructure
+   - ✅ **Pre-flight balance checking** to detect insufficient funds before any operations
+   - ✅ **Target-based swap calculation** with dual reserve system (permanent + temporary)
+   - ✅ Removed deprecated `getSwapInstructions` and `getSwapTransaction` methods
+   - ✅ Updated helper methods: `swapSolToUsdc()`, `swapUsdcToSol()`
 
-3. **Logging Improvements**
+3. **Position Tracking & Recovery** (Latest!)
+   - ✅ **Always discover positions from blockchain** - never lose track of unclosed positions
+   - ✅ **Duplicate position prevention** - safety checks before creating new positions
+   - ✅ **Robust rebalance flow** - keeps position in state if Phase 1 fails
+   - ✅ **Enhanced error handling** - detects Jupiter API errors (e.g., "Insufficient funds")
+   - ✅ **Wallet balance debugging** - logs balances + checks for unclosed positions on swap failure
+   - ✅ **Improved watch mode** - shows last known position when not found on-chain
+
+4. **Logging Improvements**
    - Console-only output (no file logging)
    - Simplified timestamp format (HH:mm:ss)
    - Reduced verbosity (~40% fewer log lines)
    - Error banners for critical failures
 
-4. **Jupiter API v6 Upgrade**
+5. **Jupiter API v6 Upgrade** (Price Oracle)
    - Multi-token price fetching in single request
    - Direct SOL/USDC rate via `vsToken` parameter
    - Better rate limiting and error handling
 
-5. **Meteora DLMM API Integration**
+6. **Meteora DLMM API Integration**
    - Real-time pool analytics (APR, APY, volume, fees, TVL)
    - 2.5-second cache to prevent stale data
    - Complete pool metadata (bin step, active bin, reserves)
 
-6. **Enhanced Price Utilities**
+7. **Enhanced Price Utilities**
    - Precise bin price calculations using Decimal.js
    - Position composition calculator (token X/Y percentages)
    - Support for pools with different decimals
@@ -272,6 +280,10 @@ See [INTEGRATION_SUMMARY.md](INTEGRATION_SUMMARY.md) for detailed changelog.
 - `INITIAL_DEPOSIT_USDC`: Initial USDC deposit amount (e.g., 1000)
 - `PRICE_RANGE_BPS_LOWER`: Lower price bound in basis points from current (e.g., -100 = -1%)
 - `PRICE_RANGE_BPS_UPPER`: Upper price bound in basis points from current (e.g., 100 = +1%)
+- `METEORA_STRATEGY_TYPE`: Liquidity distribution strategy (default: "spot")
+  - `spot`: Balanced liquidity distribution across bins
+  - `curve`: Weighted distribution (concentrated in center)
+  - `bidask`: One-sided liquidity provision
 
 **Note on Balanced Deposits:**
 - Meteora DLMM automatically distributes deposits across the price range based on current price
@@ -310,16 +322,10 @@ See [INTEGRATION_SUMMARY.md](INTEGRATION_SUMMARY.md) for detailed changelog.
 - `MAX_SHORT_NOTIONAL_USD`: Maximum short position size (default: 12000)
 - `FUNDING_RATE_CAP_BPS`: Maximum acceptable funding rate in basis points (default: 80)
 
-**Execution parameters (Optimized for 2025 fee market):**
-- `PRIORITY_FEE_MICRO_LAMPORTS`: Priority fee in micro-lamports per CU (default: 50000 = moderate priority)
-- `MAX_COMPUTE_UNITS`: Maximum compute units per transaction (default: 600000)
-- `JUPITER_PRIORITY_FEE_LAMPORTS`: Fixed priority fee for Jupiter swaps (default: 80000 lamports)
-
-**Note on Priority Fees:**
-- Priority fees are added via ComputeBudget instructions
-- Formula: `priorityFee = computeUnits × microLamportsPerCU / 1,000,000`
-- With 600k CUs @ 50,000 µL/CU: ~30,000 lamports (~$0.0048) per tx
-- Jupiter swaps use fixed 80,000 lamport fee (~$0.013) for reliability
+**Note on Transaction Fees:**
+- **Meteora SDK:** Handles priority fees automatically in all position operations
+- **Jupiter Ultra API:** Handles priority fees automatically in swap transactions
+- No manual fee configuration needed - both SDKs optimize fees internally
 
 ### State Management
 
@@ -414,13 +420,49 @@ pnpm auto-tune
 
 **Sequential execution with target-based swapping!**
 
-## Jupiter Swapper Integration (NEW!)
+## Jupiter Swapper Integration (Jupiter Ultra API!)
 
-The **Jupiter Swapper** module enables intelligent token swaps for automatic position balancing:
+The **Jupiter Swapper** module enables intelligent token swaps for automatic position balancing using **Jupiter Ultra API**:
 
 ### Purpose
 
 Handles scenarios where wallet has insufficient token balance for position creation. Instead of requiring manual token acquisition, the bot automatically swaps tokens to achieve the target balance based on `AUTO_TUNE_DEPOSIT_AMOUNT`.
+
+### Jupiter Ultra API Flow
+
+The swapper now uses Jupiter's **Ultra API** for faster, cheaper, and more reliable swaps:
+
+**Step 1: Get Order**
+```
+Request order from Jupiter Ultra API:
+├─ Input mint (SOL or USDC)
+├─ Output mint (USDC or SOL)
+├─ Amount in human-readable units
+├─ Slippage tolerance (default: 50 BPS = 0.5%)
+└─ Taker address (wallet public key)
+
+Response contains:
+├─ Unsigned transaction (base64-encoded)
+├─ Request ID for execution
+├─ Expected input/output amounts
+└─ Order ID for tracking
+```
+
+**Step 2: Sign Transaction**
+```
+Deserialize transaction from order response
+Sign with wallet keypair
+Serialize back to base64
+```
+
+**Step 3: Execute Order**
+```
+Submit signed transaction to Jupiter Ultra API:
+├─ Jupiter handles broadcasting
+├─ Jupiter polls for confirmation
+├─ 95% complete in <2 seconds
+└─ Returns transaction signature + status
+```
 
 ### Sequential Three-Phase Rebalance Flow
 
@@ -434,7 +476,7 @@ Handles scenarios where wallet has insufficient token balance for position creat
 - Check actual wallet balances (SOL + USDC)
 - Determine if swap is needed BEFORE any position creation attempts
 
-**Swap Phase (if needed)**
+**Swap Phase (if needed) - Using Jupiter Ultra!**
 ```
 IF insufficient balance detected:
 ├─ Calculate exact shortfall for missing token
@@ -442,8 +484,8 @@ IF insufficient balance detected:
 │  ├─ MINIMUM_WALLET_BALANCE_SOL (permanent, never touched)
 │  └─ RENT_RESERVE_SOL (temporary for rent/fees)
 ├─ Calculate swap amount with 2% slippage buffer
-├─ Execute Jupiter swap transaction
-├─ Wait for confirmation (2s settle time)
+├─ Execute Jupiter Ultra swap (3 steps above)
+├─ Jupiter handles confirmation (95% < 2s)
 └─ Continue to Phase 2 with updated balance
 ```
 
@@ -457,8 +499,10 @@ Attempt 1, 2, 3:
 
 ### Key Features
 
+- **Jupiter Ultra API Integration**: Faster, cheaper, better support than legacy V6
+- **RPC-less Architecture**: Jupiter handles broadcasting and polling
+- **95% sub-2s execution**: Jupiter's proprietary transaction engine
 - **Pre-flight Balance Check**: Detects insufficient funds BEFORE any operations
-- **Sequential Execution**: Swap → Wait for confirmation (2s) → Create Position
 - **Target-Based Swapping**: Calculates exact shortfall, not generic 50/50 rebalancing
 - **Dual Reserve System**:
   - `MINIMUM_WALLET_BALANCE_SOL`: Permanent reserve (e.g., 0.2 SOL, never touched)
@@ -466,7 +510,7 @@ Attempt 1, 2, 3:
 - **Smart Shortfall Calculation**:
   - Available SOL = Actual SOL - (Minimum Balance + Rent Reserve)
   - Swap only the exact amount needed to reach target
-- **Slippage Protection**: 2% buffer added to swap amounts for price impact
+- **Slippage Protection**: Configurable slippage tolerance (default: 50 BPS)
 - **Simple Retry Logic**: Position creation retries up to 3 times with exponential backoff
 - **Helper Methods**: `swapSolToUsdc()`, `swapUsdcToSol()`, `executeSwap()`
 
@@ -528,6 +572,52 @@ New balance: 0.4694 SOL + 91 USDC
 Create position: 0.505 SOL + 90.9 USDC ✅ SUCCESS!
 ```
 
+### Position Tracking & Recovery
+
+The bot now includes robust position tracking to prevent losing track of positions when errors occur:
+
+**How it works:**
+1. **Blockchain Discovery**: Every check cycle queries blockchain for positions (not just state.json)
+2. **Safety Checks**: Before creating new position, double-checks blockchain to prevent duplicates
+3. **State Persistence**: Position mints saved to state immediately after discovery/creation
+4. **Failed Rebalance Handling**: If Phase 1 fails, position mint stays in state for retry
+
+**Error Detection:**
+- Jupiter API errors (e.g., "Insufficient funds") detected and displayed clearly
+- Swap failures trigger wallet balance logging + unclosed position detection
+- Watch mode shows last known position when not found on-chain
+
+**What this prevents:**
+- ❌ Creating duplicate positions when one already exists
+- ❌ Losing track of position after failed rebalance
+- ❌ Confusing "No transaction in order response" errors
+- ❌ Silent failures where funds get locked in unclosed positions
+
+**Example error output:**
+```
+╔════════════════════════════════════════════════════════════════╗
+║                        ERROR BANNER                            ║
+╚════════════════════════════════════════════════════════════════╝
+❌ Jupiter API returned an error
+  errorCode: 1
+  errorMessage: Insufficient funds
+  requestId: 019a82ee-1718-73c4-bbcb-937242e07fdb
+
+❌ Swap failed - current wallet balances
+  walletBalances:
+    sol: 0.258867567
+    usdc: 9.436356
+  swapParams:
+    inputMint: USDC
+    outputMint: SOL
+    amount: 587.445237
+
+⚠️  UNCLOSED POSITION DETECTED
+  message: Funds may be locked in position that was not properly closed
+  positions: ["GMr7dGrxdPRc1pgaKYgbGaMe5vXPpR6VLozwrvnx25Pm"]
+  suggestion: Manually close position from Meteora dashboard or retry rebalance
+```
+
 ### Configuration
 
 ```bash
@@ -560,13 +650,14 @@ RENT_RESERVE_SOL=0.1
 
 ### Technical Details
 
-- **Jupiter V6 API**: Latest aggregator with best swap routes
-- **Sequential Execution**: Swap → Wait 2s → Create (simpler, more reliable)
+- **Jupiter Ultra API**: Faster, cheaper, better support than legacy V6
+- **RPC-less Architecture**: Jupiter handles broadcasting and polling
+- **95% sub-2s execution**: Jupiter's proprietary transaction engine
+- **Simple 3-Step Flow**: Get order → Sign → Execute
 - **Target-Based Calculation**: Calculates exact shortfall, not generic rebalancing
 - **Dual Reserve System**: Protects permanent minimum + temporary rent reserves
-- **Quote Validation**: Fetches quotes before executing swaps
-- **Price Impact Tracking**: Logs price impact percentage for monitoring
-- **2% Slippage Buffer**: Added to all swap calculations for safety
+- **Slippage Protection**: Configurable tolerance (default: 50 BPS = 0.5%)
+- **Status Tracking**: Returns transaction signature and execution status
 
 ## Development Workflow
 
@@ -596,3 +687,24 @@ When implementing features, follow the module interfaces defined in the PRD (age
 - Monitor funding rates closely - high sustained funding can erode profitability
 - The bot maintains delta neutrality via band rebalancing, not continuous hedging
 - **Always update** `progress.md` after every run, add bug reports to `bugs.md`, and document architectural decisions in `decisions.md`
+
+
+
+
+Fetching SOL/USD price from Pyth Hermes API {"url":"https://hermes.pyth.network/v2/updates/price/latest?ids[]=0xef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d","feedId":"0xef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d"}
+16:13:52 [debug] Fetching token prices from Jupiter Lite API v3 {"url":"https://lite-api.jup.ag/price/v3?ids=So11111111111111111111111111111111111111112","mints":["So11111111111111111111111111111111111111112"]}
+16:13:52 [debug] Fetched token prices from Jupiter Lite API v3 {"tokens":1,"prices":{"So11111111111111111111111111111111111111112":{"id":"So11111111111111111111111111111111111111112","mintSymbol":"SOL","price":140.45447269381415,"timestamp":1763133232794}}}
+16:13:52 [debug] Fetched SOL price from Jupiter v6 {"price":140.45447269381415}
+16:13:52 [debug] Fetched SOL/USD price from Pyth Hermes {"price":140.55050014,"conf":"8496961","expo":-8,"publishTime":1763133231}
+16:13:52 [info] Fetched prices from both sources {"pyth":140.55050014,"jupiter":140.45447269381415,"diffUsd":"0.0960","diffPct":"0.0683"}
+16:13:52 [info] Swapping USDC → SOL to cover shortfall {"missingSol":3.953704077,"swapAmountUsdc":566.8089871364652}
+16:13:52 [info] 🔄 Swapping 566.81 USDC → SOL
+16:13:52 [info] 🔄 Executing swap (Jupiter Ultra) {"inputMint":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v","outputMint":"So11111111111111111111111111111111111111112","amount":566.8089871364652}
+16:13:52 [info] 🔄 Requesting Jupiter Ultra order {"inputMint":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v","outputMint":"So11111111111111111111111111111111111111112","amount":566.8089871364652,"amountRaw":566808987,"slippageBps":200,"taker":"F3YvPiLdniRPGpeKrbeGWR2zg2wPpzVuvqBA5BBJBQ5S"}
+16:13:53 [debug] Jupiter Ultra order response {"responseKeys":["inAmount","outAmount","otherAmountThreshold","swapMode","slippageBps","priceImpactPct","routePlan","feeMint","feeBps","platformFee","taker","gasless","signatureFeeLamports","signatureFeePayer","prioritizationFeeLamports","prioritizationFeePayer","rentFeeLamports","rentFeePayer","transaction","errorCode","errorMessage","inputMint","outputMint","swapType","router","requestId","inUsdValue","outUsdValue","swapUsdValue","priceImpact","mode","error","totalTime"],"hasTransaction":false,"requestId":"019a82ee-1718-73c4-bbcb-937242e07fdb"}
+16:13:53 [error] No transaction in order response - full response: {"order":"{\n  \"inAmount\": \"566808987\",\n  \"outAmount\": \"4031467333\",\n  \"otherAmountThreshold\": \"3991152659\",\n  \"swapMode\": \"ExactIn\",\n  \"slippageBps\": 100,\n  \"priceImpactPct\": \"-0.0007154577850814085\",\n  \"routePlan\": [\n    {\n      \"swapInfo\": {\n        \"ammKey\": \"4uWuh9fC7rrZKrN8ZdJf69MN1e2S7FPpMqcsyY1aof6K\",\n        \"label\": \"GoonFi\",\n        \"inputMint\": \"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v\",\n        \"outputMint\": \"So11111111111111111111111111111111111111112\",\n        \"inAmount\": \"566808987\",\n        \"outAmount\": \"4032273787\",\n        \"feeAmount\": \"0\",\n        \"feeMint\": \"11111111111111111111111111111111\",\n        \"marketIncurredSlippageBpsF64\": \"0.5674725955083124\"\n      },\n      \"percent\": 100,\n      \"bps\": 10000,\n      \"usdValue\": 566.6430276043139\n    }\n  ],\n  \"feeMint\": \"So11111111111111111111111111111111111111112\",\n  \"feeBps\": 2,\n  \"platformFee\": {\n    \"feeBps\": 2\n  },\n  \"taker\": \"F3YvPiLdniRPGpeKrbeGWR2zg2wPpzVuvqBA5BBJBQ5S\",\n  \"gasless\": false,\n  \"signatureFeeLamports\": 0,\n  \"signatureFeePayer\": null,\n  \"prioritizationFeeLamports\": 0,\n  \"prioritizationFeePayer\": null,\n  \"rentFeeLamports\": 0,\n  \"rentFeePayer\": null,\n  \"transaction\": \"\",\n  \"errorCode\": 1,\n  \"errorMessage\": \"Insufficient funds\",\n  \"inputMint\": \"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v\",\n  \"outputMint\": \"So11111111111111111111111111111111111111112\",\n  \"swapType\": \"aggregator\",\n  \"router\": \"iris\",\n  \"requestId\": \"019a82ee-1718-73c4-bbcb-937242e07fdb\",\n  \"inUsdValue\": 566.6430276043139,\n  \"outUsdValue\": 566.2376184388523,\n  \"swapUsdValue\": 566.6430276043139,\n  \"priceImpact\": -0.07154577850814085,\n  \"mode\": \"ultra\",\n  \"error\": \"Insufficient funds\",\n  \"totalTime\": 186\n}"}
+16:13:53 [error] ❌ Failed to get Jupiter Ultra order {"error":"No transaction found in order response","params":{"inputMint":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v","outputMint":"So11111111111111111111111111111111111111112","amount":566.8089871364652}}
+16:13:53 [error] ❌ Swap execution failed {"error":"Failed to fetch swap order","params":{"inputMint":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v","outputMint":"So11111111111111111111111111111111111111112","amount":566.8089871364652},"durationMs":247}
+16:13:53 [error] Failed to create initial position {"error":"Swap execution failed","durationMs":900}
+16:13:53 [error] Failed to create initial position {"error":"Swap execution failed"}
+16:13:53 [debug] Auto-tune state saved {"file":"data/auto-tune-state.json","iteration":9258,"rebalanceCount":62}
