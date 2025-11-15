@@ -12,7 +12,8 @@
   "dependencies": {
     "@pulumi/pulumi": "^3.136.0",
     "@pulumi/gcp": "^8.14.0",
-    "@pulumi/docker": "^4.5.10"
+    "@pulumi/docker": "^4.5.10",
+    "dotenv": "^16.4.5"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

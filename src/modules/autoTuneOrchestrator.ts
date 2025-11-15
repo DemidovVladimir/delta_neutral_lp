@@ -731,16 +731,78 @@ export class AutoTuneOrchestrator {
       // PHASE 2: CREATE NEW POSITION WITH INTELLIGENT RETRY
       // ========================================================================
 
-      // Calculate balanced deposits (config amount + claimed fees)
-      // Using price fetched at start of rebalance cycle
-      const { solAmount, usdcAmount } = this.calculateBalancedDeposits(
+      // ========================================================================
+      // CALCULATE BALANCED DEPOSITS RESPECTING WALLET RESERVES
+      // ========================================================================
+      // Get actual wallet balances first
+      const connection = getConnection();
+      const wallet = getWalletKeypair();
+      const solBalance = await connection.getBalance(wallet.publicKey);
+      const actualSol = solBalance / Math.pow(10, 9);
+      const actualUsdc = await this.getUsdcBalance();
+
+      // Calculate maximum depositable SOL (respecting reserves)
+      const totalReserve = this.config.minimumWalletBalanceSol + this.config.rentReserveSol;
+      const maxDepositableSol = Math.max(0, actualSol - totalReserve);
+
+      // Check if we have enough balance to cover reserves
+      if (maxDepositableSol <= 0) {
+        throw new Error(
+          `Insufficient SOL balance to cover reserves. Have ${actualSol.toFixed(4)} SOL, need ${totalReserve.toFixed(4)} for reserves. ` +
+          `Please deposit at least ${(totalReserve - actualSol + 0.1).toFixed(4)} SOL to continue.`
+        );
+      }
+
+      // Calculate desired deposits (config amount + claimed fees)
+      const { solAmount: desiredSol, usdcAmount: desiredUsdc } = this.calculateBalancedDeposits(
         withdrawResult.claimedFees.sol,
         withdrawResult.claimedFees.usdc,
         currentPrice
       );
 
-      // Get pool info for price range
-      const connection = getConnection();
+      // Target position sizes (will swap to reach these if needed)
+      let solAmount = desiredSol;
+      let usdcAmount = desiredUsdc;
+
+      // Calculate total wallet value (respecting reserves)
+      const totalWalletValueUsd = (maxDepositableSol * currentPrice) + actualUsdc;
+      const desiredPositionValueUsd = (desiredSol * currentPrice) + desiredUsdc;
+
+      // If desired position exceeds total wallet value, scale down proportionally
+      if (desiredPositionValueUsd > totalWalletValueUsd) {
+        const scaleFactor = totalWalletValueUsd / desiredPositionValueUsd;
+        solAmount = desiredSol * scaleFactor;
+        usdcAmount = desiredUsdc * scaleFactor;
+
+        log.warn('⚠️  Position scaled down to fit wallet balance', {
+          desired: {
+            sol: desiredSol.toFixed(4),
+            usdc: desiredUsdc.toFixed(2),
+            totalUsd: desiredPositionValueUsd.toFixed(2),
+          },
+          scaled: {
+            sol: solAmount.toFixed(4),
+            usdc: usdcAmount.toFixed(2),
+            totalUsd: (solAmount * currentPrice + usdcAmount).toFixed(2),
+          },
+          scaleFactor: scaleFactor.toFixed(4),
+          wallet: {
+            sol: actualSol.toFixed(4),
+            usdc: actualUsdc.toFixed(2),
+            totalUsd: totalWalletValueUsd.toFixed(2),
+          },
+          message: `Reduce AUTO_TUNE_DEPOSIT_AMOUNT from ${this.config.autoTuneDepositAmount} to ${(this.config.autoTuneDepositAmount * scaleFactor).toFixed(2)} to avoid scaling`,
+        });
+      }
+
+      log.info('Target position sizes', {
+        desired: { sol: desiredSol, usdc: desiredUsdc },
+        final: { sol: solAmount, usdc: usdcAmount },
+        wallet: { sol: actualSol, usdc: actualUsdc },
+        maxDepositableSol,
+      });
+
+      // Get pool info for price range (reuse connection from above)
       const poolPubkey = new PublicKey(this.config.meteoraPoolAddress!);
       const dlmmPool = await DLMM.create(connection, poolPubkey);
 
@@ -762,61 +824,87 @@ export class AutoTuneOrchestrator {
       // ========================================================================
       // PRE-FLIGHT CHECK: Determine if we need to swap before position creation
       // ========================================================================
-      const wallet = getWalletKeypair();
-      const solBalance = await connection.getBalance(wallet.publicKey);
-      const actualSol = solBalance / Math.pow(10, 9);
-      const actualUsdc = await this.getUsdcBalance();
+      // Note: wallet balances already fetched above during reserve calculation
+      // IMPORTANT: After proportional scaling, we should already fit within available balances
+      // Only swap if we truly have an imbalance (too much of one token, not enough of the other)
+
+      // Calculate available balance after reserves
+      const availableSolForSwap = Math.max(0, actualSol - totalReserve);
 
       // Determine if swap is needed BEFORE any attempts
-      const needsSwap = actualSol < solAmount || actualUsdc < usdcAmount;
+      // Use availableSolForSwap instead of actualSol to respect reserves
+      const needsSwap = availableSolForSwap < solAmount || actualUsdc < usdcAmount;
 
       // ========================================================================
       // SWAP EXECUTION (if needed): Execute BEFORE position creation
       // ========================================================================
       if (needsSwap) {
-        const missingToken = actualSol < solAmount ? 'SOL' : 'USDC';
-        const shortfall = actualSol < solAmount ? solAmount - actualSol : usdcAmount - actualUsdc;
+        const missingToken = availableSolForSwap < solAmount ? 'SOL' : 'USDC';
+        const shortfall = availableSolForSwap < solAmount ? solAmount - availableSolForSwap : usdcAmount - actualUsdc;
         log.warn(`⚠️  Insufficient ${missingToken} (need ${shortfall.toFixed(4)} more) - executing swap`);
 
-        // Calculate swap needed with reserves
-        const totalReserve = this.config.minimumWalletBalanceSol + this.config.rentReserveSol;
-        const availableSol = Math.max(0, actualSol - totalReserve);
-
-        // Calculate shortfall for each token
-        const solShortfall = Math.max(0, solAmount - availableSol);
+        // Calculate shortfall for each token (using already-scaled solAmount and usdcAmount)
+        const solShortfall = Math.max(0, solAmount - availableSolForSwap);
         const usdcShortfall = Math.max(0, usdcAmount - actualUsdc);
 
         let swapParams: any = null;
 
         // Determine swap direction based on shortfall
-        if (solShortfall > 0 && usdcShortfall === 0) {
-          // Need more SOL, have enough USDC - swap USDC → SOL
-          const usdcToSwap = solShortfall * currentPrice * 1.02; // +2% buffer for slippage
+        // Priority: Swap the token we have MORE of to get the token we need
+        if (usdcShortfall > 0) {
+          // Need more USDC - swap SOL → USDC
+          const bufferMultiplier = 1 + (this.config.swapSlippageBufferPct / 100);
+          const solToSwap = (usdcShortfall / currentPrice) * bufferMultiplier;
+
+          log.info('Calculating SOL → USDC swap', {
+            usdcShortfall,
+            currentPrice,
+            bufferMultiplier,
+            solToSwap,
+            availableSolForSwap,
+          });
+
+          if (availableSolForSwap >= solToSwap) {
+            swapParams = {
+              inputMint: 'So11111111111111111111111111111111111111112', // SOL
+              outputMint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
+              amount: solToSwap,
+            };
+            log.info(`🔄 Swapping ${solToSwap.toFixed(4)} SOL → ${usdcShortfall.toFixed(2)} USDC`);
+          } else {
+            throw new Error(
+              `Insufficient SOL for swap. Need ${solToSwap.toFixed(4)} SOL to swap for ${usdcShortfall.toFixed(2)} USDC, but only have ${availableSolForSwap.toFixed(4)} SOL available (after ${totalReserve.toFixed(2)} SOL reserves). ` +
+              `Wallet: ${actualSol.toFixed(4)} SOL, ${actualUsdc.toFixed(2)} USDC. ` +
+              `Reduce AUTO_TUNE_DEPOSIT_AMOUNT (currently ${this.config.autoTuneDepositAmount}) or deposit more SOL.`
+            );
+          }
+        } else if (solShortfall > 0) {
+          // Need more SOL - swap USDC → SOL
+          const bufferMultiplier = 1 + (this.config.swapSlippageBufferPct / 100);
+          const usdcToSwap = solShortfall * currentPrice * bufferMultiplier;
+
+          log.info('Calculating USDC → SOL swap', {
+            solShortfall,
+            currentPrice,
+            bufferMultiplier,
+            usdcToSwap,
+            actualUsdc,
+          });
+
           if (actualUsdc >= usdcToSwap) {
             swapParams = {
               inputMint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
               outputMint: 'So11111111111111111111111111111111111111112', // SOL
               amount: usdcToSwap,
             };
-            log.info(`🔄 Swapping ${usdcToSwap.toFixed(2)} USDC → SOL`);
+            log.info(`🔄 Swapping ${usdcToSwap.toFixed(2)} USDC → ${solShortfall.toFixed(4)} SOL`);
           } else {
-            throw new Error(`Insufficient USDC for swap. Need ${usdcToSwap}, have ${actualUsdc}`);
+            throw new Error(
+              `Insufficient USDC for swap. Need ${usdcToSwap.toFixed(2)} USDC to swap for ${solShortfall.toFixed(4)} SOL, but only have ${actualUsdc.toFixed(2)} USDC. ` +
+              `Wallet: ${actualSol.toFixed(4)} SOL, ${actualUsdc.toFixed(2)} USDC. ` +
+              `Reduce AUTO_TUNE_DEPOSIT_AMOUNT (currently ${this.config.autoTuneDepositAmount}) or deposit more USDC.`
+            );
           }
-        } else if (usdcShortfall > 0 && solShortfall === 0) {
-          // Need more USDC, have enough SOL - swap SOL → USDC
-          const solToSwap = (usdcShortfall / currentPrice) * 1.02; // +2% buffer for slippage
-          if (availableSol >= solToSwap) {
-            swapParams = {
-              inputMint: 'So11111111111111111111111111111111111111112', // SOL
-              outputMint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
-              amount: solToSwap,
-            };
-            log.info(`🔄 Swapping ${solToSwap.toFixed(4)} SOL → USDC`);
-          } else {
-            throw new Error(`Insufficient SOL for swap. Need ${solToSwap}, have ${availableSol}`);
-          }
-        } else if (solShortfall > 0 && usdcShortfall > 0) {
-          throw new Error(`Insufficient balance for both SOL and USDC. Need ${solShortfall} more SOL and ${usdcShortfall} more USDC`);
         }
 
         if (!swapParams) {

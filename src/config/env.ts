@@ -1,20 +1,14 @@
 import dotenv from 'dotenv';
 import { PublicKey } from '@solana/web3.js';
 import path from 'path';
-import { STATIC_CONFIG, validateStaticConfig } from './staticConfig.js';
 
-// Load .env file based on NODE_ENV
-const env = process.env.NODE_ENV || 'mainnet';
-const useStaticConfig = env === 'production'; // Use static config in production (GCP)
-
-// In production, don't load .env file (secrets come from GCP Secret Manager)
-// Otherwise, always load .env from root (mainnet configuration)
-if (!useStaticConfig) {
-  dotenv.config({
-    path: path.resolve(process.cwd(), '.env'),
-    override: true,
-  });
-}
+// Always load .env file (works locally and in GCP with env vars)
+// In GCP, environment variables are set directly (no .env file needed)
+// Locally, .env file is loaded
+dotenv.config({
+  path: path.resolve(process.cwd(), '.env'),
+  override: false, // Don't override existing env vars (GCP Secret Manager takes precedence)
+});
 
 export interface BotConfig {
   // Secrets (loaded from env/GCP Secret Manager)
@@ -41,6 +35,7 @@ export interface BotConfig {
   autoTuneMaxRetries: number;
   swapEnabled: boolean;
   swapSlippageBps: number;
+  swapSlippageBufferPct: number;
   rentReserveSol: number;
   minimumWalletBalanceSol: number;
 }
@@ -107,58 +102,12 @@ function validatePublicKeys(key: string, values: string[]): void {
 }
 
 /**
- * Load configuration for production (GCP) deployment
- * Uses static config + only 2 secrets from environment
+ * Load configuration from environment variables
+ * Works for both local (.env file) and production (GCP environment variables)
  */
-function loadProductionConfig(): BotConfig {
-  console.log('🔧 Loading PRODUCTION config (static + secrets)');
-
-  // Validate static config first
-  validateStaticConfig(STATIC_CONFIG);
-
-  // Load only secrets from environment (GCP Secret Manager)
-  const rpcUrl = parseEnvString('RPC_URL', true);
-  const privateKey = parseEnvString('PRIVATE_KEY', true);
-
-  console.log('✅ Loaded 2 secrets from GCP Secret Manager');
-  console.log('✅ Using static config from staticConfig.ts');
-
-  return {
-    // Secrets
-    rpcUrl,
-    privateKey,
-
-    // Static config
-    autoCreatePositions: STATIC_CONFIG.autoCreatePositions,
-    meteoraPoolAddress: STATIC_CONFIG.meteoraPoolAddress,
-    initialDepositSol: STATIC_CONFIG.initialDepositSol,
-    initialDepositUsdc: STATIC_CONFIG.initialDepositUsdc,
-    priceRangeBpsLower: STATIC_CONFIG.priceRangeBpsLower,
-    priceRangeBpsUpper: STATIC_CONFIG.priceRangeBpsUpper,
-    meteoraStrategyType: STATIC_CONFIG.meteoraStrategyType,
-    lpOwner: STATIC_CONFIG.lpOwner,
-    meteoraPositionMints: undefined, // Not used in auto-tune mode
-    maxRetries: STATIC_CONFIG.maxRetries,
-    autoTuneEnabled: STATIC_CONFIG.autoTuneEnabled,
-    autoTuneBinCount: STATIC_CONFIG.autoTuneBinCount,
-    autoTuneCheckIntervalMs: STATIC_CONFIG.autoTuneCheckIntervalMs,
-    autoTuneImbalanceThreshold: STATIC_CONFIG.autoTuneImbalanceThreshold,
-    autoTuneDepositToken: STATIC_CONFIG.autoTuneDepositToken,
-    autoTuneDepositAmount: STATIC_CONFIG.autoTuneDepositAmount,
-    autoTuneMaxRetries: STATIC_CONFIG.autoTuneMaxRetries,
-    swapEnabled: STATIC_CONFIG.swapEnabled,
-    swapSlippageBps: STATIC_CONFIG.swapSlippageBps,
-    rentReserveSol: STATIC_CONFIG.rentReserveSol,
-    minimumWalletBalanceSol: STATIC_CONFIG.minimumWalletBalanceSol,
-  };
-}
-
-/**
- * Load configuration for development/local environments
- * Uses .env file for all configuration
- */
-function loadDevelopmentConfig(): BotConfig {
-  console.log(`🔧 Loading config from .env (mainnet)`);
+function loadConfigFromEnv(): BotConfig {
+  const env = process.env.NODE_ENV || 'development';
+  console.log(`🔧 Loading config from environment variables (${env})`);
 
   // Parse core config
   const rpcUrl = parseEnvString('RPC_URL', true);
@@ -251,6 +200,7 @@ function loadDevelopmentConfig(): BotConfig {
   // Parse swap parameters
   const swapEnabled = parseEnvBoolean('SWAP_ENABLED', true); // Default enabled
   const swapSlippageBps = parseEnvNumber('SWAP_SLIPPAGE_BPS', 50); // Default 0.5% slippage
+  const swapSlippageBufferPct = parseEnvNumber('SWAP_SLIPPAGE_BUFFER_PCT', 0.5); // Default 0.5% buffer for price impact
 
   // Parse wallet reserve parameters
   const rentReserveSol = parseEnvNumber('RENT_RESERVE_SOL', 0.1); // Default 0.1 SOL for rent/fees
@@ -300,17 +250,14 @@ function loadDevelopmentConfig(): BotConfig {
     autoTuneMaxRetries,
     swapEnabled,
     swapSlippageBps,
+    swapSlippageBufferPct,
     rentReserveSol,
     minimumWalletBalanceSol,
   };
 }
 
 export function loadConfig(): BotConfig {
-  if (useStaticConfig) {
-    return loadProductionConfig();
-  } else {
-    return loadDevelopmentConfig();
-  }
+  return loadConfigFromEnv();
 }
 
 // Singleton config instance

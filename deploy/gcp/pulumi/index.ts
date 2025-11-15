@@ -18,6 +18,7 @@ import * as gcp from '@pulumi/gcp';
 import * as docker from '@pulumi/docker';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as dotenv from 'dotenv';
 
 // Configuration
 const config = new pulumi.Config();
@@ -89,61 +90,53 @@ const artifactRegistryBinding = new gcp.projects.IAMMember('artifact-registry-re
 }, { dependsOn: [computeApi] });
 
 /**
- * Parse only RPC_URL and PRIVATE_KEY from .env file
- * All other config is hardcoded in staticConfig.ts
+ * Load environment variables from .env file using dotenv
+ * Separates secrets (RPC_URL, PRIVATE_KEY) from config vars
  */
-function parseSecretsFromEnvFile(filePath: string): Record<string, string> {
+function loadEnvFromFile(filePath: string): { secrets: Record<string, string>; config: Record<string, string> } {
   const envPath = path.resolve(__dirname, filePath);
   if (!fs.existsSync(envPath)) {
     throw new Error(`Environment file not found: ${envPath}`);
   }
 
-  const content = fs.readFileSync(envPath, 'utf-8');
+  // Use dotenv to parse .env file
+  const parsed = dotenv.parse(fs.readFileSync(envPath, 'utf-8'));
+
+  const secretKeys = ['RPC_URL', 'PRIVATE_KEY'];
   const secrets: Record<string, string> = {};
-  const requiredSecrets = ['RPC_URL', 'PRIVATE_KEY'];
+  const config: Record<string, string> = {};
 
-  content.split('\n').forEach((line) => {
-    line = line.trim();
-    // Skip comments and empty lines
-    if (line.startsWith('#') || line === '') return;
+  // Separate secrets from config
+  Object.entries(parsed).forEach(([key, value]) => {
+    // Skip empty values or placeholders
+    if (!value || value.match(/<.*>/)) {
+      return;
+    }
 
-    const match = line.match(/^([^=]+)=(.*)$/);
-    if (match) {
-      const key = match[1].trim();
-      let value = match[2].trim();
-
-      // Only extract RPC_URL and PRIVATE_KEY
-      if (!requiredSecrets.includes(key)) return;
-
-      // Remove quotes if present
-      if ((value.startsWith('"') && value.endsWith('"')) ||
-          (value.startsWith("'") && value.endsWith("'"))) {
-        value = value.slice(1, -1);
-      }
-
-      // Skip placeholders
-      if (value && !value.match(/<.*>/)) {
-        secrets[key] = value;
-      }
+    if (secretKeys.includes(key)) {
+      secrets[key] = value;
+    } else {
+      config[key] = value;
     }
   });
 
-  // Validate that we got both secrets
-  requiredSecrets.forEach(key => {
+  // Validate that we got both required secrets
+  secretKeys.forEach(key => {
     if (!secrets[key]) {
       throw new Error(`Missing required secret in .env file: ${key}`);
     }
   });
 
-  return secrets;
+  return { secrets, config };
 }
 
-// Create only 2 secrets in Secret Manager (RPC_URL and PRIVATE_KEY)
-const secrets = parseSecretsFromEnvFile(envFile);
+// Load all environment variables from .env file
+const { secrets, config: envConfig } = loadEnvFromFile(envFile);
 const secretResources: Record<string, gcp.secretmanager.Secret> = {};
 const secretVersions: Record<string, gcp.secretmanager.SecretVersion> = {};
 
 console.log(`📦 Creating ${Object.keys(secrets).length} secrets in GCP Secret Manager: ${Object.keys(secrets).join(', ')}`);
+console.log(`📝 Loading ${Object.keys(envConfig).length} config variables from .env: ${Object.keys(envConfig).slice(0, 5).join(', ')}${Object.keys(envConfig).length > 5 ? '...' : ''}`);
 
 Object.entries(secrets).forEach(([key, value]) => {
   const secretName = `autotune-${key.toLowerCase().replace(/_/g, '-')}`;
@@ -194,7 +187,8 @@ const image = new docker.Image('autotune-image', {
 }, { dependsOn: [computeApi] });
 
 // Create startup script that pulls and runs container
-// Only fetches 2 secrets (RPC_URL and PRIVATE_KEY) - all other config is in staticConfig.ts
+// Fetches 2 secrets (RPC_URL and PRIVATE_KEY) from Secret Manager
+// All other config loaded from .env and passed as environment variables
 const startupScript = pulumi.all([image.imageName, ...Object.keys(secrets)]).apply(
   ([imageNameValue, ...secretKeys]) => `#!/bin/bash
 set -e
@@ -226,7 +220,7 @@ mkdir -p /var/lib/autotune/data
 chown -R 1001:1001 /var/lib/autotune/data
 chmod -R 755 /var/lib/autotune/data
 
-# Fetch only 2 secrets from Secret Manager (RPC_URL and PRIVATE_KEY)
+# Fetch 2 secrets from Secret Manager (RPC_URL and PRIVATE_KEY)
 echo "🔑 Fetching 2 secrets from GCP Secret Manager..."
 ENV_FILE="/tmp/.env.autotune"
 rm -f \${ENV_FILE}
@@ -236,16 +230,21 @@ ${secretKeys.map((key: string) => {
   return `echo "${key}=$(gcloud secrets versions access latest --secret=${secretName})" >> \${ENV_FILE}`;
 }).join('\n')}
 
-# Set NODE_ENV=production to enable GCP-optimized logging and config
-echo "NODE_ENV=production" >> \${ENV_FILE}
+# Add all config variables from .env file
+echo "📝 Adding ${Object.keys(envConfig).length} config variables from .env..."
+${Object.entries(envConfig).map(([key, value]) => {
+  // Escape special characters in value for bash
+  const escapedValue = String(value).replace(/"/g, '\\"').replace(/\$/g, '\\$').replace(/`/g, '\\`');
+  return `echo '${key}=${escapedValue}' >> \${ENV_FILE}`;
+}).join('\n')}
 
-# Optional: Configure log sampling rate (default: 10 = log 1 in 10 routine checks)
-echo "LOG_SAMPLE_RATE=10" >> \${ENV_FILE}
+# Set NODE_ENV=production to enable GCP-optimized logging
+echo "NODE_ENV=production" >> \${ENV_FILE}
 
 chmod 600 \${ENV_FILE}
 
 echo "✅ Secrets loaded: ${secretKeys.join(', ')}"
-echo "✅ All other config loaded from staticConfig.ts"
+echo "✅ Config variables loaded: ${Object.keys(envConfig).length}"
 
 # Run container
 echo "🐳 Starting container..."
