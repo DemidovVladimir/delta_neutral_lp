@@ -7,13 +7,15 @@
 
 import { config } from 'dotenv';
 import { Connection, PublicKey } from '@solana/web3.js';
-import DLMMModule from '@meteora-ag/dlmm';
+import { createRequire } from 'module';
+
+const require = createRequire(import.meta.url);
+const DLMMModule = require('@meteora-ag/dlmm');
 
 // Load environment variables
 const env = process.env.NODE_ENV || 'mainnet';
 config({ path: `.env.${env}` });
 
-// @ts-ignore
 const DLMM: any = DLMMModule.default || DLMMModule;
 
 // Get RPC URL from environment

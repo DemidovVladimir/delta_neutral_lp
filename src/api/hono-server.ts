@@ -7,34 +7,239 @@
  * - LP position management (minimal API: create + withdraw-claim-close)
  * - Real-time price updates
  *
- * Note: This API server provides minimal endpoints focused on auto-tune bot functionality.
- * Only `createPosition()` and `withdrawClaimAndClose()` are exposed for LP operations.
+ * Security model:
+ * - GET endpoints (read-only data) are open and CORS-protected.
+ * - POST endpoints (LP position mutations — fund-affecting) require:
+ *     1. A valid `X-API-Key` header matching `API_KEY` from env.
+ *     2. A request origin in `API_ALLOWED_ORIGINS` (CORS).
+ *     3. Rate-limit budget below `API_RATE_LIMIT_PER_MIN` per remote IP.
+ *     4. Body validation (types, ranges, signedness).
+ * - When `API_KEY` is unset the server fail-closes POST endpoints (503) so
+ *   an accidentally-exposed port can never move funds without explicit auth.
  */
 
-import { Hono } from 'hono';
+import { Hono, type Context, type Next } from 'hono';
 import { cors } from 'hono/cors';
 import { MeteoraAdapter } from '../modules/meteoraAdapter.js';
 import { getSolPrice, getMultiTokenPrices } from '../core/priceOracle.js';
 import { getConnection } from '../utils/solana.js';
 import { PublicKey } from '@solana/web3.js';
-import DLMMModule from '@meteora-ag/dlmm';
 import { getConfig } from '../config/env.js';
 import { log } from '../utils/logger.js';
+import { DLMM } from '../utils/dlmm.js';
 import { getActiveBin, getPriceFromBinId } from '../utils/meteoraUtils.js';
 import { DECIMALS } from '../config/constants.js';
-
-// @ts-ignore
-const DLMM: any = DLMMModule.default || DLMMModule;
 
 const PORT = Number(process.env.API_PORT) || 3001;
 
 // Initialize Hono app
 const app = new Hono();
+const config = getConfig();
 
-// Enable CORS for all routes
-app.use('*', cors());
+// ─────────────────────────────────────────────────────────────────────────────
+// CORS
+// ─────────────────────────────────────────────────────────────────────────────
+// Restrict to configured origins. Empty list == same-origin only (no
+// `Access-Control-Allow-Origin` granted to cross-origin callers). The previous
+// `cors()` call here used wildcard origin, which combined with unauthenticated
+// POST endpoints meant any web page the operator visited could have fired
+// fund-moving requests at localhost:3001.
+const allowedOrigins = config.apiAllowedOrigins;
+app.use(
+  '*',
+  cors({
+    origin: (incomingOrigin) => {
+      if (!incomingOrigin) return null;
+      return allowedOrigins.includes(incomingOrigin) ? incomingOrigin : null;
+    },
+    allowHeaders: ['Content-Type', 'X-API-Key'],
+    allowMethods: ['GET', 'POST', 'OPTIONS'],
+    credentials: false,
+  })
+);
 
-// Initialize Meteora adapter (singleton)
+// ─────────────────────────────────────────────────────────────────────────────
+// Rate limit (per remote IP, fixed-window, in-memory)
+// ─────────────────────────────────────────────────────────────────────────────
+// Applied only to mutating POST routes below. In-memory map is fine for a
+// single-process bot; if we ever scale horizontally, swap for Redis-backed.
+type Bucket = { count: number; windowStartMs: number };
+const rateBuckets = new Map<string, Bucket>();
+const WINDOW_MS = 60_000;
+
+function getRemoteIp(c: Context): string {
+  // Hono on Bun exposes the connection address via `c.env`/`c.req.raw`. Try a
+  // few known headers (set by reverse proxies) before falling back to a
+  // sentinel. We don't trust these for auth — only for grouping.
+  return (
+    c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ||
+    c.req.header('x-real-ip') ||
+    'unknown'
+  );
+}
+
+async function rateLimitMiddleware(c: Context, next: Next) {
+  const ip = getRemoteIp(c);
+  const now = Date.now();
+  const limit = config.apiRateLimitPerMin;
+  const bucket = rateBuckets.get(ip);
+
+  if (!bucket || now - bucket.windowStartMs >= WINDOW_MS) {
+    rateBuckets.set(ip, { count: 1, windowStartMs: now });
+    return next();
+  }
+
+  bucket.count += 1;
+  if (bucket.count > limit) {
+    const retryAfterSec = Math.ceil((WINDOW_MS - (now - bucket.windowStartMs)) / 1000);
+    log.warn('Rate limit exceeded', { ip, count: bucket.count, limit });
+    c.header('Retry-After', String(retryAfterSec));
+    return c.json(
+      { error: 'Rate limit exceeded', retryAfterSec, limitPerMin: limit },
+      429
+    );
+  }
+  return next();
+}
+
+// Periodic cleanup so the map doesn't grow unboundedly under unique-IP attack.
+// Runs every 5 min; cheap, so no need to be smarter.
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, bucket] of rateBuckets) {
+    if (now - bucket.windowStartMs >= WINDOW_MS) rateBuckets.delete(ip);
+  }
+}, 5 * 60_000);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Auth (API key, fail-closed)
+// ─────────────────────────────────────────────────────────────────────────────
+// Constant-time string compare so a malicious caller can't time-side-channel
+// the configured key out of us by sending varying-prefix guesses.
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let mismatch = 0;
+  for (let i = 0; i < a.length; i++) {
+    mismatch |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return mismatch === 0;
+}
+
+async function apiKeyAuthMiddleware(c: Context, next: Next) {
+  const expected = config.apiKey;
+  if (!expected) {
+    // Fail-closed: refuse mutations until the operator deliberately sets a
+    // key. Returning 503 (not 401) signals "the server is misconfigured for
+    // this kind of request", which is the truth.
+    log.warn('Rejecting POST request: API_KEY is not configured', {
+      path: c.req.path,
+      ip: getRemoteIp(c),
+    });
+    return c.json(
+      {
+        error: 'API authentication not configured',
+        hint: 'Set the API_KEY environment variable to enable mutating endpoints.',
+      },
+      503
+    );
+  }
+  const provided = c.req.header('x-api-key') ?? '';
+  if (!timingSafeEqual(provided, expected)) {
+    log.warn('Rejected POST request: invalid API key', {
+      path: c.req.path,
+      ip: getRemoteIp(c),
+      provided: provided ? `${provided.slice(0, 4)}…(${provided.length} chars)` : '(none)',
+    });
+    return c.json({ error: 'Invalid or missing API key' }, 401);
+  }
+  return next();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Body validators
+// ─────────────────────────────────────────────────────────────────────────────
+// Plain functions that throw a typed error. Avoids pulling in zod for a
+// two-endpoint surface.
+class ValidationError extends Error {
+  readonly details: Record<string, unknown>;
+  constructor(message: string, details: Record<string, unknown> = {}) {
+    super(message);
+    this.name = 'ValidationError';
+    this.details = details;
+  }
+}
+
+function asPositiveFiniteNumber(value: unknown, field: string): number {
+  if (typeof value === 'string') value = Number(value);
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new ValidationError(`${field} must be a finite number`, { field, value });
+  }
+  if (value < 0) {
+    throw new ValidationError(`${field} must be >= 0`, { field, value });
+  }
+  return value;
+}
+
+function asNonEmptyString(value: unknown, field: string, maxLen = 100): string {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new ValidationError(`${field} must be a non-empty string`, { field });
+  }
+  if (value.length > maxLen) {
+    throw new ValidationError(`${field} too long (max ${maxLen})`, { field, length: value.length });
+  }
+  return value.trim();
+}
+
+function asValidPublicKey(value: unknown, field: string): string {
+  const s = asNonEmptyString(value, field, 64);
+  try {
+    new PublicKey(s);
+  } catch {
+    throw new ValidationError(`${field} is not a valid Solana public key`, { field });
+  }
+  return s;
+}
+
+interface CreatePositionBody {
+  solAmount: number;
+  usdcAmount: number;
+  priceLower: number;
+  priceUpper: number;
+}
+
+function validateCreatePositionBody(body: unknown): CreatePositionBody {
+  if (!body || typeof body !== 'object') {
+    throw new ValidationError('Request body must be a JSON object');
+  }
+  const b = body as Record<string, unknown>;
+  const solAmount = asPositiveFiniteNumber(b.solAmount, 'solAmount');
+  const usdcAmount = asPositiveFiniteNumber(b.usdcAmount ?? 0, 'usdcAmount');
+  const priceLower = asPositiveFiniteNumber(b.priceLower, 'priceLower');
+  const priceUpper = asPositiveFiniteNumber(b.priceUpper, 'priceUpper');
+
+  if (priceLower >= priceUpper) {
+    throw new ValidationError('priceLower must be strictly less than priceUpper', {
+      priceLower,
+      priceUpper,
+    });
+  }
+  if (solAmount === 0 && usdcAmount === 0) {
+    throw new ValidationError('At least one of solAmount or usdcAmount must be > 0');
+  }
+  // Sanity ceilings — protect against a fat-finger from any client. Tune if
+  // your wallet routinely opens larger positions.
+  if (solAmount > 1_000) {
+    throw new ValidationError('solAmount exceeds sanity ceiling (1000 SOL)', { solAmount });
+  }
+  if (usdcAmount > 1_000_000) {
+    throw new ValidationError('usdcAmount exceeds sanity ceiling (1,000,000 USDC)', { usdcAmount });
+  }
+  return { solAmount, usdcAmount, priceLower, priceUpper };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Routes
+// ─────────────────────────────────────────────────────────────────────────────
 let meteoraAdapter: MeteoraAdapter | null = null;
 
 function getMeteoraAdapter(): MeteoraAdapter {
@@ -95,9 +300,9 @@ app.get('/api/pool/analytics', async (c) => {
 // Get bin distribution and active bin data
 app.get('/api/pool/bins', async (c) => {
   try {
-    const config = getConfig();
+    const cfg = getConfig();
     const connection = getConnection();
-    const poolPubkey = new PublicKey(config.meteoraPoolAddress!);
+    const poolPubkey = new PublicKey(cfg.meteoraPoolAddress!);
     const dlmmPool = await DLMM.create(connection, poolPubkey);
 
     const activeBinData = await getActiveBin(dlmmPool);
@@ -194,31 +399,36 @@ app.get('/api/positions', async (c) => {
   }
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Mutating routes — guarded by rateLimit + apiKey + validation
+// ─────────────────────────────────────────────────────────────────────────────
+app.use('/api/positions/create', rateLimitMiddleware, apiKeyAuthMiddleware);
+app.use('/api/positions/withdraw-claim-close', rateLimitMiddleware, apiKeyAuthMiddleware);
+
 // Create a new LP position
 app.post('/api/positions/create', async (c) => {
   try {
-    const body = await c.req.json();
-    const { solAmount, usdcAmount, priceLower, priceUpper } = body;
+    const rawBody = await c.req.json().catch(() => null);
 
-    if (!solAmount || !priceLower || !priceUpper) {
-      return c.json(
-        {
-          error: 'Missing required parameters',
-          required: ['solAmount', 'priceLower', 'priceUpper'],
-        },
-        400
-      );
+    let validated: CreatePositionBody;
+    try {
+      validated = validateCreatePositionBody(rawBody);
+    } catch (err) {
+      if (err instanceof ValidationError) {
+        return c.json({ error: err.message, details: err.details }, 400);
+      }
+      throw err;
     }
 
     const adapter = getMeteoraAdapter();
-    const config = getConfig();
+    const cfg = getConfig();
 
     const result = await adapter.createPosition({
-      poolAddress: config.meteoraPoolAddress!,
-      solAmount: parseFloat(solAmount),
-      usdcAmount: parseFloat(usdcAmount || '0'),
-      priceLower: parseFloat(priceLower),
-      priceUpper: parseFloat(priceUpper),
+      poolAddress: cfg.meteoraPoolAddress!,
+      solAmount: validated.solAmount,
+      usdcAmount: validated.usdcAmount,
+      priceLower: validated.priceLower,
+      priceUpper: validated.priceUpper,
     });
 
     return c.json(result);
@@ -237,11 +447,19 @@ app.post('/api/positions/create', async (c) => {
 // Withdraw 100%, claim fees, and close position in ONE ATOMIC transaction
 app.post('/api/positions/withdraw-claim-close', async (c) => {
   try {
-    const body = await c.req.json();
-    const { positionMint } = body;
-
-    if (!positionMint) {
-      return c.json({ error: 'Missing required parameter: positionMint' }, 400);
+    const rawBody = await c.req.json().catch(() => null);
+    let positionMint: string;
+    try {
+      if (!rawBody || typeof rawBody !== 'object') {
+        throw new ValidationError('Request body must be a JSON object');
+      }
+      const b = rawBody as Record<string, unknown>;
+      positionMint = asValidPublicKey(b.positionMint, 'positionMint');
+    } catch (err) {
+      if (err instanceof ValidationError) {
+        return c.json({ error: err.message, details: err.details }, 400);
+      }
+      throw err;
     }
 
     const adapter = getMeteoraAdapter();
@@ -251,7 +469,8 @@ app.post('/api/positions/withdraw-claim-close', async (c) => {
       signature: result.signature,
       claimedFees: result.claimedFees,
       success: true,
-      message: 'Withdraw + Claim + Close completed in 1 atomic transaction. Position closed and rent reclaimed (~0.057 SOL).'
+      message:
+        'Withdraw + Claim + Close completed in 1 atomic transaction. Position closed and rent reclaimed (~0.057 SOL).',
     });
   } catch (error) {
     log.error('Failed to withdraw, claim, and close position', { error });
@@ -265,8 +484,22 @@ app.post('/api/positions/withdraw-claim-close', async (c) => {
   }
 });
 
-// Start Bun server with Hono
+// ─────────────────────────────────────────────────────────────────────────────
+// Startup
+// ─────────────────────────────────────────────────────────────────────────────
 log.info(`🚀 Bun + Hono API server starting on port ${PORT}`);
+log.info('API security configuration', {
+  apiKeyConfigured: Boolean(config.apiKey),
+  allowedOrigins: config.apiAllowedOrigins,
+  rateLimitPerMin: config.apiRateLimitPerMin,
+});
+if (!config.apiKey) {
+  log.warn(
+    '⚠️  API_KEY is not set. POST /api/positions/* will return 503 until you set it. ' +
+    'GET endpoints remain available. This is intentional fail-closed behaviour — set API_KEY ' +
+    'in your environment to enable mutating endpoints.'
+  );
+}
 console.log(`🚀 Bun + Hono API server starting on port ${PORT}`);
 
 export default {

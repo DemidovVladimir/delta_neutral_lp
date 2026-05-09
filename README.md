@@ -1,519 +1,296 @@
-# Delta-Neutral Liquidity Provision Bot
+# Delta-Neutral Bot
 
-A sophisticated automated market-making bot for Solana that provides liquidity on Meteora DLMM (SOL/USDC) while maintaining delta neutrality through Drift Protocol perpetual shorts.
+Automated Solana liquidity operations for Meteora DLMM SOL/USDC positions, with auto-tune rebalancing, Jupiter Ultra swaps, position recovery, and an optional Hono API.
 
-[![Solana](https://img.shields.io/badge/Solana-Mainnet-9945FF?logo=solana)](https://solana.com)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue?logo=typescript)](https://www.typescriptlang.org/)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+The implemented production path today is Meteora DLMM auto-tune. Drift perpetual hedging is still planned, so this repository is not yet a complete delta-neutral hedge bot. Treat it as a mainnet-capable Meteora position manager with the foundations for later Drift integration.
 
-## 🎯 Overview
+## Current Status
 
-This bot earns LP fees from Meteora DLMM pools while minimizing directional exposure to SOL price movements by maintaining a short position on Drift Protocol. The result is a market-neutral strategy that profits from trading fees and funding rate arbitrage.
+Implemented:
 
-### Key Features
+- Creates Meteora DLMM SOL/USDC positions from configuration or API input.
+- Discovers wallet-owned Meteora positions directly from chain so state file loss does not lose position tracking.
+- Monitors a single auto-tune position and rebalances when the configured range composition becomes too one-sided.
+- Rebalances with Phase 1 withdraw/claim/close, optional Jupiter Ultra swap, then Phase 2 create position.
+- Protects wallet SOL with permanent and rent/fee reserves.
+- Tracks created position mints, auto-tune state, claimed fees, unclaimed fees, and transaction fees in JSON state files.
+- Serves read-only pool, price, bin, and position data over Hono/Bun.
+- Guards mutating API endpoints with `API_KEY`, CORS allowlist, body validation, and simple rate limiting.
 
-- ✅ **Automated Position Creation** - No manual setup required
-- 🤖 **Auto-Tune Rebalancing** - Automatic position rebalancing with fee auto-compounding
-- 🔍 **Robust Position Tracking** - Never loses track of positions, prevents duplicates
-- 📊 **Delta-Neutral Strategy** - Maintains ΔSOL ≈ 0 through automatic rebalancing (planned)
-- 🔄 **Meteora DLMM Integration** - Concentrated liquidity with customizable ranges
-- ⚡ **Drift Protocol Hedging** - Perpetual shorts for delta neutrality (planned)
-- 🔁 **Jupiter Ultra API** - Fast, reliable token swapping with error detection
-- 📈 **Real-time Pool Analytics** - Jupiter v6 + Meteora API integration
-- 🛡️ **Risk Management** - Configurable limits with dual reserve system
-- 📝 **Enhanced Logging** - Clear error messages with wallet balance debugging
+Planned or incomplete:
 
-## 🏗️ Architecture
+- Drift hedge engine and actual short-perp management.
+- Main hedge loop and risk controller.
+- Emergency Drift unwind flows.
+- Several package scripts still reference removed historical test files; use `pnpm test` and `pnpm build` as the reliable validation commands unless the missing scripts are restored.
 
+## Architecture
+
+```text
+src/cli/auto-tune.ts
+  Starts the auto-tune loop and optional watch mode.
+
+src/modules/autoTuneOrchestrator.ts
+  Owns the operational loop:
+  discover position -> check composition -> withdraw/claim/close -> plan swap -> create centered position.
+
+src/modules/meteoraAdapter.ts
+  Wraps Meteora DLMM SDK calls:
+  create position, discover positions, read LP exposure, fetch pool analytics, withdraw/claim/close.
+
+src/modules/swapPlanner.ts
+  Pure reserve-aware swap planner shared by initial-position and rebalance flows.
+
+src/modules/jupiterSwapper.ts
+  Jupiter Ultra order/sign/execute flow for SOL <-> USDC swaps.
+
+src/core/priceOracle.ts
+  Jupiter Lite price data plus Pyth Hermes SOL/USD validation.
+
+src/modules/persistence.ts
+  JSON state persistence under data/.
+
+src/api/hono-server.ts
+  Optional REST API for UI or operator tooling.
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    Orchestrator                             │
-│  - Monitors LP exposure vs short position                   │
-│  - Triggers rebalancing when delta exceeds threshold        │
-│  - Manages emergency flows                                  │
-└──────────────┬──────────────────────────┬───────────────────┘
-               │                          │
-       ┌───────▼────────┐        ┌────────▼─────────┐
-       │  MeteoraAdapter │        │   DriftEngine    │
-       │                │        │                  │
-       │ - LP positions │        │ - Perp shorts    │
-       │ - Fee claims   │        │ - Collateral     │
-       │ - Deposits     │        │ - Rebalancing    │
-       └────────────────┘        └──────────────────┘
-               │                          │
-       ┌───────▼────────┐        ┌────────▼─────────┐
-       │ Meteora DLMM   │        │  Drift Protocol  │
-       │   (SOL/USDC)   │        │   (SOL-PERP)     │
-       └────────────────┘        └──────────────────┘
-```
 
-### Core Modules
+## Rebalance Flow
 
-- **MeteoraAdapter** - Manages DLMM LP positions (deposits, withdrawals, fee claims)
-- **AutoTuneOrchestrator** - Automated position rebalancing with intelligent retry logic
-- **JupiterSwapper** - Token swapping for position balancing
-- **PriceOracle** - Jupiter v6 + Pyth price feeds
-- **DriftEngine** - Handles perpetual short positions (planned)
-- **RiskController** - Enforces delta thresholds and limits (planned)
+1. The bot discovers positions for the configured Meteora pool and wallet.
+2. It reads active bin, position bin bounds, and token composition.
+3. If SOL or USDC composition exceeds `AUTO_TUNE_IMBALANCE_THRESHOLD`, it starts a rebalance.
+4. Phase 1 calls `withdrawClaimAndClose(positionMint)`, using Meteora SDK support to withdraw all liquidity, claim fees, and close the position in one transaction.
+5. The bot calculates target deposits from `AUTO_TUNE_DEPOSIT_TOKEN`, `AUTO_TUNE_DEPOSIT_AMOUNT`, current SOL price, and claimed fees.
+6. If the desired size is larger than reserve-adjusted wallet value, the bot scales the new position down and logs a loud warning.
+7. `planSwapForDeposit()` determines whether a SOL->USDC or USDC->SOL swap is needed without touching `MINIMUM_WALLET_BALANCE_SOL` or `RENT_RESERVE_SOL`.
+8. If needed, Jupiter Ultra performs the swap and the bot waits briefly for balances to settle.
+9. Phase 2 creates a new centered DLMM position using `AUTO_TUNE_BIN_COUNT`.
+10. State files are updated and transaction fees are tracked asynchronously.
 
-## 🚀 Quick Start
+## Quick Start
 
-### Prerequisites
-
-- Node.js 18+ or pnpm
-- Solana wallet with SOL and USDC
-- RPC endpoint (Helius, QuickNode, or local validator)
-
-### Installation
+Install dependencies:
 
 ```bash
-# Clone the repository
-git clone https://github.com/yourusername/delta_neutral_bot.git
-cd delta_neutral_bot
-
-# Install dependencies
 pnpm install
-
-# Copy environment template
-cp .env.example .env.mainnet
 ```
 
-### Configuration
-
-Edit `.env.mainnet` with your settings:
+Create a local environment file:
 
 ```bash
-# Network
+cp .env.example .env
+```
+
+Minimum mainnet configuration:
+
+```bash
 RPC_URL=https://mainnet.helius-rpc.com/?api-key=YOUR_KEY
+PRIVATE_KEY=YOUR_BASE58_PRIVATE_KEY
 
-# Wallet
-PRIVATE_KEY=your_base58_private_key
-
-# Meteora Position Setup (Option 1: Auto-create)
 AUTO_CREATE_POSITIONS=true
 METEORA_POOL_ADDRESS=5rCf1DM8LjKTw4YqhnoLcngyZYeNnQqztScTogYHAS6
-INITIAL_DEPOSIT_SOL=10
-INITIAL_DEPOSIT_USDC=1000
-PRICE_RANGE_BPS_LOWER=-100  # -1% from current price
-PRICE_RANGE_BPS_UPPER=100    # +1% from current price
+METEORA_STRATEGY_TYPE=spot
 
-# Auto-Tune Configuration
 AUTO_TUNE_ENABLED=true
 AUTO_TUNE_BIN_COUNT=20
 AUTO_TUNE_CHECK_INTERVAL_MS=30000
 AUTO_TUNE_IMBALANCE_THRESHOLD=0.8
 AUTO_TUNE_DEPOSIT_TOKEN=SOL
-AUTO_TUNE_DEPOSIT_AMOUNT=1.0
+AUTO_TUNE_DEPOSIT_AMOUNT=0.1
+AUTO_TUNE_MAX_RETRIES=3
 
-# Wallet Reserves
-MINIMUM_WALLET_BALANCE_SOL=0.2
-RENT_RESERVE_SOL=0.1
-
-# Jupiter Swap Configuration
 SWAP_ENABLED=true
 SWAP_SLIPPAGE_BPS=50
+SWAP_SLIPPAGE_BUFFER_PCT=3.0
+SWAP_HIGH_IMPACT_WARNING_PCT=1.0
 
-# Transaction Execution (Optimized for 2025)
-PRIORITY_FEE_MICRO_LAMPORTS=50000  # 50,000 µL/CU = moderate priority
-MAX_COMPUTE_UNITS=600000
+MINIMUM_WALLET_BALANCE_SOL=0.2
+RENT_RESERVE_SOL=0.1
 ```
 
-### Running the Bot
+Build and run the unit tests:
 
 ```bash
-# Auto-Tune Mode (Automated Rebalancing)
-pnpm auto-tune           # Start auto-tune orchestrator (REAL FUNDS!)
-pnpm auto-tune:watch     # Start with watch mode (visual display)
-
-# API Server
-pnpm api                 # Start API server on port 3001
-
-# Run tests (recommended for initial validation)
-pnpm test:local          # Test on localnet
-pnpm test:mainnet        # Test on mainnet (REAL FUNDS!)
-pnpm test:integration    # Integration tests for utilities
-
-# Find available pools
-pnpm find-pools          # Find SOL/USDC DLMM pools on mainnet
-
-# Localnet management
-pnpm localnet:start      # Start mainnet fork for testing
-pnpm localnet:stop       # Stop validator
-
-# Build and lint
-pnpm build              # Compile TypeScript
-pnpm lint               # Run ESLint
-pnpm format             # Format code with Prettier
+pnpm build
+pnpm test
 ```
 
-**Note**: The auto-tune feature is fully functional for automated position rebalancing. The main hedge loop for Drift integration is planned for future implementation.
-
-## 📊 How It Works
-
-### 1. LP Provision
-The bot creates a concentrated liquidity position on Meteora DLMM (SOL/USDC pool) within a configurable price range. This position earns trading fees from swaps.
-
-### 2. Delta Hedging
-To neutralize SOL price exposure, the bot opens a perpetual short position on Drift Protocol:
-- **LP Exposure**: +10 SOL from liquidity provision
-- **Drift Short**: -10 SOL from perpetual position
-- **Net Delta**: ~0 SOL (market neutral)
-
-### 3. Rebalancing
-The bot continuously monitors the delta (difference between LP SOL and short SOL):
-```
-delta = lpSol - |shortSol|
-```
-When `|delta| > DELTA_THRESHOLD_SOL`, the bot rebalances the short position.
-
-### 4. Profit Sources
-- **LP Fees**: Trading fees from Meteora pool (0.01% - 0.3% per swap)
-- **Funding Arbitrage**: Profit when funding rate is favorable
-- **Impermanent Loss Protection**: Hedged position minimizes IL
-
-## 🧪 Testing
-
-### Integration Tests
-
-Test all utilities and integrations:
-```bash
-pnpm test:integration
-```
-
-Tests include:
-- ✅ Jupiter API v6 multi-token price fetching
-- ✅ Meteora DLMM API pool analytics
-- ✅ Position composition calculations
-- ✅ Price oracle utilities (Jupiter + Pyth)
-
-### Localnet Testing
-
-Test on a safe mainnet fork:
-```bash
-pnpm localnet:start     # Start validator
-pnpm test:local         # Run localnet tests
-pnpm localnet:stop      # Stop validator
-```
-
-### Mainnet Test (REAL FUNDS)
-
-⚠️ **WARNING**: This uses real funds!
+Start auto-tune:
 
 ```bash
-pnpm test:mainnet
+pnpm auto-tune
 ```
 
-This will:
-1. Check wallet balances
-2. Create a real Meteora position
-3. Read LP exposure
-
-### Finding Pools
-
-Find available SOL/USDC DLMM pools:
-```bash
-pnpm find-pools
-```
-
-This script queries Meteora's API to find pools and displays:
-- Pool address
-- Token mints
-- Bin step
-- Current price
-- TVL
-
-## 📚 Documentation
-
-- **[FEE_OPTIMIZATION.md](docs/FEE_OPTIMIZATION.md)** - 💰 Fee optimization guide (2025) - 96% cost reduction!
-- **[API.md](docs/API.md)** - API server endpoints and usage
-- **[INTEGRATION_SUMMARY.md](INTEGRATION_SUMMARY.md)** - Recent improvements from meteora-lp-army-bot
-- **[agent-kit-mvp-prd.md](agent-kit-mvp-prd.md)** - Product requirements and architecture
-- **[progress.md](progress.md)** - Development progress tracking
-- **[decisions.md](decisions.md)** - Architectural decision records
-- **[bugs.md](bugs.md)** - Known issues and bug reports
-
-## 🛠️ Advanced Usage
-
-### Environment Variables
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `RPC_URL` | Solana RPC endpoint | Required |
-| `PRIVATE_KEY` | Wallet private key (base58) | Required |
-| `AUTO_CREATE_POSITIONS` | Auto-create LP positions | `false` |
-| `METEORA_POOL_ADDRESS` | Meteora DLMM pool | Required |
-| `INITIAL_DEPOSIT_SOL` | Initial SOL deposit | `0` |
-| `INITIAL_DEPOSIT_USDC` | Initial USDC deposit | `0` |
-| `PRICE_RANGE_BPS_LOWER` | Lower price bound (BPS) | `-500` |
-| `PRICE_RANGE_BPS_UPPER` | Upper price bound (BPS) | `500` |
-| `DELTA_THRESHOLD_SOL` | Max delta before rebalancing | `2` |
-| `MIN_COLLATERAL_RATIO` | Min collateral ratio | `0.15` |
-| `MAX_SHORT_NOTIONAL_USD` | Max short position size | `12000` |
-| `FUNDING_RATE_CAP_BPS` | Max funding rate (BPS) | `80` |
-| `AUTO_TUNE_ENABLED` | Enable auto-tune mode | `false` |
-| `AUTO_TUNE_BIN_COUNT` | Number of bins | `20` |
-| `AUTO_TUNE_DEPOSIT_TOKEN` | Deposit token (SOL/USDC) | `SOL` |
-| `AUTO_TUNE_DEPOSIT_AMOUNT` | Deposit amount | `1.0` |
-| `MINIMUM_WALLET_BALANCE_SOL` | Permanent reserve | `0.2` |
-| `RENT_RESERVE_SOL` | Temporary reserve | `0.1` |
-| `SWAP_ENABLED` | Enable Jupiter swaps | `true` |
-| `SWAP_SLIPPAGE_BPS` | Slippage tolerance (BPS) | `50` |
-| `PRIORITY_FEE_MICRO_LAMPORTS` | Priority fee (µL/CU) | `50000` |
-| `MAX_COMPUTE_UNITS` | Max compute units | `600000` |
-
-### Custom Price Ranges
-
-For tighter ranges around current price (better for stable markets):
-```bash
-PRICE_RANGE_BPS_LOWER=-50   # -0.5%
-PRICE_RANGE_BPS_UPPER=50     # +0.5%
-```
-
-For wider ranges (better for volatile markets):
-```bash
-PRICE_RANGE_BPS_LOWER=-500   # -5%
-PRICE_RANGE_BPS_UPPER=500    # +5%
-```
-
-### Multiple Positions
-
-To use existing positions instead of auto-create:
-```bash
-AUTO_CREATE_POSITIONS=false
-METEORA_POSITION_MINTS=mint1,mint2,mint3
-LP_OWNER=your_wallet_address
-```
-
-## 🔒 Security
-
-- **Private Keys**: Never commit `.env` files. Use environment variables or secret managers
-- **RPC Endpoints**: Use authenticated RPCs to prevent rate limiting
-- **Wallet Reserves**: Configure minimum balance to prevent accidental drainage
-- **Risk Limits**: Set conservative limits for initial testing
-- **Start Small**: Test with small deposit amounts first (e.g., 0.1-0.5 SOL)
-
-## 💰 Transaction Costs (2025)
-
-The bot has been optimized for minimal transaction costs using priority fees:
-
-### Cost Breakdown
-
-**Per Auto-Tune Rebalance Cycle:**
-- Phase 1 (withdraw+claim+close): ~30,000 lamports (~$0.0048)
-- Swap (if needed): Controlled by Jupiter Ultra API (~varies by network congestion)
-- Phase 2 (create position): ~30,000 lamports (~$0.0048)
-- **Total without swap**: ~60,000 lamports (~$0.01)
-- **Total with swap**: ~60,000 lamports + Jupiter fees (~varies)
-
-### Key Optimizations
-
-1. **Optimized Compute Units**: 600,000 CUs per transaction
-2. **Market-Rate Priority Fees**: 50,000 µL/CU (moderate priority for 2025)
-3. **Sequential Execution**: Simple, reliable transaction flow
-4. **No External Dependencies**: Direct @solana/web3.js usage
-
-### Cost Analysis by Position Size
-
-| Position Size | Cost per Rebalance | Cost % | Break-even Fees |
-|---------------|--------------------|---------|-----------------|
-| 0.5 SOL (~$80) | ~$0.022 | 0.03% | $0.022 LP fees |
-| 1.0 SOL (~$160) | ~$0.022 | 0.01% | $0.022 LP fees |
-| 5.0 SOL (~$800) | ~$0.022 | 0.003% | $0.022 LP fees |
-
-**Even 0.5 SOL positions are profitable with typical LP fees!**
-
-## 📈 Monitoring
-
-The bot logs all operations to:
-- **Console**: Real-time activity with simplified format (HH:mm:ss timestamps)
-- **Action Journal**: Historical execution log (`data/journal.json`)
-- **State Snapshots**: Current position state (`data/state.json`)
-- **Auto-Tune State**: Rebalance history (`data/auto-tune-state.json`)
-
-### Key Metrics to Monitor
-
-- **Position Composition**: SOL/USDC percentage (triggers rebalance at 80%+)
-- **Total Claimed Fees**: Accumulated fees across all rebalances
-- **Rebalance Count**: Number of successful rebalances
-- **Pool APR/APY**: From Meteora API analytics
-- **Transaction Costs**: Typically ~$0.01-$0.022 per rebalance
-- **Wallet Balances**: Ensure reserves are maintained
-
-### Financial Tracking (NEW!)
-
-The bot automatically tracks **all financial metrics** in `data/state.json` for complete profit calculation:
-
-**Tracked Metrics:**
-- 💸 **Transaction Fees** (costs): All Solana transaction fees paid
-- 💰 **LP Fees** (revenue): Fees earned from providing liquidity
-- 📊 **Claim History**: Complete history of all fee claims with timestamps
-- 📈 **Current Unclaimed Fees**: Real-time tracking of claimable fees
+Start watch mode:
 
 ```bash
-# View complete financial summary
-pnpm tsx src/test/view-transaction-fees.ts
+pnpm auto-tune:watch
 ```
 
-**Example output:**
-```
-=== 📊 Delta-Neutral Bot - Financial Summary ===
+Stop with `Ctrl+C`. The CLI handles `SIGINT` and `SIGTERM` by marking auto-tune state as stopped.
 
-💸 TRANSACTION FEES (COSTS)
+## Commands
 
-📊 Transaction Fee Summary
-  totalFeeSol: 0.00028
-  totalFeeUsd: 0.04
-  operationCount: 11
-
-  └─ withdrawClaimClose
-    count: 3
-    totalFeeSol: 0.000015
-    totalFeeUsd: 0.0021
-
-  └─ createPosition
-    count: 4
-    totalFeeSol: 0.00004
-    totalFeeUsd: 0.0057
-
-  └─ swap
-    count: 2
-    totalFeeSol: 0.00021
-    totalFeeUsd: 0.030
-
-💰 LP FEES (REVENUE)
-
-Total Claimed Fees: { sol: 0.005124, usdc: 0.85, claimCount: 2 }
-Current Unclaimed Fees: { sol: 0.000012, usdc: 0.02 }
-
-Recent Claims:
-  └─ 1/13/2025, 9:10:30 PM: 0.002500 SOL + 0.42 USDC
-  └─ 1/13/2025, 9:12:15 PM: 0.002624 SOL + 0.43 USDC
-
-📈 NET PROFIT CALCULATION
-
-Revenue (LP fees earned):    $0.90
-Costs (transaction fees):   -$0.04
-────────────────────────────────────────
-Gross Profit:                $0.86
-
-⚠️  Note: This does NOT include impermanent loss/gain.
-```
-
-**Profit formula:**
-```typescript
-// Complete profit calculation
-const lpFeesUsd = (state.lpFees.totalClaimedFees.sol * solPrice) + state.lpFees.totalClaimedFees.usdc;
-const txFeesUsd = state.transactionFees.totalFeeUsd;
-const impermanentLoss = calculateIL(); // compare current vs initial position value
-
-const netProfit = lpFeesUsd - txFeesUsd - impermanentLoss;
-```
-
-All transaction signatures are saved for audit trail on [Solscan](https://solscan.io).
-
-## 🤝 Contributing
-
-Contributions are welcome! Please:
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes with tests
-4. Submit a pull request
-
-### Development Workflow
+Reliable commands:
 
 ```bash
-# Run unit tests
-pnpm test              # Run Vitest tests
-pnpm test:watch        # Run tests in watch mode
-
-# Build and type check
-pnpm build             # Compile TypeScript (runs tsc)
-
-# Code quality
-pnpm lint              # Run ESLint
-pnpm format            # Format with Prettier
-
-# Integration testing
-pnpm test:integration  # Test utilities
-pnpm test:local        # Test on localnet
+pnpm build             # TypeScript compile
+pnpm test              # Vitest unit tests
+pnpm test:watch        # Vitest watch mode
+pnpm auto-tune         # Main auto-tune loop; uses real funds on mainnet
+pnpm auto-tune:watch   # Auto-tune with terminal status display
+pnpm api               # Hono API on API_PORT or 3001
+pnpm find-pools        # Query Meteora pools
+pnpm docker:up         # Start Docker Compose service
+pnpm docker:logs       # Follow Docker logs
+pnpm docker:down       # Stop Docker Compose service
 ```
 
-## 🔄 Solana SDK Migration Roadmap
+Deployment helpers:
 
-### Current State: `@solana/web3.js` 1.x
+```bash
+pnpm deploy:gcp:setup
+pnpm deploy:gcp:preview
+pnpm deploy:gcp:up
+pnpm deploy:gcp:logs
+pnpm deploy:gcp:status
+```
 
-The bot currently uses **@solana/web3.js 1.x** for all Solana interactions. This is the stable, widely-adopted version with excellent ecosystem support.
+Stale or environment-specific commands:
 
-### Future: Migration to `@solana/kit`
+- `pnpm test:mainnet` and `pnpm test:integration` currently point at removed `src/test/*` files in this worktree.
+- `pnpm localnet:start` and `pnpm localnet:stop` are documented historically but are not present in `package.json`.
 
-[`@solana/kit`](https://github.com/anza-xyz/kit) (formerly web3.js 2.x) represents the next generation of Solana JavaScript SDKs with significant improvements:
+## Configuration Reference
 
-#### Benefits of @solana/kit
+Core:
 
-- **83% Smaller Bundles**: Tree-shakable architecture reduces bundle size from 111KB → 18KB
-- **900% Faster Crypto**: Native Web Crypto API support for Ed25519 operations
-- **Zero Dependencies**: No third-party dependencies, reducing supply chain risk
-- **Modular Design**: Import only what you need (`@solana/rpc`, `@solana/signers`, etc.)
-- **Modern JavaScript**: Native bigint, Web Crypto API, no polyfills needed
+| Variable | Required | Default | Notes |
+| --- | --- | --- | --- |
+| `RPC_URL` | Yes | none | Mainnet RPC endpoint. |
+| `PRIVATE_KEY` | Yes | none | Base58 or supported wallet key format handled by `utils/solana.ts`. |
+| `LP_OWNER` | No | none | Optional manual-position owner context. |
+| `LOG_LEVEL` | No | `info` | Logger verbosity. |
 
-#### Migration Strategy
+Meteora:
 
-**Why Not Migrate Now?**
+| Variable | Required | Default | Notes |
+| --- | --- | --- | --- |
+| `AUTO_CREATE_POSITIONS` | No | `false` | Enables automatic initial position creation. |
+| `METEORA_POOL_ADDRESS` | Required for auto-tune | none | DLMM pool address. |
+| `METEORA_POSITION_MINTS` | No | empty | Manual mode position mints. |
+| `INITIAL_DEPOSIT_SOL` | No | `0` | Used by legacy `autoCreatePositionIfNeeded()`, not the main auto-tune sizing path. |
+| `INITIAL_DEPOSIT_USDC` | No | `0` | Used by legacy `autoCreatePositionIfNeeded()`, not the main auto-tune sizing path. |
+| `METEORA_STRATEGY_TYPE` | No | `spot` | `spot`, `curve`, or `bidask`. |
 
-1. **External SDK Dependencies**:
-   - Meteora DLMM SDK still uses web3.js 1.x
-   - Jupiter Aggregator uses web3.js 1.x
-   - Requires `@solana/compat` layer for interoperability
+Auto-tune:
 
-2. **Production Stability**:
-   - Current bot is working perfectly with 33+ rebalances
-   - Migration introduces risk of breaking changes
-   - Limited production battle-testing of @solana/kit
+| Variable | Required | Default | Notes |
+| --- | --- | --- | --- |
+| `AUTO_TUNE_ENABLED` | No | `false` | Must be `true` for `pnpm auto-tune`. |
+| `AUTO_TUNE_BIN_COUNT` | No | `20` | Width of centered position in bins. |
+| `AUTO_TUNE_CHECK_INTERVAL_MS` | No | `30000` | Loop interval. |
+| `AUTO_TUNE_IMBALANCE_THRESHOLD` | No | `0.9` in code | Trigger when one side exceeds this fraction. `.env.example` currently uses `0.8`. |
+| `AUTO_TUNE_DEPOSIT_TOKEN` | No | `SOL` | Base sizing token: `SOL` or `USDC`. |
+| `AUTO_TUNE_DEPOSIT_AMOUNT` | No | `1.0` | Base amount before claimed-fee compounding. Start smaller for first live runs. |
+| `AUTO_TUNE_MAX_RETRIES` | No | `3` | Phase 1 and Phase 2 retry budget. |
 
-3. **Ecosystem Maturity**:
-   - Wait for major protocols (Meteora, Jupiter) to migrate first
-   - Better documentation and migration guides needed
-   - More production examples required
+Swaps and reserves:
 
-**Migration Timeline (Proposed)**
+| Variable | Required | Default | Notes |
+| --- | --- | --- | --- |
+| `SWAP_ENABLED` | No | `true` | Disables Jupiter swaps when `false`. |
+| `SWAP_SLIPPAGE_BPS` | No | `50` | Passed through the swap path where supported. |
+| `SWAP_SLIPPAGE_BUFFER_PCT` | No | `3` | Extra input buffer used by the planner. |
+| `SWAP_HIGH_IMPACT_WARNING_PCT` | No | `1` | Logs high-impact warnings from Jupiter order data. |
+| `MINIMUM_WALLET_BALANCE_SOL` | No | `0.2` | Permanent reserve; planner will not spend it. |
+| `RENT_RESERVE_SOL` | No | `0.1` | Temporary reserve for rent and transaction fees. |
 
-- **Q2 2025**: Monitor ecosystem adoption (Meteora/Jupiter migration status)
-- **Q3 2025**: Begin phased migration if ecosystem has stabilized
-  - Phase 1: Migrate internal utilities (`utils/solana.ts`)
-  - Phase 2: Add `@solana/compat` layer for external SDKs
-  - Phase 3: Comprehensive testing on testnet/localnet
-  - Phase 4: Gradual mainnet rollout with monitoring
-- **Q4 2025**: Complete migration (if stable)
+API:
 
-**Resources**
+| Variable | Required | Default | Notes |
+| --- | --- | --- | --- |
+| `API_PORT` | No | `3001` | API server port. |
+| `API_KEY` | Required for POST | unset | Mutating endpoints return 503 when unset. |
+| `API_ALLOWED_ORIGINS` | No | `http://localhost:5173,http://localhost:3000` | Comma-separated CORS allowlist. |
+| `API_RATE_LIMIT_PER_MIN` | No | `10` | Per-IP fixed-window limit for mutating routes. |
 
-- [Solana Kit GitHub](https://github.com/anza-xyz/kit)
-- [Migration Guide](https://romankurnovskii.com/en/blog/solana-migration-v1-v2)
-- [Triton One Blog](https://blog.triton.one/intro-to-the-new-solana-kit-formerly-web3-js-2/)
-- [Helius Developer Guide](https://www.helius.dev/blog/how-to-start-building-with-the-solana-web3-js-2-0-sdk)
+## API
 
-**Current Assessment**: ⏳ **Monitoring** - Not migrating until ecosystem matures
+Start the server:
 
-## 📝 License
+```bash
+pnpm api
+```
 
-MIT License - see [LICENSE](LICENSE) file for details.
+Read-only endpoints:
 
-## ⚠️ Disclaimer
+- `GET /api/health`
+- `GET /api/prices`
+- `GET /api/pool/analytics`
+- `GET /api/pool/bins`
+- `GET /api/positions`
 
-This software is for educational purposes only. Use at your own risk. The authors are not responsible for any losses incurred from using this bot. Always test thoroughly on devnet/localnet before using with real funds.
+Mutating endpoints:
 
-## 🙏 Acknowledgments
+- `POST /api/positions/create`
+- `POST /api/positions/withdraw-claim-close`
 
-- [Meteora](https://meteora.ag) - DLMM protocol
-- [Jupiter](https://jup.ag) - Best-in-class swap aggregator
-- [Solana](https://solana.com) - High-performance blockchain
+Mutating endpoints require `X-API-Key: <API_KEY>`. If `API_KEY` is unset, they fail closed with HTTP 503.
 
-## 📞 Support
+Example close request:
 
-- **Issues**: [GitHub Issues](https://github.com/yourusername/delta_neutral_bot/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/yourusername/delta_neutral_bot/discussions)
+```bash
+curl -X POST http://localhost:3001/api/positions/withdraw-claim-close \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $API_KEY" \
+  -d '{"positionMint":"POSITION_MINT"}'
+```
 
----
+## State And Recovery
 
-**Built with ❤️ for the Solana ecosystem**
+Local state is stored under `data/`:
+
+- `data/state.json`: created position mints, fee accounting, LP fee state, transaction fee tracking.
+- `data/auto-tune-state.json`: auto-tune iterations, last rebalance, current position mint, claimed/unclaimed fee summary.
+
+The bot does not rely only on these files. On each check cycle it discovers positions from the blockchain via Meteora SDK and updates the saved mint list. In auto-tune mode it manages one position and uses the first discovered position if multiple exist, logging a warning for ignored positions.
+
+For GCP deployment, the persistent paths documented by the project are:
+
+- `/var/lib/autotune/data/state.json`
+- `/var/lib/autotune/data/auto-tune-state.json`
+
+## Operational Safety
+
+- Run with small `AUTO_TUNE_DEPOSIT_AMOUNT` first.
+- Keep `MINIMUM_WALLET_BALANCE_SOL` high enough for manual recovery.
+- Keep `RENT_RESERVE_SOL` above expected Meteora position rent and network fees.
+- Do not expose the API without `API_KEY` and a tight `API_ALLOWED_ORIGINS` list.
+- Watch for warnings named `POSITION SCALED DOWN`, `HIGH PRICE IMPACT`, `UNCLOSED POSITION DETECTED`, and `Phase 1 failed`.
+- If a swap planner error says no swap can resolve the wallet balance, deposit funds or reduce `AUTO_TUNE_DEPOSIT_AMOUNT`; retrying alone will not fix it.
+- If Phase 1 reports a local timeout, the code rechecks chain state before retrying to avoid double-closing an already-settled position.
+
+## Documentation
+
+- [Tiered procedural runbook](docs/TIERED_PROCEDURAL_RUNBOOK.md)
+- [API reference](docs/API.md)
+- [Position tracking fix](docs/POSITION_TRACKING_FIX.md)
+- [GCP Pulumi deployment](deploy/gcp/pulumi/README.md)
+- [Billing setup](deploy/gcp/pulumi/BILLING_SETUP.md)
+- [Troubleshooting](deploy/gcp/pulumi/TROUBLESHOOTING.md)
+- [Profitability analysis](PROFITABILITY_ANALYSIS.md)
+- [Profitability quick reference](PROFITABILITY_QUICK_REFERENCE.md)
+- [Project progress](progress.md)
+- [Architectural decisions](decisions.md)
+- [Bug tracker](bugs.md)
+
+## Development Notes
+
+This repo has an active, dirty worktree. Before changing behavior, check `git status --short` and inspect modified files you plan to touch. Do not assume README, package scripts, or historical docs are authoritative; source files are the current implementation source of truth.
+
+The strongest current test coverage is the pure swap planner test in `src/modules/swapPlanner.test.ts`. For operational changes, prefer adding small pure tests around planning/math first, then targeted integration checks against a controlled wallet.
+
+## Disclaimer
+
+This software can move real mainnet funds. It is experimental and incomplete as a full delta-neutral strategy until Drift hedge management is implemented. Use at your own risk, start with small amounts, and verify every configuration before running unattended.

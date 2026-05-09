@@ -31,7 +31,25 @@ Simple, declarative infrastructure deployment using Pulumi.
    ```
 
 4. **Prepare .env file**
-   Create `.env` file in project root with your secrets
+   Create `.env` file in project root with your secrets.
+
+   **API security env vars (added 2026-05-09 audit):** if you plan to expose the Hono API on the VM, set these *before* deploying — otherwise the API server fails-closed and POST endpoints return HTTP 503:
+
+   ```bash
+   # Generate once:
+   #   openssl rand -hex 32
+   API_KEY=<your-32-byte-hex>
+
+   # Pin to your UI's exact origin in production:
+   API_ALLOWED_ORIGINS=https://your-ui.example.com
+
+   # Per-IP rate limit (default 10/min):
+   API_RATE_LIMIT_PER_MIN=10
+   ```
+
+   If you only run `pnpm auto-tune` (no API), you can leave these unset; the auto-tune CLI bypasses the API server entirely.
+
+   **Audit-bumped defaults to be aware of:** `SWAP_SLIPPAGE_BUFFER_PCT` now defaults to `3.0` (was `0.5`). `SWAP_HIGH_IMPACT_WARNING_PCT` is new (default `1.0`). See root `.env.example` for the full list.
 
 ## Quick Start
 

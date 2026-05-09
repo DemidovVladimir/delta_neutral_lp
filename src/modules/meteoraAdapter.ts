@@ -39,16 +39,11 @@
 
 import { PublicKey, Keypair, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import BN from 'bn.js';
-import DLMMModule from '@meteora-ag/dlmm';
-import { StrategyType } from '@meteora-ag/dlmm';
-
-// Handle ESM/CommonJS interop for DLMM class
-// @ts-ignore - ESM default export handling
-const DLMM: any = DLMMModule.default || DLMMModule;
 import { getSolPrice } from '../core/priceOracle.js';
 import { getConfig } from '../config/env.js';
 import { log } from '../utils/logger.js';
 import { getConnection, getWalletKeypair } from '../utils/solana.js';
+import { DLMM, StrategyType } from '../utils/dlmm.js';
 import {
   loadCreatedPositionMints,
   saveCreatedPositionMints,
@@ -787,8 +782,22 @@ export class MeteoraAdapter {
       });
 
       // SDK's removeLiquidity with shouldClaimAndClose=true creates ONE TRANSACTION
-      // that includes all instructions for withdraw + claim + close atomically
-      // Add timeout to prevent hanging forever
+      // that includes all instructions for withdraw + claim + close atomically.
+      //
+      // The previous implementation wrapped this in a 30s Promise.race timeout.
+      // That was too aggressive — the SDK does several RPC reads to build the
+      // transaction (getPositionsByUserAndLbPair, getMultipleAccountsInfo,
+      // ALT lookups) and on a slow RPC these legitimately take >30s. False
+      // timeouts here propagated up as failures even when nothing was actually
+      // wrong, burning a Phase 1 retry slot every cycle.
+      //
+      // We extend the ceiling to 90s and rely on:
+      //   1. The Phase 1 retry loop in autoTuneOrchestrator for the loud
+      //      cases (real RPC failures, SDK errors).
+      //   2. The defensive on-chain check in this function's catch block
+      //      below — if a transaction did somehow settle despite a local
+      //      error, we surface that as a successful close instead of a
+      //      retry-able failure.
       const removeLiquidityPromise = dlmmPool.removeLiquidity({
         user: wallet.publicKey,
         position: positionPubkey,
@@ -799,9 +808,12 @@ export class MeteoraAdapter {
         skipUnwrapSOL: false,
       });
 
-      // Add 30 second timeout
+      const REMOVE_LIQUIDITY_TIMEOUT_MS = 90_000;
       const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('removeLiquidity timeout after 30s')), 30000)
+        setTimeout(
+          () => reject(new Error(`removeLiquidity timeout after ${REMOVE_LIQUIDITY_TIMEOUT_MS / 1000}s — usually indicates RPC slowness, not on-chain failure`)),
+          REMOVE_LIQUIDITY_TIMEOUT_MS
+        )
       );
 
       const withdrawTxs = await Promise.race([removeLiquidityPromise, timeoutPromise]) as any[];
@@ -881,8 +893,71 @@ export class MeteoraAdapter {
         error: error instanceof Error ? error.message : String(error),
         positionMint,
       });
+
+      // Defensive on-chain re-check: even with a local error, the transaction
+      // may have settled on-chain. The most common case is `confirmTransaction`
+      // returning an error because `lastValidBlockHeight` expired — but the
+      // transaction actually landed in a slot before expiry. Re-throwing here
+      // would cause the Phase 1 retry layer to attempt a withdraw on a
+      // position that no longer exists, which fails noisily with a confusing
+      // "position not found" further down the line.
+      //
+      // If the position is no longer on-chain, treat the operation as
+      // successful (with a placeholder result — we lost visibility into the
+      // exact claimed-fee amounts because we caught the error before parsing
+      // them, but Phase 2 reads live wallet balances and doesn't depend on
+      // those numbers).
+      try {
+        const stillOpen = await this.isPositionStillOnChain(positionMint);
+        if (!stillOpen) {
+          log.warn(
+            '⚠️  Position is no longer on-chain despite local error — treating as a successful close',
+            {
+              positionMint,
+              originalError: error instanceof Error ? error.message : String(error),
+              note:
+                'Lost visibility into exact claimed-fee amounts (caught before parse). ' +
+                'Phase 2 reads live wallet balance, so no functional impact.',
+            }
+          );
+
+          // Mirror the in-memory cleanup the success path does so the
+          // caller sees a consistent post-close state.
+          this.positionMints = this.positionMints.filter((mint) => mint !== positionMint);
+
+          return {
+            signature: 'unknown-after-error-recovery',
+            claimedFees: { sol: 0, usdc: 0 },
+          };
+        }
+      } catch (checkError) {
+        // The on-chain check itself failed (e.g. RPC down). Don't swallow
+        // the original error — re-throw it so the operator sees the actual
+        // problem, not a confusing "check failed" message.
+        log.warn('On-chain re-check failed, re-throwing original error', {
+          checkError: checkError instanceof Error ? checkError.message : String(checkError),
+        });
+      }
+
       throw error;
     }
+  }
+
+  /**
+   * Read-only check: is the given position mint still owned by the wallet
+   * on-chain? Returns `true` if it exists, `false` if it doesn't.
+   *
+   * Unlike `discoverPositionsFromBlockchain`, this method does NOT mutate
+   * `this.positionMints` or write state — it's safe to call defensively
+   * inside error-handling paths without surprising side effects.
+   */
+  private async isPositionStillOnChain(positionMint: string): Promise<boolean> {
+    const connection = getConnection();
+    const wallet = getWalletKeypair();
+    const poolPubkey = new PublicKey(this.config.meteoraPoolAddress!);
+    const dlmmPool = await DLMM.create(connection, poolPubkey);
+    const { userPositions } = await dlmmPool.getPositionsByUserAndLbPair(wallet.publicKey);
+    return userPositions.some((p: any) => p.publicKey.toBase58() === positionMint);
   }
 
 }

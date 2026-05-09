@@ -1,8 +1,12 @@
 # Delta-Neutral Bot: Profitability Quick Reference
 
-**Last Updated:** November 15, 2025  
-**Analysis Period:** 10,181 iterations / 84 rebalances  
+**Last Updated:** November 15, 2025
+**Analysis Period:** 10,181 iterations / 84 rebalances
 **Status:** PROFITABLE BUT LOSING 8.7% OF REVENUE TO SWAPS
+
+---
+
+> ⚠️ **STALE DATA NOTICE (added 2026-05-09)** — The numbers below pre-date the May 2026 audit-hardening pass. `SWAP_SLIPPAGE_BUFFER_PCT` was bumped from 0.5% to 3% (so per-swap input is now higher, but Phase 2 retry rate is lower). `swapPlanner.ts` was extracted, Phase 2 retries now re-check balance, and `withdrawClaimAndClose` got on-chain race recovery. Re-collect a fresh window of comparable length before treating these numbers as current. See `PROFITABILITY_ANALYSIS.md`'s top notice for the full list of changes.
 
 ---
 

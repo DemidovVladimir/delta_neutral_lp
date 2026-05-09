@@ -44,21 +44,25 @@ const baseName = `autotune-${stack}`;
 const computeApi = new gcp.projects.Service('compute-api', {
   service: 'compute.googleapis.com',
   project: projectId,
+  disableDependentServices: true,
 });
 
 const secretManagerApi = new gcp.projects.Service('secret-manager-api', {
   service: 'secretmanager.googleapis.com',
   project: projectId,
+  disableDependentServices: true,
 });
 
 const loggingApi = new gcp.projects.Service('logging-api', {
   service: 'logging.googleapis.com',
   project: projectId,
+  disableDependentServices: true,
 });
 
 const billingBudgetsApi = new gcp.projects.Service('billing-budgets-api', {
   service: 'billingbudgets.googleapis.com',
   project: projectId,
+  disableDependentServices: true,
 });
 
 // Create service account for the VM

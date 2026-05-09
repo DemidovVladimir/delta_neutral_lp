@@ -1,8 +1,23 @@
 # Delta-Neutral Bot: Profitability Analysis Report
 
-**Document Generated:** November 15, 2025  
-**Analyzed System:** Auto-Tune Orchestrator with Meteora DLMM LP + Jupiter Swaps  
+**Document Generated:** November 15, 2025
+**Analyzed System:** Auto-Tune Orchestrator with Meteora DLMM LP + Jupiter Swaps
 **Repository:** `/Users/vladimirdemidov/development/delta_neutral_bot`
+
+---
+
+> ⚠️ **STALE DATA NOTICE (added 2026-05-09)**
+>
+> The numbers in this report come from 10,181 iterations recorded **before** the May 2026 audit-hardening pass. Several changes since then materially alter the cost profile:
+>
+> - `SWAP_SLIPPAGE_BUFFER_PCT` default bumped from `0.5` to `3.0` — swaps now consume more input token (surplus is absorbed by the next position, not lost, but per-swap input is higher).
+> - `planSwapForDeposit()` extracted as a single helper used by both initial-position and rebalance flows. Phase 2 retries now re-check balance and may execute an additional swap. Both reduce wasted Phase 2 retry attempts overall.
+> - `withdrawClaimAndClose` build timeout 30s → 90s + on-chain race recovery. Fewer false failures on slow RPCs.
+> - High-impact Jupiter swap warning surfaces when `priceImpactPct > SWAP_HIGH_IMPACT_WARNING_PCT` — operators can now spot pool liquidity thinning.
+>
+> Re-collect data over a fresh window of equivalent length before drawing conclusions about post-audit cost profile. The sections below are preserved verbatim as a historical baseline.
+>
+> See `decisions.md` ADR-013 for the full audit changelog and `progress.md` 2026-05-09 for the work log.
 
 ---
 

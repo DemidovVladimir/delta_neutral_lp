@@ -53,12 +53,13 @@
 
 import { PublicKey } from '@solana/web3.js';
 import { getAssociatedTokenAddress } from '@solana/spl-token';
-import DLMMModule from '@meteora-ag/dlmm';
 import { MeteoraAdapter } from './meteoraAdapter.js';
 import { JupiterSwapper } from './jupiterSwapper.js';
+import { planSwapForDeposit, type SwapPlan } from './swapPlanner.js';
 import { getConfig } from '../config/env.js';
 import { log } from '../utils/logger.js';
 import { getConnection, getWalletKeypair } from '../utils/solana.js';
+import { DLMM } from '../utils/dlmm.js';
 import { DECIMALS } from '../config/constants.js';
 import { getSolPrice } from '../core/priceOracle.js';
 import {
@@ -84,10 +85,6 @@ import { trackBatchTransactionFees } from '../utils/transactionUtils.js';
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
 const USDC_MINT_ADDRESS = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 const USDC_MINT = new PublicKey(USDC_MINT_ADDRESS);
-
-// Handle ESM/CommonJS interop for DLMM class
-// @ts-ignore - ESM default export handling
-const DLMM: any = DLMMModule.default || DLMMModule;
 
 export class AutoTuneOrchestrator {
   private config = getConfig();
@@ -335,7 +332,14 @@ export class AutoTuneOrchestrator {
       }
 
       if (!this.watchMode) {
-        log.infoSampled('Position balance checked', {
+        // ALWAYS log at INFO (not sampled) — this is the precondition state
+        // for every rebalance-trigger decision below. If executeRebalance
+        // fails on iteration N, the operator needs to know the exact
+        // composition + price + range that caused the trigger. With sampling
+        // we'd lose that context 90% of the time in GCP. Heartbeat-style
+        // logs (cycle start/end, "balanced — no action needed") remain
+        // sampled because they don't carry causal information.
+        log.info('Position balance checked', {
           solPercent: balance.solPercent,
           usdcPercent: balance.usdcPercent,
           isImbalanced: balance.isImbalanced,
@@ -630,6 +634,50 @@ export class AutoTuneOrchestrator {
   }
 
   /**
+   * Log a successful swap and emit a loud warning when Jupiter's reported
+   * price impact exceeds the configured threshold. Used by all three
+   * swap-execute call sites (initial-position, rebalance, Phase 2 retry) so
+   * impact warnings fire consistently regardless of swap direction or context.
+   *
+   * The high-impact warning is the operational signal the audit asked for —
+   * the buffer multiplier alone is a passive defence (it sizes swap input
+   * conservatively), but it gives no visibility when actual impact starts
+   * creeping toward the buffer ceiling. Surfacing impact loudly lets the
+   * operator notice pool liquidity thinning before it manifests as Phase 2
+   * retries chasing missing output tokens.
+   */
+  private logSwapOutcome(
+    swapResult: { outputAmount: number; priceImpactPct?: number; signature: string },
+    contextLabel: 'Swap' | 'Retry swap' = 'Swap'
+  ): void {
+    const impact = swapResult.priceImpactPct;
+    const impactStr = impact !== undefined ? ` (impact: ${impact.toFixed(2)}%)` : '';
+    log.info(`✅ ${contextLabel} complete: ${swapResult.outputAmount.toFixed(4)} received${impactStr}`);
+
+    if (impact === undefined) return;
+
+    const warnThreshold = this.config.swapHighImpactWarningPct;
+    if (impact > warnThreshold) {
+      const buffer = this.config.swapSlippageBufferPct;
+      const exceededBuffer = impact > buffer;
+      log.errorBanner('⚠️  HIGH PRICE IMPACT on swap', {
+        contextLabel,
+        impactPct: `${impact.toFixed(2)}%`,
+        warningThreshold: `${warnThreshold}%`,
+        configuredBuffer: `${buffer}%`,
+        bufferExceeded: exceededBuffer,
+        consequence: exceededBuffer
+          ? 'Actual impact exceeded the configured slippage buffer. The swap output will fall short of target — Phase 2 retry will likely re-swap to top up.'
+          : 'Above warning threshold but still within buffer. No immediate functional impact, but pool liquidity may be thinning.',
+        recommendedAction: exceededBuffer
+          ? `Raise SWAP_SLIPPAGE_BUFFER_PCT (currently ${buffer}) or reduce AUTO_TUNE_DEPOSIT_AMOUNT to ship smaller swaps.`
+          : 'Monitor; bump SWAP_SLIPPAGE_BUFFER_PCT if this warning recurs across cycles.',
+        signature: swapResult.signature,
+      });
+    }
+  }
+
+  /**
    * Get USDC balance for wallet
    */
   private async getUsdcBalance(): Promise<number> {
@@ -712,19 +760,82 @@ export class AutoTuneOrchestrator {
       const oldPositionMint = discoveredMints[0];
       log.info(`🔄 Rebalancing position ${oldPositionMint.slice(0, 8)}...`);
 
-      // Execute Phase 1: Withdraw + Claim + Close in ONE transaction
-      let withdrawResult: any;
-      try {
-        withdrawResult = await this.meteoraAdapter.withdrawClaimAndClose(oldPositionMint);
-        log.info(`✅ Phase 1: Claimed ${withdrawResult.claimedFees.sol.toFixed(4)} SOL + ${withdrawResult.claimedFees.usdc.toFixed(2)} USDC`);
-      } catch (error) {
-        // Phase 1 failed - position still exists on-chain
-        // DO NOT clear currentPositionMint - keep it in state so we can retry
-        log.errorBanner('❌ Phase 1 (Withdraw+Claim+Close) failed - position still exists on-chain', {
-          position: oldPositionMint,
-          error: error instanceof Error ? error.message : String(error),
-        });
-        throw error; // Re-throw to prevent Phase 2 execution
+      // Execute Phase 1: Withdraw + Claim + Close in ONE transaction.
+      //
+      // Wrapped in a retry loop matching Phase 2's pattern. RPC congestion or
+      // Meteora SDK timeouts are common transient failures, and without retry
+      // the old position stays open on-chain — the next rebalance cycle has to
+      // re-discover it from scratch (and the bot is in a broken state in the
+      // meantime).
+      //
+      // Retry budget reuses `autoTuneMaxRetries` so both phases respect the
+      // same operator-tunable limit.
+      //
+      // KNOWN LIMITATION: `withdrawClaimAndClose` has a 30s hard timeout
+      // (meteoraAdapter.ts:803) that can race with on-chain success — the
+      // SDK call may reject locally while the transaction still settles.
+      // Before each retry we re-check the blockchain so we don't double-close
+      // a position that the previous attempt actually finalized.
+      let withdrawResult: { signature: string; claimedFees: { sol: number; usdc: number } } | undefined;
+      let phase1LastError: Error | null = null;
+      const phase1MaxAttempts = this.config.autoTuneMaxRetries;
+
+      for (let phase1Attempt = 1; phase1Attempt <= phase1MaxAttempts; phase1Attempt++) {
+        try {
+          if (phase1Attempt > 1) {
+            log.info(`🔄 Phase 1 retry ${phase1Attempt}/${phase1MaxAttempts}`);
+
+            // Race-with-on-chain check: if the previous attempt's transaction
+            // actually settled despite the local rejection, the position is
+            // already closed. Treat that as success (we lose visibility into
+            // claimed-fee amounts, but the funds are back in the wallet and
+            // Phase 2 will pick them up from the live balance).
+            const stillThere = await this.meteoraAdapter.discoverPositionsFromBlockchain();
+            if (!stillThere.includes(oldPositionMint)) {
+              log.warn('⚠️  Position no longer on-chain — previous attempt likely succeeded after local timeout. Treating Phase 1 as complete.', {
+                position: oldPositionMint,
+                priorAttempts: phase1Attempt - 1,
+              });
+              withdrawResult = {
+                signature: 'unknown-prior-success',
+                claimedFees: { sol: 0, usdc: 0 },
+              };
+              break;
+            }
+          }
+
+          withdrawResult = await this.meteoraAdapter.withdrawClaimAndClose(oldPositionMint);
+          log.info(`✅ Phase 1: Claimed ${withdrawResult.claimedFees.sol.toFixed(4)} SOL + ${withdrawResult.claimedFees.usdc.toFixed(2)} USDC`);
+          break;
+        } catch (error) {
+          phase1LastError = error instanceof Error ? error : new Error(String(error));
+
+          if (phase1Attempt >= phase1MaxAttempts) {
+            // Final failure — position still on-chain. DO NOT clear
+            // currentPositionMint; the next rebalance cycle will rediscover it
+            // and retry from scratch.
+            log.errorBanner('❌ Phase 1 (Withdraw+Claim+Close) failed - position still exists on-chain', {
+              position: oldPositionMint,
+              attempts: phase1Attempt,
+              error: phase1LastError.message,
+            });
+            throw phase1LastError;
+          }
+
+          // Linear backoff schedule (1s, 2s, …) — same as Phase 2. The Phase 2
+          // comment calls this "exponential" but the implementation is linear;
+          // we match it here so both phases behave identically. If we ever
+          // switch to true exponential backoff, change both at once.
+          const waitMs = 1000 * phase1Attempt;
+          log.warn(`❌ Phase 1 attempt ${phase1Attempt}/${phase1MaxAttempts} failed: ${phase1LastError.message.substring(0, 80)}... (retry in ${waitMs}ms)`);
+          await new Promise(resolve => setTimeout(resolve, waitMs));
+        }
+      }
+
+      if (!withdrawResult) {
+        // Defensive: the loop either sets withdrawResult or throws, but TS
+        // narrowing doesn't see that.
+        throw phase1LastError ?? new Error('Phase 1 exited loop without a result');
       }
 
       // ========================================================================
@@ -768,30 +879,41 @@ export class AutoTuneOrchestrator {
       const totalWalletValueUsd = (maxDepositableSol * currentPrice) + actualUsdc;
       const desiredPositionValueUsd = (desiredSol * currentPrice) + desiredUsdc;
 
-      // If desired position exceeds total wallet value, scale down proportionally
+      // If desired position exceeds total wallet value, scale down proportionally.
+      // The bot continues with a smaller position rather than failing, but the
+      // operator MUST notice — silently shipping a position 1/3 the size they
+      // configured is the kind of bug nobody catches until weeks later when
+      // they wonder why their fees are tiny. Use errorBanner so it's
+      // impossible to miss in the log stream, even though the bot is not
+      // actually erroring out.
       if (desiredPositionValueUsd > totalWalletValueUsd) {
         const scaleFactor = totalWalletValueUsd / desiredPositionValueUsd;
         solAmount = desiredSol * scaleFactor;
         usdcAmount = desiredUsdc * scaleFactor;
 
-        log.warn('⚠️  Position scaled down to fit wallet balance', {
+        const recommendedDepositAmount = (this.config.autoTuneDepositAmount * scaleFactor).toFixed(2);
+        log.errorBanner('⚠️  POSITION SCALED DOWN to fit wallet balance — configured size NOT used', {
+          configuredDepositAmount: this.config.autoTuneDepositAmount,
+          configuredDepositToken: this.config.autoTuneDepositToken,
           desired: {
             sol: desiredSol.toFixed(4),
             usdc: desiredUsdc.toFixed(2),
             totalUsd: desiredPositionValueUsd.toFixed(2),
           },
-          scaled: {
+          actual: {
             sol: solAmount.toFixed(4),
             usdc: usdcAmount.toFixed(2),
             totalUsd: (solAmount * currentPrice + usdcAmount).toFixed(2),
           },
-          scaleFactor: scaleFactor.toFixed(4),
+          scaleFactor: `${(scaleFactor * 100).toFixed(1)}% of configured size`,
           wallet: {
             sol: actualSol.toFixed(4),
             usdc: actualUsdc.toFixed(2),
             totalUsd: totalWalletValueUsd.toFixed(2),
           },
-          message: `Reduce AUTO_TUNE_DEPOSIT_AMOUNT from ${this.config.autoTuneDepositAmount} to ${(this.config.autoTuneDepositAmount * scaleFactor).toFixed(2)} to avoid scaling`,
+          consequence:
+            'This will recur EVERY rebalance cycle until the wallet is topped up or AUTO_TUNE_DEPOSIT_AMOUNT is reduced. Earned LP fees will be smaller than the configured deposit suggests.',
+          recommendedAction: `Either deposit more funds, OR reduce AUTO_TUNE_DEPOSIT_AMOUNT from ${this.config.autoTuneDepositAmount} to ${recommendedDepositAmount} to avoid scaling`,
         });
       }
 
@@ -822,102 +944,64 @@ export class AutoTuneOrchestrator {
       );
 
       // ========================================================================
-      // PRE-FLIGHT CHECK: Determine if we need to swap before position creation
+      // PRE-FLIGHT + SWAP DECISION
       // ========================================================================
-      // Note: wallet balances already fetched above during reserve calculation
-      // IMPORTANT: After proportional scaling, we should already fit within available balances
-      // Only swap if we truly have an imbalance (too much of one token, not enough of the other)
+      // Delegated to planSwapForDeposit() — pure helper shared with
+      // createInitialPosition. Throws InsufficientFunds-style errors when no
+      // swap can fund the requested position; returns { needed: false } when
+      // wallet already covers the target. After proportional scaling above,
+      // most cycles land on { needed: false } unless price moved significantly.
+      const swapPlan: SwapPlan = planSwapForDeposit({
+        walletSol: actualSol,
+        walletUsdc: actualUsdc,
+        targetSol: solAmount,
+        targetUsdc: usdcAmount,
+        permanentMinimumSol: this.config.minimumWalletBalanceSol,
+        rentReserveSol: this.config.rentReserveSol,
+        currentPrice,
+        slippageBufferPct: this.config.swapSlippageBufferPct / 100,
+        context: 'rebalance',
+        autoTuneDepositAmount: this.config.autoTuneDepositAmount,
+      });
 
-      // Calculate available balance after reserves
-      const availableSolForSwap = Math.max(0, actualSol - totalReserve);
+      const availableSolForSwap = swapPlan.availableSolForSwap;
 
-      // Determine if swap is needed BEFORE any attempts
-      // Use availableSolForSwap instead of actualSol to respect reserves
-      const needsSwap = availableSolForSwap < solAmount || actualUsdc < usdcAmount;
+      if (swapPlan.needed && swapPlan.swap) {
+        const { swap, shortfall } = swapPlan;
+        const missingToken = shortfall.sol > 0 ? 'SOL' : 'USDC';
+        const missingAmount = shortfall.sol > 0 ? shortfall.sol : shortfall.usdc;
+        log.warn(`⚠️  Insufficient ${missingToken} (need ${missingAmount.toFixed(4)} more) - executing swap`);
 
-      // ========================================================================
-      // SWAP EXECUTION (if needed): Execute BEFORE position creation
-      // ========================================================================
-      if (needsSwap) {
-        const missingToken = availableSolForSwap < solAmount ? 'SOL' : 'USDC';
-        const shortfall = availableSolForSwap < solAmount ? solAmount - availableSolForSwap : usdcAmount - actualUsdc;
-        log.warn(`⚠️  Insufficient ${missingToken} (need ${shortfall.toFixed(4)} more) - executing swap`);
-
-        // Calculate shortfall for each token (using already-scaled solAmount and usdcAmount)
-        const solShortfall = Math.max(0, solAmount - availableSolForSwap);
-        const usdcShortfall = Math.max(0, usdcAmount - actualUsdc);
-
-        let swapParams: any = null;
-
-        // Determine swap direction based on shortfall
-        // Priority: Swap the token we have MORE of to get the token we need
-        if (usdcShortfall > 0) {
-          // Need more USDC - swap SOL → USDC
-          const bufferMultiplier = 1 + (this.config.swapSlippageBufferPct / 100);
-          const solToSwap = (usdcShortfall / currentPrice) * bufferMultiplier;
-
+        if (swap.direction === 'SOL_TO_USDC') {
           log.info('Calculating SOL → USDC swap', {
-            usdcShortfall,
+            usdcShortfall: shortfall.usdc,
             currentPrice,
-            bufferMultiplier,
-            solToSwap,
+            bufferMultiplier: 1 + this.config.swapSlippageBufferPct / 100,
+            solToSwap: swap.amount,
             availableSolForSwap,
           });
-
-          if (availableSolForSwap >= solToSwap) {
-            swapParams = {
-              inputMint: 'So11111111111111111111111111111111111111112', // SOL
-              outputMint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
-              amount: solToSwap,
-            };
-            log.info(`🔄 Swapping ${solToSwap.toFixed(4)} SOL → ${usdcShortfall.toFixed(2)} USDC`);
-          } else {
-            throw new Error(
-              `Insufficient SOL for swap. Need ${solToSwap.toFixed(4)} SOL to swap for ${usdcShortfall.toFixed(2)} USDC, but only have ${availableSolForSwap.toFixed(4)} SOL available (after ${totalReserve.toFixed(2)} SOL reserves). ` +
-              `Wallet: ${actualSol.toFixed(4)} SOL, ${actualUsdc.toFixed(2)} USDC. ` +
-              `Reduce AUTO_TUNE_DEPOSIT_AMOUNT (currently ${this.config.autoTuneDepositAmount}) or deposit more SOL.`
-            );
-          }
-        } else if (solShortfall > 0) {
-          // Need more SOL - swap USDC → SOL
-          const bufferMultiplier = 1 + (this.config.swapSlippageBufferPct / 100);
-          const usdcToSwap = solShortfall * currentPrice * bufferMultiplier;
-
+          log.info(`🔄 Swapping ${swap.amount.toFixed(4)} SOL → ${swap.expectedOutput.toFixed(2)} USDC`);
+        } else {
           log.info('Calculating USDC → SOL swap', {
-            solShortfall,
+            solShortfall: shortfall.sol,
             currentPrice,
-            bufferMultiplier,
-            usdcToSwap,
+            bufferMultiplier: 1 + this.config.swapSlippageBufferPct / 100,
+            usdcToSwap: swap.amount,
             actualUsdc,
           });
-
-          if (actualUsdc >= usdcToSwap) {
-            swapParams = {
-              inputMint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
-              outputMint: 'So11111111111111111111111111111111111111112', // SOL
-              amount: usdcToSwap,
-            };
-            log.info(`🔄 Swapping ${usdcToSwap.toFixed(2)} USDC → ${solShortfall.toFixed(4)} SOL`);
-          } else {
-            throw new Error(
-              `Insufficient USDC for swap. Need ${usdcToSwap.toFixed(2)} USDC to swap for ${solShortfall.toFixed(4)} SOL, but only have ${actualUsdc.toFixed(2)} USDC. ` +
-              `Wallet: ${actualSol.toFixed(4)} SOL, ${actualUsdc.toFixed(2)} USDC. ` +
-              `Reduce AUTO_TUNE_DEPOSIT_AMOUNT (currently ${this.config.autoTuneDepositAmount}) or deposit more USDC.`
-            );
-          }
+          log.info(`🔄 Swapping ${swap.amount.toFixed(2)} USDC → ${swap.expectedOutput.toFixed(4)} SOL`);
         }
 
-        if (!swapParams) {
-          throw new Error('Could not calculate swap parameters');
-        }
+        const swapParams = {
+          inputMint: swap.inputMint,
+          outputMint: swap.outputMint,
+          amount: swap.amount,
+        };
 
         // Execute swap
         try {
           const swapResult = await this.jupiterSwapper.executeSwap(swapParams);
-          const priceImpactStr = swapResult.priceImpactPct !== undefined
-            ? ` (impact: ${typeof swapResult.priceImpactPct === 'string' ? swapResult.priceImpactPct : swapResult.priceImpactPct.toFixed(2)}%)`
-            : '';
-          log.info(`✅ Swap complete: ${swapResult.outputAmount.toFixed(4)} received${priceImpactStr}`);
+          this.logSwapOutcome(swapResult);
 
           // Wait for balance to update
           await new Promise(resolve => setTimeout(resolve, 2000));
@@ -963,17 +1047,101 @@ export class AutoTuneOrchestrator {
       let newPositionMint = '';
       let createSignatures: string[] = [];
       let lastError: Error | null = null;
-      let usedSwap = needsSwap; // Track if we used swap
+      let usedSwap = swapPlan.needed; // Track if we used swap
 
       while (attempt < this.config.autoTuneMaxRetries) {
         attempt++;
 
-        try {
-          if (attempt > 1) {
-            log.info(`🔄 Retry ${attempt}/${this.config.autoTuneMaxRetries}`);
+        // ────────────────────────────────────────────────────────────────
+        // RETRY PRE-FLIGHT: re-check wallet state on attempts >= 2
+        // ────────────────────────────────────────────────────────────────
+        // The first attempt operates on the balance state we evaluated
+        // upstream. Subsequent attempts re-fetch and re-plan because:
+        //   • The previous attempt likely paid network fees, shifting SOL.
+        //   • A previous swap may have partially settled — the output we
+        //     counted on may not be fully present yet.
+        //   • Long retry loops can outlive a swap settle window.
+        //
+        // We deliberately keep `currentPrice` and the (solAmount, usdcAmount)
+        // targets stable across retries — chasing a moving price target
+        // mid-rebalance would create internal inconsistency. We just check
+        // whether the wallet at this instant still covers those targets.
+        if (attempt > 1) {
+          log.info(`🔄 Retry ${attempt}/${this.config.autoTuneMaxRetries} — re-checking wallet state`);
+
+          const retrySolBalance = await connection.getBalance(wallet.publicKey);
+          const retryActualSol = retrySolBalance / Math.pow(10, 9);
+          const retryActualUsdc = await this.getUsdcBalance();
+
+          let retrySwapPlan: SwapPlan;
+          try {
+            retrySwapPlan = planSwapForDeposit({
+              walletSol: retryActualSol,
+              walletUsdc: retryActualUsdc,
+              targetSol: solAmount,
+              targetUsdc: usdcAmount,
+              permanentMinimumSol: this.config.minimumWalletBalanceSol,
+              rentReserveSol: this.config.rentReserveSol,
+              currentPrice,
+              slippageBufferPct: this.config.swapSlippageBufferPct / 100,
+              context: 'rebalance',
+              autoTuneDepositAmount: this.config.autoTuneDepositAmount,
+            });
+          } catch (planError) {
+            // Planner errors are deterministic ("wallet doesn't have enough
+            // total value", "not enough USDC for swap input"). Retrying
+            // won't resolve them. Propagate immediately so the operator
+            // gets the actionable error message instead of more retry
+            // slots burned on an unfixable state.
+            log.errorBanner(
+              'Retry pre-flight failed — wallet state can no longer fund the position',
+              {
+                attempt,
+                walletSol: retryActualSol,
+                walletUsdc: retryActualUsdc,
+                error: planError instanceof Error ? planError.message : String(planError),
+              }
+            );
+            throw planError;
           }
 
-          // Create position directly (swap already executed if needed)
+          if (retrySwapPlan.needed && retrySwapPlan.swap) {
+            const { swap } = retrySwapPlan;
+            log.warn(`⚠️  Retry ${attempt}: wallet shifted — additional swap required`, {
+              direction: swap.direction,
+              amount: swap.amount,
+              expectedOutput: swap.expectedOutput,
+              walletSol: retryActualSol,
+              walletUsdc: retryActualUsdc,
+            });
+            try {
+              const swapResult = await this.jupiterSwapper.executeSwap({
+                inputMint: swap.inputMint,
+                outputMint: swap.outputMint,
+                amount: swap.amount,
+              });
+              this.logSwapOutcome(swapResult, 'Retry swap');
+              // Wait for balance to update — same settle window as the
+              // initial swap path above.
+              await new Promise(resolve => setTimeout(resolve, 2000));
+              usedSwap = true;
+            } catch (retrySwapError) {
+              // The retry-swap itself failed (Jupiter error, network blip).
+              // Don't bail here — the shortfall might be small enough that
+              // position creation succeeds anyway, and if not, the error
+              // from createPosition below will be more informative than
+              // swallowing this one.
+              log.warn('Retry swap failed; proceeding to position creation anyway', {
+                error: retrySwapError instanceof Error ? retrySwapError.message : String(retrySwapError),
+              });
+            }
+          } else {
+            log.info('Retry pre-flight: wallet still covers target — no additional swap needed');
+          }
+        }
+
+        try {
+          // Create position with current wallet state
           const result = await this.meteoraAdapter.createPosition({
             poolAddress: this.config.meteoraPoolAddress!,
             solAmount,
@@ -998,8 +1166,11 @@ export class AutoTuneOrchestrator {
             throw lastError;
           }
 
-          // Wait before retry
-          const waitMs = 1000 * attempt; // Exponential backoff
+          // Wait before retry. Linear backoff (1s, 2s, …) — the comment
+          // above says "exponential" but the implementation is linear,
+          // matching Phase 1 retry behaviour. Both will change together
+          // if/when we move to true exponential.
+          const waitMs = 1000 * attempt;
           log.warn(`❌ Failed: ${lastError.message.substring(0, 80)}... (retry in ${waitMs}ms)`);
           await new Promise(resolve => setTimeout(resolve, waitMs));
         }
@@ -1123,93 +1294,79 @@ export class AutoTuneOrchestrator {
         totalValueUsd: solAmount * activeBinPrice + usdcAmount,
       });
 
-      // ========================================================================
-      // PRE-FLIGHT CHECK: Determine if we need to swap before position creation
-      // ========================================================================
+      // Fetch current wallet balances for the pre-flight + swap decision below.
       const wallet = getWalletKeypair();
       const solBalance = await connection.getBalance(wallet.publicKey);
       const actualSol = solBalance / Math.pow(10, 9);
       const actualUsdc = await this.getUsdcBalance();
 
-      // Account for rent reserve + permanent minimum balance
-      // Total required = deposit + rent reserve + permanent minimum
-      const requiredSol = solAmount + this.config.rentReserveSol + this.config.minimumWalletBalanceSol;
-
+      // ========================================================================
+      // PRE-FLIGHT + SWAP DECISION
+      // ========================================================================
+      // Delegated to planSwapForDeposit() — same pure helper used by
+      // executeRebalance. Throws with a descriptive error when the wallet's
+      // total value can't fund the position, or when it can't fund the swap
+      // input itself. Keeps the two paths in lock-step so they can't drift
+      // apart again (the original 566.81-USDC-with-9.43-USDC bug came from
+      // exactly that drift).
+      //
+      // Uses activeBinPrice (already in scope) for shortfall valuation,
+      // avoiding an extra getSolPrice() network round-trip on each entry.
       log.info('💰 Pre-flight wallet balance check', {
         actualSol,
         actualUsdc,
-        requiredSol,
-        requiredUsdc: usdcAmount,
         depositSol: solAmount,
+        depositUsdc: usdcAmount,
         rentReserve: this.config.rentReserveSol,
         permanentMinimum: this.config.minimumWalletBalanceSol,
-        hasSufficientSol: actualSol >= requiredSol,
-        hasSufficientUsdc: actualUsdc >= usdcAmount,
       });
 
-      // Determine if swap is needed BEFORE any attempts
-      const needsSwap = actualSol < requiredSol || actualUsdc < usdcAmount;
+      const swapPlan: SwapPlan = planSwapForDeposit({
+        walletSol: actualSol,
+        walletUsdc: actualUsdc,
+        targetSol: solAmount,
+        targetUsdc: usdcAmount,
+        permanentMinimumSol: this.config.minimumWalletBalanceSol,
+        rentReserveSol: this.config.rentReserveSol,
+        currentPrice: activeBinPrice,
+        slippageBufferPct: this.config.swapSlippageBufferPct / 100,
+        context: 'initial-position',
+        autoTuneDepositAmount: this.config.autoTuneDepositAmount,
+      });
 
-      if (needsSwap) {
+      if (swapPlan.needed && swapPlan.swap) {
+        const { swap, shortfall } = swapPlan;
         log.warn('⚠️  Insufficient balance detected - swap will be required', {
-          missingToken: actualSol < requiredSol ? 'SOL' : 'USDC',
-          shortfall: actualSol < requiredSol
-            ? { token: 'SOL', need: requiredSol, have: actualSol, missing: requiredSol - actualSol }
-            : { token: 'USDC', need: usdcAmount, have: actualUsdc, missing: usdcAmount - actualUsdc },
+          missingToken: shortfall.sol > 0 ? 'SOL' : 'USDC',
+          shortfall: shortfall.sol > 0
+            ? { token: 'SOL', missing: shortfall.sol }
+            : { token: 'USDC', missing: shortfall.usdc },
         });
 
-        // Get current price for swap calculation
-        const solPriceData = await getSolPrice();
-        const currentPrice = solPriceData.usd;
-
-        // Calculate exact swap needed to cover the shortfall
-        let swapParams: { inputMint: string; outputMint: string; amount: number };
-
-        if (actualSol < requiredSol) {
-          // Need more SOL: swap USDC → SOL
-          const missingSol = requiredSol - actualSol;
-          const missingUsdValue = missingSol * currentPrice;
-          // Add 2% buffer for price impact and fees
-          const swapAmount = missingUsdValue * 1.02;
-
-          swapParams = {
-            inputMint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
-            outputMint: 'So11111111111111111111111111111111111111112', // SOL
-            amount: swapAmount,
-          };
-
+        if (swap.direction === 'USDC_TO_SOL') {
           log.info('Swapping USDC → SOL to cover shortfall', {
-            missingSol,
-            swapAmountUsdc: swapAmount,
+            missingSol: swap.expectedOutput,
+            swapAmountUsdc: swap.amount,
           });
         } else {
-          // Need more USDC: swap SOL → USDC
-          const missingUsdc = usdcAmount - actualUsdc;
-          const missingSolEquiv = missingUsdc / currentPrice;
-          // Add 2% buffer for price impact and fees
-          const swapAmount = missingSolEquiv * 1.02;
-
-          swapParams = {
-            inputMint: 'So11111111111111111111111111111111111111112', // SOL
-            outputMint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
-            amount: swapAmount,
-          };
-
           log.info('Swapping SOL → USDC to cover shortfall', {
-            missingUsdc,
-            swapAmountSol: swapAmount,
+            missingUsdc: swap.expectedOutput,
+            swapAmountSol: swap.amount,
           });
         }
 
-        log.info(`🔄 Swapping ${actualSol < requiredSol ? swapParams.amount.toFixed(2) + ' USDC → SOL' : swapParams.amount.toFixed(4) + ' SOL → USDC'}`);
+        const swapParams = {
+          inputMint: swap.inputMint,
+          outputMint: swap.outputMint,
+          amount: swap.amount,
+        };
+
+        log.info(`🔄 Swapping ${swap.direction === 'USDC_TO_SOL' ? swap.amount.toFixed(2) + ' USDC → SOL' : swap.amount.toFixed(4) + ' SOL → USDC'}`);
 
         // Execute swap sequentially (same as rebalance flow)
         try {
           const swapResult = await this.jupiterSwapper.executeSwap(swapParams);
-          const priceImpactStr = swapResult.priceImpactPct !== undefined
-            ? ` (impact: ${typeof swapResult.priceImpactPct === 'string' ? swapResult.priceImpactPct : swapResult.priceImpactPct.toFixed(2)}%)`
-            : '';
-          log.info(`✅ Swap complete: ${swapResult.outputAmount.toFixed(4)} received${priceImpactStr}`);
+          this.logSwapOutcome(swapResult);
 
           // Wait for balance to update
           await new Promise(resolve => setTimeout(resolve, 2000));

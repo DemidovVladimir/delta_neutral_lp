@@ -5,8 +5,10 @@
 
 import { Connection, PublicKey } from '@solana/web3.js';
 import { getWalletKeypair, getConnection } from '../dist/utils/solana.js';
-import DLMMModule from '@meteora-ag/dlmm';
+import { createRequire } from 'module';
 
+const require = createRequire(import.meta.url);
+const DLMMModule = require('@meteora-ag/dlmm');
 const DLMM = DLMMModule.default || DLMMModule;
 
 async function main() {

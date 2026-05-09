@@ -1,0 +1,32 @@
+[mcp_servers.Context7]
+args = [
+    "-y",
+    "@upstash/context7-mcp",
+    "--api-key",
+    "ctx7sk-fc65b7f7-cf1e-4a04-9377-ac92fa45af3b",
+]
+command = "npx"
+
+[mcp_servers.helius]
+args = [
+    "mcp-remote",
+    "https://docs.helius.dev/mcp",
+]
+command = "npx"
+
+[mcp_servers.sequential-thinking]
+args = [
+    "-y",
+    "@modelcontextprotocol/server-sequential-thinking",
+]
+command = "npx"
+
+[mcp_servers.solana]
+url = "https://mcp.solana.com/mcp"
+
+[mcp_servers.solanaMcp]
+args = [
+    "mcp-remote",
+    "https://mcp.solana.com/mcp",
+]
+command = "npx"

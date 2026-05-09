@@ -5,6 +5,84 @@
 
 ---
 
+## 2026-05-09
+
+### Session 9 — Audit Hardening Pass (10 findings closed)
+
+**Triggered by:** Production log surfaced a fund-loss bug — wallet held 0.258 SOL + 9.43 USDC; bot asked Jupiter to swap 566.81 USDC it didn't have. Jupiter returned `Insufficient funds` (errorCode=1) which propagated as the unhelpful `"No transaction in order response"` error.
+
+**Audit + 10 fixes (all closed):**
+
+- [x] **Live bug — initial-position swap had no balance guard.** The `createInitialPosition` swap path was missing the `if (actualUsdc >= swapAmount)` check that the rebalance path had. Added per-token guard mirroring the rebalance flow, plus an upstream total-USD-value pre-flight that rejects unfixable cases fast (when `walletValueUsd < requiredValueUsd`, no swap can save it). Fixes the 566.81-USDC-with-9.43-USDC class.
+- [x] **Extracted `planSwapForDeposit()` to `src/modules/swapPlanner.ts`** — pure helper, no I/O, no logging. Three call sites (initial-position, rebalance, Phase 2 retry pre-flight) now call the same function so the two paths can never drift apart again. ~230 lines.
+- [x] **`src/modules/swapPlanner.test.ts`** — 20 vitest unit tests covering happy path, both swap directions, both per-token guards, reserve handling, tie-break, defensive sanity (NaN price, negative slippage), and a regression test pinned to the live production-bug case.
+- [x] **Phase 1 retry with on-chain race recovery.** `withdrawClaimAndClose` was a single try/catch that re-threw on first failure. Now wrapped in retry loop using `AUTO_TUNE_MAX_RETRIES`; each retry first re-checks chain state and short-circuits with synthetic success if the position is gone (handles `confirmTransaction` blockhash-expiry races).
+- [x] **`withdrawClaimAndClose` 30s → 90s timeout + on-chain re-check in catch.** The 30s ceiling was too aggressive for slow RPCs; legitimate tx-build occasionally took >30s and falsely failed. Bumped to 90s. Added defensive on-chain re-check via new private `isPositionStillOnChain()` helper (read-only, no state mutation).
+- [x] **Phase 2 retry now re-checks balances.** Each retry attempt re-fetches actual SOL/USDC, re-runs `planSwapForDeposit()`, and executes another swap if a new shortfall appeared. Fixes the case where a failed first attempt paid network fees that shifted the wallet enough to need topping up.
+- [x] **Hono API: fail-closed by default.** Replaced wildcard CORS with origin allowlist (`API_ALLOWED_ORIGINS`). Added API-key auth (`API_KEY`, constant-time compare, fail-closed via 503 when unset). Per-IP rate limit (`API_RATE_LIMIT_PER_MIN`, default 10, 429 with Retry-After). Body validation with type/range/sanity-ceiling checks.
+- [x] **Real `priceImpactPct` propagation.** Earlier code claimed Jupiter Ultra didn't return this and hard-coded `undefined` (the comment was wrong; the field is in the order response). New `parsePriceImpactPctFromOrder()` normalizes string-or-number to a positive percentage.
+- [x] **High-impact swap warning.** New private `logSwapOutcome()` helper compares Jupiter-reported impact against `SWAP_HIGH_IMPACT_WARNING_PCT` (default 1.0); emits `errorBanner` when exceeded with bufferExceeded flag and recommended action. Used at all three swap-execute call sites.
+- [x] **`SWAP_SLIPPAGE_BUFFER_PCT` default bumped 0.5 → 3.0.** Under volatile conditions the 0.5% buffer wasn't enough; output fell short of target and burned Phase 2 retries. 3% is conservative for SOL/USDC; surplus is absorbed by next position.
+- [x] **Silent position scaling promoted from `log.warn` → `log.errorBanner`.** When desired position exceeds wallet value and the orchestrator proportionally scales down, operator now sees a loud red banner with scale percentage, recommended `AUTO_TUNE_DEPOSIT_AMOUNT`, and explicit consequence note (will recur every cycle until config or wallet is fixed).
+- [x] **`'Position balance checked'` log de-sampled.** This log captures the precondition state (composition + price + range) for every rebalance trigger decision. With `LOG_SAMPLE_RATE=10` in GCP, the precondition state on iteration 46 was lost 90% of the time. Now always logged for full causal traceability.
+
+**Validation:**
+- [x] `npx tsc --noEmit` (clean across project after every fix)
+- [x] `npx vitest run` (20/20 tests pass)
+
+**Documentation refresh (this session, 2026-05-09):**
+- [x] `CLAUDE.md` — Architecture/Core Modules updated, new audit-hardening section in Recent Improvements, new env vars documented in Configuration, three-phase rebalance flow updated.
+- [x] `docs/API.md` — Full security-model section added; dead endpoint docs (deposit/withdraw/claim-fees/close as separate POSTs) removed; auth/CORS/rate-limit/validation documented; example curl now includes `X-API-Key`.
+- [x] `decisions.md` — ADR-013 added covering all ten audit fixes with rationale, alternatives considered, and consequences.
+- [x] `bugs.md` — Closed-bug entries for the live swap-fail bug + audit findings that were genuine bugs.
+- [x] `README.md` — Env table refreshed, security note added.
+- [x] `PROFITABILITY_ANALYSIS.md`, `PROFITABILITY_QUICK_REFERENCE.md` — Stale-data notes added at top noting the analyses pre-date the swapPlanner refactor and buffer bump.
+- [x] `deploy/gcp/pulumi/README.md` — New env vars to set on the VM (API_KEY, API_ALLOWED_ORIGINS, etc.).
+- [x] `SMOKE_TESTS.md` — New focused runbook for smoke-testing the audit fixes specifically (complementary to `docs/TIERED_PROCEDURAL_RUNBOOK.md`, which remains the operational reference).
+- [x] `.env.example` — Already updated during the audit work; defaults match new code.
+
+**Notes:**
+- Drift hedge engine still not implemented. Per operator's explicit request, smoke tests come first; Drift is gated behind successful smoke-test completion.
+- No new bugs filed. All known issues from the audit closed in this session.
+
+---
+
+## 2026-05-08
+
+### Runtime Fix - Meteora DLMM Load Under Node 24
+
+**Tasks Completed:**
+- [x] Investigated `pnpm auto-tune:watch` startup crash under Node `v24.4.0`.
+- [x] Confirmed `@meteora-ag/dlmm@1.9.7` ESM bundle imports `BN` as a named Anchor export that Node 24 does not expose.
+- [x] Added `src/utils/dlmm.ts` to load Meteora DLMM through the CommonJS build with `createRequire()`.
+- [x] Updated auto-tune orchestrator, Meteora adapter, Hono API server, and Meteora helper scripts to avoid static ESM imports of `@meteora-ag/dlmm`.
+- [x] Filed BUG-002 as fixed in `bugs.md`.
+
+**Validation:**
+- [x] `pnpm build`
+- [x] `CI=1 pnpm test`
+- [x] Static dist import of `dist/utils/dlmm.js`
+
+**Notes:**
+- Did not run `pnpm auto-tune:watch` after the user declined because it can involve real funds.
+
+---
+
+### Documentation Deep Dive - README and Runbook Refresh
+
+**Tasks Completed:**
+- [x] Reviewed current implementation across auto-tune CLI, orchestrator, Meteora adapter, Jupiter swapper, swap planner, API server, config, persistence, and package scripts.
+- [x] Rewrote `README.md` to reflect the implemented production path: Meteora DLMM auto-tune is live; Drift hedging and full delta-neutral orchestration remain planned.
+- [x] Documented current architecture, rebalance phases, state files, API security model, reliable commands, stale commands, and configuration defaults.
+- [x] Added `docs/TIERED_PROCEDURAL_RUNBOOK.md` with tiered procedures for preflight checks, read-only verification, first live run, routine operation, API operations, GCP deployment, incidents, and manual state review.
+
+**Notes:**
+- The README now treats source files as the source of truth where older docs and package scripts conflict.
+- No architectural decisions were changed; this was a documentation alignment run.
+- No new bugs were filed.
+
+---
+
 ## 2025-10-19
 
 ### Session 1 - Epic K Complete

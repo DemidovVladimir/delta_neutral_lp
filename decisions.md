@@ -1127,25 +1127,95 @@ pnpm auto-tune  # Start automated rebalancing
 
 ---
 
+## ADR-013: Audit-Hardening Pass (May 2026)
+
+**Status:** Accepted
+**Date:** 2026-05-09
+**Context:** Production log surfaced a fund-loss-class bug — the bot asked Jupiter to swap 566.81 USDC with only 9.43 USDC in the wallet, returning `Insufficient funds` from Jupiter that propagated as the unhelpful `"No transaction in order response"`. Subsequent audit found nine related findings: missing pre-flight, drifted code paths, no Phase 1 retry, no Phase 2 balance re-check, unauthenticated mutating API endpoints, wildcard CORS, sub-2-second hard timeouts in `withdrawClaimAndClose`, sampled logs hiding decision context, and a hard-coded `priceImpactPct = undefined` masking real Jupiter-reported impact data. This ADR captures the architectural decisions taken to close all ten.
+
+### Decision
+
+**(1) Extract `planSwapForDeposit()` as a pure helper.** The two formerly-duplicated swap-decision paths (initial-position and rebalance) called identical logic with subtly different guards — one had a missing-USDC check, the other didn't. Extract the decision into `src/modules/swapPlanner.ts`:
+- Pure function, no I/O, no logging, no clock.
+- Inputs: wallet balances, target deposits, reserves, current price, slippage buffer, context label.
+- Outputs: `{ needed, swap?, shortfall, availableSolForSwap }` or throws an `Error` for unfixable cases.
+- Three call sites (initial-position pre-flight, rebalance pre-flight, Phase 2 retry pre-flight) all call this single helper.
+- Unit-tested: 20 vitest cases in `src/modules/swapPlanner.test.ts` including a regression test for the production bug.
+
+**(2) Total-USD-value pre-flight before any swap planning.** Inside `planSwapForDeposit`, compute `walletValueUsd = (walletSol − totalReserve) × price + walletUsdc` and `requiredValueUsd = targetSol × price + targetUsdc`. If wallet is short on total value, no swap can fix it — throw immediately with a descriptive error mentioning `AUTO_TUNE_DEPOSIT_AMOUNT`. Saves the orchestrator from wasted RPC calls and produces an actionable message instead of an opaque downstream error.
+
+**(3) Phase 1 retry with on-chain race recovery.** `withdrawClaimAndClose` was a single try/catch that re-threw on first failure. Now wrapped in a retry loop (uses `AUTO_TUNE_MAX_RETRIES`); each retry first calls `discoverPositionsFromBlockchain()` and short-circuits with a synthetic success (`{ signature: 'unknown-prior-success', claimedFees: { sol: 0, usdc: 0 } }`) if the position is no longer on-chain — handling the case where the previous attempt's transaction settled despite a local error. Also at the `withdrawClaimAndClose` level: bumped the SDK build timeout 30s → 90s (was too aggressive for slow RPCs) and added a defensive on-chain re-check in the catch block via a new private `isPositionStillOnChain()` helper (read-only, no state mutation, distinct from `discoverPositionsFromBlockchain` which writes state).
+
+**(4) Phase 2 retry with balance re-check.** Each retry attempt in the position-creation loop re-fetches actual SOL/USDC, re-runs `planSwapForDeposit()` with stable targets but fresh balances, and executes another swap if a new shortfall appeared. Fixes the case where a failed first attempt paid network fees and shifted the wallet enough to need topping up.
+
+**(5) Hono API: fail-closed by default.** Replaced wildcard CORS with origin allowlist (`API_ALLOWED_ORIGINS`). Added API-key auth (`API_KEY`) on all POST routes with constant-time compare. **When `API_KEY` is unset, POST endpoints return 503** — POSTs are non-functional on a default-configured server. Added per-IP rate limit (`API_RATE_LIMIT_PER_MIN`, default 10, fixed-window). Added body validation with type, range, and sanity-ceiling checks (e.g. `solAmount ≤ 1000`, `priceLower < priceUpper`). The principle: a misconfigured server should be useless, not dangerous.
+
+**(6) Real `priceImpactPct` propagation + high-impact warning.** Removed the stale `priceImpactPct: undefined` placeholder from `JupiterSwapper.executeSwap`. Added module-level `parsePriceImpactPctFromOrder()` that reads the field from Jupiter's order response, normalizes string-or-number to a positive percentage. New private `logSwapOutcome()` helper in the orchestrator compares against `SWAP_HIGH_IMPACT_WARNING_PCT` (default 1.0) and emits an `errorBanner` when exceeded, with bufferExceeded flag and recommended action.
+
+**(7) Bumped `SWAP_SLIPPAGE_BUFFER_PCT` default 0.5 → 3.0.** Under volatile conditions or thin liquidity, 0.5% wasn't enough headroom; output fell short of target and burned Phase 2 retries. 3% is conservative for SOL/USDC; surplus output is absorbed by the next position rather than lost.
+
+**(8) Promoted silent-scaling log to `errorBanner`.** When desired position exceeds wallet value and the orchestrator proportionally scales down, the operator now gets a loud red-banner log with the scale percentage, recommended `AUTO_TUNE_DEPOSIT_AMOUNT`, and an explicit `consequence` field noting the deviation will recur every cycle until config or wallet is fixed.
+
+**(9) Promoted `'Position balance checked'` log out of sampling.** The composition + price + range data is the precondition for every rebalance trigger decision. With `LOG_SAMPLE_RATE=10` in GCP, the precondition state on iteration 46 was lost 90% of the time — exactly when iteration 47 needed it for failure analysis. Now always logged.
+
+### Alternatives Considered
+
+- **Add the missing-USDC guard inline at both call sites (no extraction).** Rejected: the two paths drifted in the first place because they were duplicated. Inline-guarding fixes the symptom without addressing the structural cause; the next subtle modification would re-introduce drift.
+- **Use zod for body validation in the API.** Rejected for this surface: two endpoints with simple shapes don't justify a new dependency. Hand-rolled validators with a `ValidationError` class are easy to read and stay close to the route handlers.
+- **Make `API_KEY` fail-open with a loud warning when unset.** Rejected: fail-closed is the safer default for a fund-affecting surface. Operators who want auth disabled (e.g. for internal-only deployments) can short-circuit the middleware in code, but it shouldn't be the default behaviour.
+- **Adaptive slippage buffer based on observed impact.** Considered for ADR-013 but deferred: adds state and complexity for marginal benefit. The high-impact warning gives operators the signal to manually tune.
+- **Remove the `withdrawClaimAndClose` build timeout entirely.** Rejected: a 90s ceiling is still useful as a defense against SDK bugs that infinite-loop. The on-chain re-check in the catch block handles the on-chain-success-with-local-failure race in any case.
+
+### Consequences
+
+**Positive:**
+- The original production bug class is structurally locked out — there's no longer two paths that *could* drift; there's one helper. Regression tests pin the behaviour.
+- The bot is now defensible against a misconfigured deployment moving funds via the API.
+- Phase 1 and Phase 2 both have on-chain race recovery, so "transaction settled but local code thought it failed" no longer cascades into double-attempt failures or orphaned positions.
+- Operators get loud, actionable feedback (errorBanner + consequence + recommendedAction) when their config doesn't fit their wallet, instead of silent degradation.
+- Real Jupiter price-impact data is now visible in logs; operators can notice pool liquidity thinning before it manifests as Phase 2 retries.
+
+**Negative / cost:**
+- More log volume in production GCP (~+9 lines per check cycle from de-sampling the position-balance log; ~3.7 MB/day at typical line size, well under free-tier ingestion).
+- Slightly higher swap-input amounts (3% buffer vs 0.5%) leave more surplus of one token in the wallet on average. Not lost — absorbed by the next position. Operators on liquid pools can tune down.
+- `withdrawClaimAndClose` is allowed up to 90s instead of 30s before timing out. Operators on slow RPCs see fewer false failures; operators on healthy RPCs are unaffected (the timeout almost never fires).
+- New env vars to remember: `API_KEY`, `API_ALLOWED_ORIGINS`, `API_RATE_LIMIT_PER_MIN`, `SWAP_HIGH_IMPACT_WARNING_PCT`. All optional with sensible defaults except `API_KEY` (which is intentionally required for POSTs to work).
+
+### References
+
+- `src/modules/swapPlanner.ts` — pure helper, ~230 lines
+- `src/modules/swapPlanner.test.ts` — 20 vitest unit tests
+- `src/modules/autoTuneOrchestrator.ts` — three call sites, Phase 1/Phase 2 retry pre-flights, `logSwapOutcome` helper
+- `src/modules/meteoraAdapter.ts` — `withdrawClaimAndClose` retry semantics, `isPositionStillOnChain` helper
+- `src/modules/jupiterSwapper.ts` — `parsePriceImpactPctFromOrder`
+- `src/api/hono-server.ts` — auth, CORS, rate-limit, validation
+- `src/config/env.ts` — new config fields
+- `progress.md` Session 9 — work log
+- `SMOKE_TESTS.md` — procedural runbook
+
+---
+
 ## Decision Index
 
-- ADR-001: Use solana-agent-kit for Transaction Execution
+- ADR-001: Use solana-agent-kit for Transaction Execution *(superseded — direct @solana/web3.js)*
 - ADR-002: Band Rebalancing Over Continuous Hedging
 - ADR-003: JSON-based State Persistence
 - ADR-004: Emergency Flow Execution Strategy
-- ADR-005: DLMM SDK ESM/CommonJS Interop Strategy
-- ADR-006: Jupiter API v6 Upgrade
-- ADR-007: Meteora Pool Analytics Caching Strategy (2.5s TTL)
-- ADR-008: Documentation Standards
-- ADR-009: Dynamic Jito Tipping with 5-Second Cache
-- ADR-010: Jupiter Lite API v3 Migration
+- ADR-005: Automatic Meteora Position Creation
+- ADR-006: DLMM SDK ESM/CommonJS Interop Strategy
+- ADR-007: Jupiter API v6 Upgrade
+- ADR-008: Meteora Pool Analytics Caching Strategy (2.5s TTL)
+- ADR-009: Documentation Standards
+- ADR-010: Dynamic Jito Tipping with 5-Second Cache *(superseded — Jito bundling removed)*
+- ADR-011: Jupiter Lite API v3 Migration
 - ADR-012: Auto-Tune Two-Step Rebalancing Strategy
+- ADR-013: Audit-Hardening Pass (May 2026) — new
 
 ---
 
 ## Decision Status
 
-- **Accepted:** 12
+- **Accepted:** 11
+- **Superseded:** 2 (ADR-001 by direct web3.js, ADR-010 by removal of Jito)
 - **Proposed:** 0
 - **Deprecated:** 0
-- **Superseded:** 0

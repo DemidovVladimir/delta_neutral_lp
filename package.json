@@ -31,7 +31,8 @@
     "deploy:gcp:ssh": "cd deploy/gcp/pulumi && pulumi stack output sshCommand | bash",
     "deploy:gcp:status": "cd deploy/gcp/pulumi && pulumi stack output",
     "deploy:gcp:stop": "cd deploy/gcp/pulumi && pulumi stack output stopCommand | bash",
-    "deploy:gcp:start": "cd deploy/gcp/pulumi && pulumi stack output startCommand | bash"
+    "deploy:gcp:start": "cd deploy/gcp/pulumi && pulumi stack output startCommand | bash",
+    "ssh:gcp": "gcloud compute ssh autotune-prod --zone=europe-west1-b --project=auto-tune-477718"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",

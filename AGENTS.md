@@ -1,17 +1,17 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
 
 ## Project Overview
 
 This is a delta-neutral liquidity provision bot for Solana that:
 - **Automatically creates** Meteora DLMM positions (SOL/USDC) with configurable ranges
 - Provides liquidity on **Meteora DLMM** (SOL/USDC pool)
-- Will maintain a **Drift** perpetual short position to keep delta-neutral (ΔSOL ≈ 0) — *Drift hedge engine not yet implemented; bot currently runs LP-only with full directional SOL exposure. See "Planned" section below.*
+- Maintains a **Drift** perpetual short position to keep delta-neutral (ΔSOL ≈ 0)
 - Uses **direct @solana/web3.js SDK** for on-chain execution with priority fees
-- Implements sequential transaction flows with intelligent retry logic and on-chain race recovery
+- Implements sequential transaction flows with intelligent retry logic
 
-The bot aims to earn LP fees while minimizing directional exposure to SOL price movements (delta-neutral target — currently aspirational; see Drift status above).
+The bot aims to earn LP fees while minimizing directional exposure to SOL price movements.
 
 **No manual position setup required** - the bot can create positions automatically on first run.
 
@@ -99,7 +99,6 @@ The codebase follows a modular adapter pattern:
    - ✅ **ATOMIC WITHDRAW+CLAIM+CLOSE**: Single transaction using SDK's `shouldClaimAndClose=true`
    - ✅ **TWO-STEP REBALANCE**: TX1 (withdraw+claim+close) + TX2 (create new position)
    - ✅ **Minimal API**: Only `createPosition()` and `withdrawClaimAndClose()` for focused bot functionality
-   - ✅ **On-chain race recovery in `withdrawClaimAndClose`**: 90s build timeout (was 30s) + post-error chain re-check via `isPositionStillOnChain()`. If a transaction settles on-chain despite a local error (e.g., `confirmTransaction` blockhash expiry), the method returns a synthetic success rather than throwing — preventing the Phase 1 retry layer from attempting to withdraw an already-closed position.
 
 2. **PriceOracle** (`src/core/priceOracle.ts`)
    - ✅ Jupiter API v6 integration with multi-token price fetching
@@ -117,16 +116,8 @@ The codebase follows a modular adapter pattern:
    - ✅ Helper methods for SOL ↔ USDC swaps
    - ✅ **Target-based swapping**: Calculates exact shortfall based on deposit amount
    - ✅ **Intelligent error handling**: Comprehensive logging and retry logic
-   - ✅ **`priceImpactPct` propagated**: Parsed from Jupiter Ultra order response and surfaced as a positive percentage (e.g. `0.07` for 0.07% impact). Earlier code claimed Ultra didn't return this and hard-coded `undefined`; the comment was wrong — the field is in the order response.
 
-4. **SwapPlanner** (`src/modules/swapPlanner.ts`) — **pure helper, no I/O**
-   - ✅ Single source of truth for swap-decision logic, used by `createInitialPosition`, `executeRebalance`, and the Phase 2 retry pre-flight
-   - ✅ **Total-value pre-flight**: throws fast when wallet's USD value (after reserves) can't fund the position — no swap can save it
-   - ✅ **Per-branch balance guards**: throws when planned swap input exceeds wallet holding of that token (mirrors the rebalance-flow guard that the initial-position path was missing in the original 566.81-USDC-with-9.43-USDC bug)
-   - ✅ **Direction tie-break**: swap the surplus token to cover the larger USD shortfall
-   - ✅ Unit-tested: 20 tests in `src/modules/swapPlanner.test.ts` pin the behaviour, including a regression case for the live production bug
-
-5. **Persistence Layer** (`src/modules/persistence.ts`)
+4. **Persistence Layer** (`src/modules/persistence.ts`)
    - ✅ State snapshot management (positions, exposure, timestamps)
    - ✅ Action journal for execution history
    - ✅ Auto-created position NFT tracking
@@ -136,22 +127,19 @@ The codebase follows a modular adapter pattern:
      - **Last position created details** (position mint, initial deposits, timestamp)
    - ✅ JSON-based storage in data/ directory
 
-6. **AutoTuneOrchestrator** (`src/modules/autoTuneOrchestrator.ts`)
+5. **AutoTuneOrchestrator** (`src/modules/autoTuneOrchestrator.ts`)
    - ✅ Monitors position composition at configurable intervals
    - ✅ Detects position imbalance (e.g., >80% in one token)
-   - ✅ **Two-Phase Rebalance Flow with retry-aware pre-flights at every layer**:
-     - Phase 1: Withdraw 100% + Claim + Close (single atomic TX). **Wrapped in retry loop** (up to `AUTO_TUNE_MAX_RETRIES` attempts) with on-chain re-check before each retry — if a previous attempt's transaction settled despite a local error, the loop short-circuits with synthetic success.
-     - Swap Phase (if needed): planned by `planSwapForDeposit()`, executed as a separate Jupiter Ultra swap.
-     - Phase 2: Create new position with retry loop. **Each retry re-fetches wallet balances and re-runs `planSwapForDeposit()`** — fees paid by the previous failed attempt may have shifted balances enough that a new swap is needed.
-   - ✅ **Total-value pre-flight**: rejects fast when wallet USD value can't fund the position regardless of swap planning
-   - ✅ **Per-branch balance guards**: catches "swap input larger than wallet holding" before reaching Jupiter
+   - ✅ **Two-Phase Rebalance Flow**:
+     - Phase 1: Withdraw 100% + Claim + Close (single atomic TX)
+     - Swap Phase (if needed): Execute Jupiter swap BEFORE position creation
+     - Phase 2: Create new position with simple retry logic (max 3 attempts)
+   - ✅ **Pre-flight Balance Check**: Detects insufficient funds BEFORE any operations
    - ✅ **Sequential Swap Execution**: Swap executed as separate TX before position creation
    - ✅ **Target-Based Swapping**: Calculates exact shortfall based on configured deposit amount
    - ✅ **Dual Reserve System**:
      - `MINIMUM_WALLET_BALANCE_SOL`: Permanent reserve (never touched)
      - `RENT_RESERVE_SOL`: Temporary reserve for rent/fees
-   - ✅ **High-impact swap warnings** via `logSwapOutcome()`: when Jupiter-reported `priceImpactPct` exceeds `SWAP_HIGH_IMPACT_WARNING_PCT`, emits an `errorBanner` with the impact, configured buffer, whether the buffer was exceeded, and a recommended action
-   - ✅ **Loud silent-scaling**: when desired position exceeds wallet value, the proportional scale-down is logged at `errorBanner` level (was `warn`) with the scale percentage and a recommended `AUTO_TUNE_DEPOSIT_AMOUNT` value
    - ✅ **Fee Auto-Compounding**: Claimed fees automatically added to new positions
    - ✅ **User-Controlled Deposits**: Based on `AUTO_TUNE_DEPOSIT_TOKEN` + `AUTO_TUNE_DEPOSIT_AMOUNT`
    - ✅ Tracks total claimed fees across all rebalances
@@ -159,7 +147,7 @@ The codebase follows a modular adapter pattern:
    - ✅ Maintains concentrated liquidity with fixed bin count
    - ✅ State persistence across restarts
 
-7. **Utility Modules:**
+6. **Utility Modules:**
    - **meteoraUtils** (`src/utils/meteoraUtils.ts`)
      - ✅ Bin price calculations from bin ID
      - ✅ Token percentage composition calculator
@@ -177,25 +165,21 @@ The codebase follows a modular adapter pattern:
      - ✅ Error banner for critical failures
      - ✅ Reduced verbosity for cleaner output
 
-8. **API Server** (`src/api/hono-server.ts`) — **fail-closed by default**
+7. **API Server** (`src/api/hono-server.ts`)
    - ✅ Hono framework with Bun runtime
    - ✅ RESTful endpoints for LP operations
    - ✅ Pool analytics and bin data endpoints
    - ✅ Price oracle endpoints (Jupiter + Pyth)
-   - ✅ **CORS allowlist** via `API_ALLOWED_ORIGINS` (wildcard removed)
-   - ✅ **API-key auth** on every mutating POST: `X-API-Key` header must match `API_KEY` env. When `API_KEY` is unset the server returns 503 on POSTs (fail-closed) — GETs remain available.
-   - ✅ **Per-IP rate limit** via `API_RATE_LIMIT_PER_MIN` (default 10/min, 429 with `Retry-After`)
-   - ✅ **Body validation**: types, ranges, sanity ceilings (e.g. `solAmount ≤ 1000 SOL`, `priceLower < priceUpper`)
-   - ✅ **Constant-time API-key compare** to defend against timing-side-channel probing
+   - ✅ CORS enabled for web UI integration
 
-**API Endpoints:** (POSTs require `X-API-Key` header matching `API_KEY` env; see `docs/API.md` for full security model)
+**API Endpoints:**
 - `GET /api/health` - Health check
 - `GET /api/prices` - Oracle prices (Jupiter + Pyth)
 - `GET /api/pool/analytics` - Pool APR, APY, volume, fees
 - `GET /api/pool/bins` - Bin distribution and liquidity data
 - `GET /api/positions` - User's LP positions and exposure
-- `POST /api/positions/create` 🔐 - Create new LP position (rate-limited, body-validated, API-key required)
-- `POST /api/positions/withdraw-claim-close` 🔐 - **Atomic operation: Withdraw 100% + Claim + Close in ONE transaction** (rate-limited, body-validated, API-key required)
+- `POST /api/positions/create` - Create new LP position
+- `POST /api/positions/withdraw-claim-close` - **Atomic operation: Withdraw 100% + Claim + Close in ONE transaction**
 
 **Planned (not yet implemented):**
 
@@ -204,30 +188,6 @@ The codebase follows a modular adapter pattern:
 - 🔜 **Orchestrator** - Main hedge loop and emergency flows
 
 ## Key Technical Details
-
-### Recent Improvements (audit hardening — May 2026)
-
-A full audit closed ten critical/high findings. See `decisions.md` ADR-013 for the architecture rationale and `progress.md` Session 9 for the work log.
-
-1. **Live swap-fail bug fixed.** The `createInitialPosition` swap path was missing the per-token balance guard that the rebalance path had. With wallet=(0.258 SOL, 9.43 USDC) and a 4-SOL deposit target, the bot would ask Jupiter to swap 566.81 USDC it didn't have. Two layers of fix: a total-USD-value pre-flight that rejects unfixable cases fast, and per-branch swap-input guards that mirror the rebalance flow.
-
-2. **`planSwapForDeposit()` extracted to `src/modules/swapPlanner.ts`.** The two formerly-duplicated swap-decision paths (initial-position and rebalance) called identical logic with subtly different guards. Now both paths — plus the new Phase 2 retry pre-flight — call the same pure helper. 20 vitest unit tests pin behaviour, including a regression case for the original bug.
-
-3. **Phase 1 retry with on-chain race recovery.** `withdrawClaimAndClose` was a single `try/catch` that re-threw on first failure, leaving the position open on-chain. Now wrapped in a retry loop (uses `AUTO_TUNE_MAX_RETRIES`); each retry first re-checks chain state and short-circuits with synthetic success if the previous attempt's transaction actually settled. Inside `withdrawClaimAndClose` itself, the 30s SDK build timeout was bumped to 90s and the catch block does an on-chain re-check before re-throwing, returning a synthetic success when the position is gone (handles `confirmTransaction` blockhash-expiry races).
-
-4. **Phase 2 retry now re-checks balances.** Each retry attempt re-fetches actual SOL/USDC, runs `planSwapForDeposit()` again (targets stable, balance fresh), and executes another swap if a new shortfall appeared. Fixes the case where a failed first attempt paid network fees and shifted the wallet enough to need topping up.
-
-5. **Hono API locked down.** Wildcard CORS replaced with origin allowlist (`API_ALLOWED_ORIGINS`). API-key auth (`API_KEY`, fail-closed via 503 when unset) on all POST routes. Per-IP rate limit (`API_RATE_LIMIT_PER_MIN`, default 10, returns 429 with `Retry-After`). Body validation with type/range/sanity-ceiling checks. Constant-time key compare. Was unauthenticated with wildcard CORS — fund-loss-class bug.
-
-6. **Real `priceImpactPct` propagation.** Earlier code claimed Jupiter Ultra didn't return this and hard-coded `undefined`. The order response does contain it (string fraction). New `parsePriceImpactPctFromOrder()` normalizes to a positive percentage; the orchestrator's new `logSwapOutcome()` helper compares against `SWAP_HIGH_IMPACT_WARNING_PCT` and emits a loud warning when exceeded.
-
-7. **Slippage buffer default bumped 0.5% → 3%.** Under volatile conditions or thin liquidity, 0.5% wasn't enough; output fell short of target and burned Phase 2 retries. 3% gives headroom; surplus is absorbed by the position rather than lost. Operators on thicker pools can tune down.
-
-8. **Loud silent-scaling.** When desired position exceeds wallet value, the proportional scale-down log was promoted from `log.warn` to `log.errorBanner`. Includes the scale percentage and a recommended `AUTO_TUNE_DEPOSIT_AMOUNT` value to avoid scaling.
-
-9. **Position-balance log de-sampled.** The `'Position balance checked'` log (composition + price + range — the precondition for every rebalance trigger decision) was at sampled INFO level (1-in-10 in GCP). Now always logged so the operator has a complete causal trail when something goes wrong.
-
-10. **20 vitest regression tests** in `src/modules/swapPlanner.test.ts` covering happy path, both swap directions, both per-token guards, reserve handling, tie-break, defensive sanity (NaN price, negative slippage), and the production-bug regression case.
 
 ### Recent Improvements (January 2025)
 
@@ -346,23 +306,15 @@ See [INTEGRATION_SUMMARY.md](INTEGRATION_SUMMARY.md) for detailed changelog.
 - `AUTO_TUNE_DEPOSIT_AMOUNT`: Amount of deposit token to use (default: 1.0)
 - `AUTO_TUNE_MAX_RETRIES`: Maximum retries for position creation (default: 3)
 
-**Swap Configuration (Jupiter Integration):**
+**Swap Configuration (Jupiter Integration - NEW!):**
 - `SWAP_ENABLED`: Enable Jupiter swap functionality (default: true)
-- `SWAP_SLIPPAGE_BPS`: Jupiter slippage tolerance in basis points (default: 50 = 0.5%) — passed to Jupiter as the swap-execution slippage cap
-- `SWAP_SLIPPAGE_BUFFER_PCT`: Additional buffer the orchestrator adds to swap-input amounts to absorb price impact (default: **3.0** — bumped from 0.5 in the May 2026 audit). Surplus output is absorbed by the next position rather than lost.
-- `SWAP_HIGH_IMPACT_WARNING_PCT`: Threshold above which a loud warning fires when Jupiter's reported `priceImpactPct` exceeds it (default: 1.0). Useful for noticing pool liquidity thinning before it causes Phase 2 retries.
+- `SWAP_SLIPPAGE_BPS`: Slippage tolerance in basis points (default: 50 = 0.5%)
 
-**Wallet Reserve Configuration:**
+**Wallet Reserve Configuration (NEW!):**
 - `MINIMUM_WALLET_BALANCE_SOL`: Permanent reserve that never gets touched (default: 0.2)
 - `RENT_RESERVE_SOL`: Temporary reserve for rent/fees during position creation (default: 0.1)
 
-**API Server Configuration (Hono — fund-affecting POSTs are guarded by these):**
-- `API_KEY`: Shared secret required on POST /api/positions/* via `X-API-Key` header. **Unset = fail-closed (POSTs return 503).** GETs remain available either way. Pick a long random string: `openssl rand -hex 32`.
-- `API_ALLOWED_ORIGINS`: Comma-separated CORS allowlist (default: `http://localhost:5173,http://localhost:3000`). Production should set this to the exact origin(s) of the UI you ship.
-- `API_RATE_LIMIT_PER_MIN`: Max mutating POST requests per remote IP per minute (default: 10). 429 with `Retry-After` on overflow.
-- `API_PORT`: HTTP listener port (default: 3001).
-
-**Risk parameters:** *(planned for Drift hedge engine — not yet wired)*
+**Risk parameters:**
 - `DELTA_THRESHOLD_SOL`: Maximum delta before rebalancing (default: 2)
 - `MIN_COLLATERAL_RATIO`: Minimum collateral ratio (default: 0.15)
 - `MAX_SHORT_NOTIONAL_USD`: Maximum short position size (default: 12000)
@@ -389,12 +341,12 @@ The **Auto-Tune Orchestrator** provides fully automated position rebalancing for
 
 1. **Monitors** position composition at configurable intervals (default: every 30s)
 2. **Detects** when position becomes imbalanced (e.g., >80% in one token)
-3. **Executes** three-phase rebalance flow with retry-aware pre-flights at every layer:
-   - **Phase 1**: Withdraw 100% + Claim + Close (single atomic TX). Wrapped in a retry loop with on-chain re-check before each retry — so if a transaction settles on-chain despite a local error, we don't try to withdraw an already-closed position.
-   - **Swap Phase** (if needed): Plan via `planSwapForDeposit()` (total-value pre-flight + per-branch balance guards), execute Jupiter Ultra swap, wait for confirmation. High-impact warning fires if Jupiter-reported impact exceeds `SWAP_HIGH_IMPACT_WARNING_PCT`.
-   - **Phase 2**: Create new position centered at current price. Each retry re-fetches wallet balances and re-runs `planSwapForDeposit()` so a failed attempt's network fees don't put us back into shortfall.
+3. **Executes** three-phase rebalance flow:
+   - **Phase 1**: Withdraw 100% + Claim + Close (single atomic TX)
+   - **Swap Phase** (if needed): Execute Jupiter swap, wait for confirmation
+   - **Phase 2**: Create new position centered at current price
 
-**Sequential execution with retry-aware pre-flight at every layer.**
+**Sequential execution with pre-flight checks for reliability!**
 
 ### Key Features
 

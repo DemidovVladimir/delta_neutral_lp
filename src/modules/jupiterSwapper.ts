@@ -88,6 +88,23 @@ export interface ExecuteResponse {
 }
 
 /**
+ * Parse Jupiter Ultra's `priceImpactPct` field into a positive percentage
+ * number. Ultra returns it as a fraction (string or number) where
+ * `-0.0007154577…` means a -0.0715% impact. Callers want a positive
+ * percentage so they can write `if (impact > 1)` style guards, regardless
+ * of swap direction.
+ *
+ * Returns undefined when the field is missing or unparseable.
+ */
+function parsePriceImpactPctFromOrder(order: OrderResponse): number | undefined {
+  const raw = order.priceImpactPct;
+  if (raw === undefined || raw === null) return undefined;
+  const asFraction = typeof raw === 'number' ? raw : Number(raw);
+  if (!Number.isFinite(asFraction)) return undefined;
+  return Math.abs(asFraction) * 100;
+}
+
+/**
  * Jupiter Swapper for token swaps using Ultra API
  */
 export class JupiterSwapper {
@@ -294,17 +311,21 @@ export class JupiterSwapper {
    * 3. Execute via Jupiter Ultra API
    * 4. Return signature and details
    *
-   * Note: Ultra API doesn't provide priceImpactPct in response. Use legacy API if needed.
-   *
    * @param params - Swap parameters (amount in human-readable units)
-   * @returns Transaction signature and swap details
+   * @returns Transaction signature, swap details, and price impact (%, absolute value)
+   *
+   * Note on priceImpactPct: Jupiter Ultra returns this as a fraction string in
+   * the order response (e.g. "-0.0007154" means -0.07% impact). We parse it,
+   * convert to a percentage number, and take the absolute value so callers
+   * can compare against simple positive thresholds like "warn if > 1".
    */
   async executeSwap(params: SwapParams): Promise<{
     signature: string;
     inputAmount: number;
     outputAmount: number;
     status: string;
-    priceImpactPct?: number; // Not provided by Ultra API, set to undefined
+    /** Jupiter-reported price impact as a positive percentage (e.g. 0.07 means 0.07%). Undefined when Jupiter didn't report. */
+    priceImpactPct?: number;
   }> {
     const startTime = Date.now();
 
@@ -356,12 +377,17 @@ export class JupiterSwapper {
         });
       }
 
+      // Surface Jupiter's reported price impact. Ultra returns this as a
+      // fraction in the order response (string or number). Normalize to an
+      // absolute percentage so callers can do simple `> threshold` checks.
+      const priceImpactPct = parsePriceImpactPctFromOrder(order);
+
       return {
         signature: executeResponse.signature,
         inputAmount,
         outputAmount,
         status: executeResponse.status,
-        priceImpactPct: undefined, // Ultra API doesn't provide this
+        priceImpactPct,
       };
     } catch (error) {
       const durationMs = Date.now() - startTime;
