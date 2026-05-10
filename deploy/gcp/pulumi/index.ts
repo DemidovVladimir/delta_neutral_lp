@@ -19,6 +19,7 @@ import * as docker from '@pulumi/docker';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as dotenv from 'dotenv';
+import { execSync } from 'child_process';
 
 // Configuration
 const config = new pulumi.Config();
@@ -134,8 +135,62 @@ function loadEnvFromFile(filePath: string): { secrets: Record<string, string>; c
   return { secrets, config };
 }
 
+/**
+ * Detect the local git short hash + dirty flag and inject as STRATEGY_VERSION
+ * into the env passed to the VM. The Dockerfile does not copy .git into the
+ * image (would bloat it and ship history into prod), so the container itself
+ * can't run `git rev-parse`. We capture it here at deploy time so every PnL
+ * DB row written from this deployment is correlatable to a specific commit.
+ *
+ * If anything goes wrong (no git, deploying outside a clone) we fall back to
+ * a timestamped placeholder so the bot still boots — but the operator loses
+ * the rollback-via-git-checkout property the strategy_version was added for.
+ */
+function detectStrategyVersion(): { value: string; label?: string } {
+  // Project root is two levels up from deploy/gcp/pulumi.
+  const repoRoot = path.resolve(__dirname, '../../..');
+  try {
+    const hash = execSync('git rev-parse --short HEAD', {
+      cwd: repoRoot,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    let dirty = '';
+    try {
+      const status = execSync('git status --porcelain', {
+        cwd: repoRoot,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim();
+      if (status.length > 0) dirty = '-dirty';
+    } catch {
+      /* status failure is non-fatal */
+    }
+    const value = `${hash}${dirty}`;
+    pulumi.log.info(`📌 STRATEGY_VERSION detected from local git: ${value}`);
+    return { value };
+  } catch (e) {
+    const fallback = `unknown-${Date.now()}`;
+    pulumi.log.warn(
+      `⚠️  Could not detect git hash for STRATEGY_VERSION (using "${fallback}"). ` +
+        'Set STRATEGY_VERSION in .env or run pulumi inside a git checkout. ' +
+        `Error: ${e instanceof Error ? e.message : String(e)}`,
+    );
+    return { value: fallback };
+  }
+}
+
 // Load all environment variables from .env file
 const { secrets, config: envConfig } = loadEnvFromFile(envFile);
+
+// Inject STRATEGY_VERSION (git hash) so the running container can stamp it
+// onto every PnL row. .env-provided value wins if the operator wants to pin
+// a specific label; otherwise we use the local git hash. STRATEGY_LABEL is
+// always passed through if the user set it in .env.
+if (!envConfig.STRATEGY_VERSION) {
+  const detected = detectStrategyVersion();
+  envConfig.STRATEGY_VERSION = detected.value;
+}
 const secretResources: Record<string, gcp.secretmanager.Secret> = {};
 const secretVersions: Record<string, gcp.secretmanager.SecretVersion> = {};
 

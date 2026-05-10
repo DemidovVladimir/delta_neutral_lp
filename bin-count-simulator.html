@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Bin-Count Strategy Simulator — Delta-Neutral Bot</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0f1419;
+    --bg-card: #1a212b;
+    --bg-elev: #232c39;
+    --border: #2d3a4a;
+    --text: #e7ecf3;
+    --muted: #8a96a8;
+    --accent: #5dabf2;
+    --A: #5dabf2;        /* strategy A colour (narrow) */
+    --B: #e8a13a;        /* strategy B colour (wide) */
+    --hodl-sol: #b97ce8;
+    --hodl-usdc: #4ec07d;
+    --hodl-5050: #6c7a8d;
+    --error: #e8615b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px 32px 80px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+  }
+  h1 { margin: 0 0 4px; font-size: 26px; }
+  h2 { margin: 28px 0 10px; font-size: 18px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+  .subtitle { color: var(--muted); margin-bottom: 20px; font-size: 14px; }
+  code { background: var(--bg-elev); padding: 1px 6px; border-radius: 3px; color: #f7d488; font-family: "SF Mono", Menlo, monospace; font-size: 12px; }
+
+  .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 16px 20px; margin: 12px 0; }
+  .controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+  .control { background: var(--bg-elev); border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px; }
+  .control label { display: block; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px; }
+  .control input[type="range"] { width: 100%; }
+  .control .val { font-family: "SF Mono", Menlo, monospace; color: #f7d488; font-size: 14px; }
+  .control input[type="number"] { width: 80px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 4px 6px; font-family: "SF Mono", Menlo, monospace; }
+
+  .presets { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  button { background: var(--bg-elev); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 6px 14px; font-size: 13px; cursor: pointer; }
+  button:hover { background: var(--accent); color: #0f1419; }
+  button.primary { background: var(--accent); color: #0f1419; font-weight: 600; }
+
+  .charts { display: grid; gap: 16px; margin-top: 16px; }
+  .chart-wrap { background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; padding: 12px; }
+  .chart-wrap h3 { margin: 0 0 8px; font-size: 14px; color: var(--accent); font-weight: 600; }
+  .chart-wrap canvas { max-height: 320px; }
+
+  .summary { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+  @media (max-width: 760px) { .summary { grid-template-columns: 1fr; } }
+  .strategy-summary { padding: 14px 18px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-card); }
+  .strategy-summary.A { border-left: 4px solid var(--A); }
+  .strategy-summary.B { border-left: 4px solid var(--B); }
+  .strategy-summary h4 { margin: 0 0 8px; font-size: 14px; }
+  .row { display: flex; justify-content: space-between; padding: 3px 0; font-size: 13px; }
+  .row .k { color: var(--muted); }
+  .row .v { font-family: "SF Mono", Menlo, monospace; color: var(--text); }
+  .row .v.pos { color: var(--hodl-usdc); }
+  .row .v.neg { color: var(--error); }
+
+  .recommend { padding: 14px 18px; border-radius: 6px; border-left: 4px solid var(--accent); background: var(--bg-elev); margin-top: 16px; font-size: 14px; }
+  .recommend strong { color: var(--accent); }
+
+  details { margin-top: 12px; }
+  details summary { cursor: pointer; color: var(--muted); font-size: 13px; padding: 4px 0; }
+  details[open] summary { color: var(--accent); }
+</style>
+</head>
+<body>
+
+<h1>Bin-Count Strategy Simulator</h1>
+<p class="subtitle">
+  Compare two bin-count configurations on a simulated SOL/USDC price walk.
+  See where the losses actually land — and pick the strategy that wins your
+  vol regime. All simulation runs in your browser; nothing is sent anywhere.
+</p>
+
+<!-- ============================================================ -->
+<!-- CONTROLS                                                      -->
+<!-- ============================================================ -->
+<div class="card">
+  <h2 style="margin-top:0;border:0;padding:0">Inputs</h2>
+  <div class="controls">
+
+    <div class="control">
+      <label>Daily realized vol</label>
+      <input type="range" id="vol" min="0.5" max="20" step="0.5" value="5" />
+      <div class="val"><span id="vol-v">5</span>% / day</div>
+    </div>
+
+    <div class="control">
+      <label>Pool fee APR (at 20-bin centred)</label>
+      <input type="range" id="apr" min="20" max="800" step="10" value="150" />
+      <div class="val"><span id="apr-v">150</span> %</div>
+    </div>
+
+    <div class="control">
+      <label>Imbalance threshold</label>
+      <input type="range" id="threshold" min="60" max="98" step="1" value="92" />
+      <div class="val"><span id="threshold-v">92</span> %</div>
+    </div>
+
+    <div class="control">
+      <label>Bin step (BPS per bin)</label>
+      <input type="number" id="binStep" value="4" min="1" max="500" />
+      <div class="val">your pool: 4 (0.04 % / bin)</div>
+    </div>
+
+    <div class="control" style="border-color: var(--A);">
+      <label>Strategy A — bin count (narrow)</label>
+      <input type="range" id="binsA" min="5" max="200" step="5" value="20" />
+      <div class="val"><span id="binsA-v">20</span> bins · ±<span id="binsA-r">0.40</span>%</div>
+    </div>
+
+    <div class="control" style="border-color: var(--B);">
+      <label>Strategy B — bin count (wide)</label>
+      <input type="range" id="binsB" min="5" max="500" step="5" value="60" />
+      <div class="val"><span id="binsB-v">60</span> bins · ±<span id="binsB-r">1.20</span>%</div>
+    </div>
+
+    <div class="control">
+      <label>Sim length</label>
+      <input type="number" id="days" value="7" min="1" max="60" /> days
+    </div>
+
+    <div class="control">
+      <label>RNG seed (deterministic)</label>
+      <input type="number" id="seed" value="42" />
+    </div>
+
+    <div class="control">
+      <label>Initial capital (USD)</label>
+      <input type="number" id="capital" value="1000" min="100" />
+    </div>
+
+    <div class="control">
+      <label>Cost per rebalance</label>
+      <div class="val"><span id="costPerRebalance">~$0.20 gas + 2-30 bps swap</span></div>
+    </div>
+
+  </div>
+
+  <div class="presets">
+    <strong style="font-size:12px;color:var(--muted);align-self:center;margin-right:6px;">PRESETS:</strong>
+    <button onclick="loadPreset('stable')">Stable (1 % vol)</button>
+    <button onclick="loadPreset('calm')">Calm SOL (3 % vol)</button>
+    <button onclick="loadPreset('normal')">Normal SOL (5 % vol)</button>
+    <button onclick="loadPreset('choppy')">Choppy SOL (8 % vol)</button>
+    <button onclick="loadPreset('volatile')">Volatile (12 % vol)</button>
+    <button onclick="loadPreset('memecoin')">Memecoin (20 % vol)</button>
+    <button class="primary" onclick="runSim()" style="margin-left:auto">▶ Run simulation</button>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- RECOMMENDATION                                                -->
+<!-- ============================================================ -->
+<div class="recommend" id="recommend">
+  Click <strong>Run simulation</strong> to compare the two strategies.
+</div>
+
+<!-- ============================================================ -->
+<!-- CHARTS                                                        -->
+<!-- ============================================================ -->
+<div class="charts">
+
+  <div class="chart-wrap">
+    <h3>SOL/USD price · rebalance events marked per strategy</h3>
+    <canvas id="priceChart"></canvas>
+  </div>
+
+  <div class="chart-wrap">
+    <h3>Cumulative position value vs HODL benchmarks (USD)</h3>
+    <canvas id="pnlChart"></canvas>
+  </div>
+
+  <div class="chart-wrap">
+    <h3>Cumulative loss attribution (USD, where the money went)</h3>
+    <canvas id="lossChart"></canvas>
+  </div>
+
+</div>
+
+<!-- ============================================================ -->
+<!-- SUMMARY                                                       -->
+<!-- ============================================================ -->
+<div class="summary">
+  <div class="strategy-summary A" id="summaryA">
+    <h4>Strategy A — <span id="aBins">20</span> bins</h4>
+    <div class="row"><span class="k">Net PnL</span><span class="v" id="a-net">—</span></div>
+    <div class="row"><span class="k">vs HODL-only-SOL</span><span class="v" id="a-vs-sol">—</span></div>
+    <div class="row"><span class="k">vs HODL-50/50</span><span class="v" id="a-vs-5050">—</span></div>
+    <div class="row"><span class="k">Fees earned</span><span class="v" id="a-fees">—</span></div>
+    <div class="row"><span class="k">IL realised</span><span class="v" id="a-il">—</span></div>
+    <div class="row"><span class="k">Gas + swap costs</span><span class="v" id="a-cost">—</span></div>
+    <div class="row"><span class="k">Out-of-range time</span><span class="v" id="a-oor">—</span></div>
+    <div class="row"><span class="k">Rebalance count</span><span class="v" id="a-rb">—</span></div>
+    <div class="row"><span class="k">Avg rebalance interval</span><span class="v" id="a-int">—</span></div>
+  </div>
+
+  <div class="strategy-summary B" id="summaryB">
+    <h4>Strategy B — <span id="bBins">60</span> bins</h4>
+    <div class="row"><span class="k">Net PnL</span><span class="v" id="b-net">—</span></div>
+    <div class="row"><span class="k">vs HODL-only-SOL</span><span class="v" id="b-vs-sol">—</span></div>
+    <div class="row"><span class="k">vs HODL-50/50</span><span class="v" id="b-vs-5050">—</span></div>
+    <div class="row"><span class="k">Fees earned</span><span class="v" id="b-fees">—</span></div>
+    <div class="row"><span class="k">IL realised</span><span class="v" id="b-il">—</span></div>
+    <div class="row"><span class="k">Gas + swap costs</span><span class="v" id="b-cost">—</span></div>
+    <div class="row"><span class="k">Out-of-range time</span><span class="v" id="b-oor">—</span></div>
+    <div class="row"><span class="k">Rebalance count</span><span class="v" id="b-rb">—</span></div>
+    <div class="row"><span class="k">Avg rebalance interval</span><span class="v" id="b-int">—</span></div>
+  </div>
+</div>
+
+<details>
+  <summary>Model assumptions &amp; limitations (read me)</summary>
+  <div class="card" style="margin-top:6px;">
+    <p style="margin:0 0 8px;font-size:13px;">
+      The simulation is intentionally simplified — its job is to surface
+      <em>relative</em> behaviour between two configurations, not to predict
+      absolute returns. Key assumptions:
+    </p>
+    <ul style="font-size:13px;color:var(--muted);">
+      <li><strong>Price model</strong>: geometric Brownian motion with constant daily vol. No regime changes, no jumps. Real SOL has fat tails and clustered volatility.</li>
+      <li><strong>Fee accrual</strong>: linear in time-in-range with a <code>20/binCount</code> capital-efficiency multiplier on the supplied APR. Real DLMM fees concentrate at the active bin and depend on actual trading volume distribution.</li>
+      <li><strong>IL realisation</strong>: at each rebalance the position composition is approximated linearly within range (100% Y above range, 100% X below range, linear in-between). Real DLMM bin-level math is closer to a square-root curve but the broad shape matches.</li>
+      <li><strong>Rebalance cost</strong>: $0.20 fixed gas + 2-30 bps of swap notional. Adjust by changing your bot's <code>SEND_OPTIMIZED</code> setting and slippage buffer.</li>
+      <li><strong>Out-of-range</strong>: position is 100% one token, earns zero fees. Triggers a rebalance only when imbalance threshold is crossed (default 92%).</li>
+      <li><strong>Slippage</strong>: assumed 5 bps + (notional / 100k USD) bps to model thinning depth at larger swap sizes.</li>
+    </ul>
+    <p style="margin:8px 0 0;font-size:13px;">
+      Use the simulator to sanity-check your intuition about which bin count
+      wins each regime, then verify on real data with <code>pnpm pnl</code>
+      after running each configuration on mainnet for ≥ 24 h.
+    </p>
+  </div>
+</details>
+
+<script>
+// ========================================================================
+// SIMULATION CORE
+// ========================================================================
+
+/**
+ * Mulberry32 — small deterministic PRNG so users can reproduce a run
+ * by re-using the same seed. Box–Muller for Gaussian draws.
+ */
+function rngFactory(seed) {
+  let s = seed | 0;
+  function nextU32() {
+    s |= 0; s = (s + 0x6D2B79F5) | 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  }
+  return {
+    uniform: nextU32,
+    normal() {
+      // Box–Muller. Reject very small u to avoid Infinity.
+      let u = 0;
+      while (u < 1e-12) u = nextU32();
+      const v = nextU32();
+      return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+    },
+  };
+}
+
+/**
+ * Geometric Brownian Motion price walk. Returns array of prices, one per
+ * minute, length = days * 1440. Annualised mu set to 0 (drift-free —
+ * we don't want to bias the comparison toward HODL-SOL or HODL-USDC).
+ */
+function generatePriceWalk(days, dailyVolPct, seed, startPrice = 140) {
+  const rng = rngFactory(seed);
+  const dt = 1 / 1440; // 1 minute as fraction of day
+  const sigma = dailyVolPct / 100;
+  const sigmaPerStep = sigma * Math.sqrt(dt);
+  const driftPerStep = -0.5 * sigma * sigma * dt; // mu = 0
+  const N = Math.round(days * 1440);
+  const prices = new Float64Array(N);
+  let p = startPrice;
+  for (let i = 0; i < N; i++) {
+    const z = rng.normal();
+    p = p * Math.exp(driftPerStep + sigmaPerStep * z);
+    prices[i] = p;
+  }
+  return prices;
+}
+
+/**
+ * Linear approximation of DLMM position composition vs current price.
+ * In a real DLMM the math depends on bin liquidity distribution
+ * (Spot strategy = uniform, Curve = bell-shaped, BidAsk = U-shaped).
+ * Linear is a reasonable mid-point and the SHAPE is what matters for
+ * the comparison.
+ *
+ *   price <= lower → 100% token X (SOL)
+ *   price >= upper → 100% token Y (USDC)
+ *   in range       → linear interpolation
+ */
+function compositionAt(price, lower, upper) {
+  if (price <= lower) return { solPct: 100, usdcPct: 0, inRange: false };
+  if (price >= upper) return { solPct: 0, usdcPct: 100, inRange: false };
+  const usdcPct = ((price - lower) / (upper - lower)) * 100;
+  return { solPct: 100 - usdcPct, usdcPct, inRange: true };
+}
+
+/**
+ * Simulate one strategy's behaviour over the price walk. Returns the
+ * full time-series of position value, plus event records (rebalances,
+ * IL realised, costs).
+ */
+function simulateStrategy({
+  prices,
+  binCount,
+  binStepBps,
+  imbalanceThresholdPct,
+  poolFeeApr,        // % at 20-bin centred
+  initialCapitalUsd,
+  costPerRebalanceUsd = 0.20,
+  swapSlippageBpsBase = 5,
+  jupiterFeeBps = 2,
+}) {
+  const halfRangeFraction = (binCount / 2) * (binStepBps / 10000); // e.g. 20 bins · 4bps → 0.004
+  // Capital-efficiency multiplier vs 20-bin baseline. Inverse-proportional
+  // to range width; clamped so a 5-bin position doesn't get unrealistic.
+  const capitalEfficiencyMultiplier = Math.min(20 / binCount, 6);
+  const feePerMinuteAtCentre = (poolFeeApr / 100 / 365 / 1440) * initialCapitalUsd * capitalEfficiencyMultiplier;
+
+  // Seed initial position centred on starting price.
+  let posCentre = prices[0];
+  let posLower = posCentre * (1 - halfRangeFraction);
+  let posUpper = posCentre * (1 + halfRangeFraction);
+  let posSolAmount = (initialCapitalUsd / 2) / posCentre;
+  let posUsdcAmount = initialCapitalUsd / 2;
+  let posInitialSol = posSolAmount; // for HODL-50/50 reference within this segment
+  let posInitialUsdc = posUsdcAmount;
+  let positionEntryPrice = posCentre;
+
+  const N = prices.length;
+  const valueSeries = new Float64Array(N);
+  const cumIl = new Float64Array(N);
+  const cumCost = new Float64Array(N);
+  const cumFees = new Float64Array(N);
+  const events = []; // rebalance markers
+  let totalFees = 0, totalIl = 0, totalCost = 0;
+  let outOfRangeMinutes = 0;
+  let lastRebalanceTick = 0;
+
+  for (let t = 0; t < N; t++) {
+    const price = prices[t];
+    const comp = compositionAt(price, posLower, posUpper);
+
+    // Earn fees only when in range. Fee earnings scale with how concentrated
+    // the active bin is — narrow positions earn faster but go out of range
+    // faster too.
+    if (comp.inRange) {
+      totalFees += feePerMinuteAtCentre;
+    } else {
+      outOfRangeMinutes++;
+    }
+
+    // Update LP token amounts to reflect current price (linear approx).
+    // Total USD value of position is preserved when in range; out of range,
+    // it's just one token's USD value.
+    let positionValue;
+    if (comp.inRange) {
+      // Linear approximation: the LP composition shifts linearly with price.
+      // We assume the *USD* value tracks halfway between HODL-SOL and HODL-USDC
+      // for the range, which is consistent with Uniswap v3's sqrt-price math
+      // for narrow ranges.
+      const frac = (price - posLower) / (posUpper - posLower); // 0 = bottom, 1 = top
+      // sol amount decreases linearly as price goes up; usdc amount goes the
+      // other way. Total USD = sol*price + usdc.
+      // Linearise to a constant-product approximation: use fixed pos value
+      // bracketed by the composition curve.
+      const totalEquivalentSol = posInitialSol + posInitialUsdc / positionEntryPrice; // if we 100% had SOL at entry
+      const totalEquivalentUsdc = posInitialSol * positionEntryPrice + posInitialUsdc; // 100% USDC at entry
+      // Position value when in-range (constant L approx): geometric mean of
+      // these two extremes weighted by frac.
+      const valueAtBottom = totalEquivalentSol * price;        // 100% SOL
+      const valueAtTop = totalEquivalentUsdc;                  // 100% USDC
+      positionValue = valueAtBottom * (1 - frac) + valueAtTop * frac;
+    } else if (price <= posLower) {
+      // 100% SOL — value = totalEquivSol * price
+      const totalEquivalentSol = posInitialSol + posInitialUsdc / positionEntryPrice;
+      positionValue = totalEquivalentSol * price;
+    } else {
+      // 100% USDC — value frozen at top edge (no further upside)
+      positionValue = posInitialSol * positionEntryPrice + posInitialUsdc;
+    }
+
+    // Trigger rebalance if imbalance crosses threshold.
+    const imbalanced =
+      comp.solPct >= imbalanceThresholdPct ||
+      comp.usdcPct >= imbalanceThresholdPct;
+
+    if (imbalanced && t > lastRebalanceTick + 5) {
+      // IL realised at this moment = (HODL-50/50 since position open)
+      // value − current LP value at this price.
+      const hodl5050Value =
+        posInitialSol * price + posInitialUsdc;
+      const ilRealised = hodl5050Value - positionValue;
+      totalIl += ilRealised;
+
+      // Swap notional is the over-side portion above 50/50.
+      const halfValue = positionValue / 2;
+      let swapNotionalUsd = 0;
+      if (comp.usdcPct >= imbalanceThresholdPct) {
+        swapNotionalUsd = positionValue * (comp.usdcPct - 50) / 100;
+      } else {
+        swapNotionalUsd = positionValue * (comp.solPct - 50) / 100;
+      }
+      // Slippage scales with notional (bigger swaps eat deeper book).
+      const slippageBps = swapSlippageBpsBase + Math.min(swapNotionalUsd / 100000 * 30, 30);
+      const swapCostUsd = swapNotionalUsd * (slippageBps + jupiterFeeBps) / 10000;
+      const cycleCost = costPerRebalanceUsd + swapCostUsd;
+      totalCost += cycleCost;
+
+      events.push({
+        tick: t,
+        price,
+        ilRealised,
+        swapNotionalUsd,
+        swapCostUsd,
+        gasCostUsd: costPerRebalanceUsd,
+      });
+
+      // Re-centre position at current price, 50/50.
+      posCentre = price;
+      posLower = posCentre * (1 - halfRangeFraction);
+      posUpper = posCentre * (1 + halfRangeFraction);
+      const newCapitalUsd = positionValue - cycleCost;
+      posSolAmount = (newCapitalUsd / 2) / posCentre;
+      posUsdcAmount = newCapitalUsd / 2;
+      posInitialSol = posSolAmount;
+      posInitialUsdc = posUsdcAmount;
+      positionEntryPrice = posCentre;
+      lastRebalanceTick = t;
+    }
+
+    valueSeries[t] = positionValue + totalFees - totalCost;
+    cumIl[t] = totalIl;
+    cumCost[t] = totalCost;
+    cumFees[t] = totalFees;
+  }
+
+  return { valueSeries, cumIl, cumCost, cumFees, events, outOfRangeMinutes };
+}
+
+// ========================================================================
+// UI WIRING
+// ========================================================================
+
+const $ = (id) => document.getElementById(id);
+const fmt$ = (n) => (n >= 0 ? '$' : '-$') + Math.abs(n).toFixed(2);
+const fmtPct = (n) => (n >= 0 ? '+' : '') + n.toFixed(2) + '%';
+
+function updateLabels() {
+  $('vol-v').textContent = $('vol').value;
+  $('apr-v').textContent = $('apr').value;
+  $('threshold-v').textContent = $('threshold').value;
+  const binStep = parseFloat($('binStep').value);
+  const binsA = parseInt($('binsA').value);
+  const binsB = parseInt($('binsB').value);
+  $('binsA-v').textContent = binsA;
+  $('binsB-v').textContent = binsB;
+  $('binsA-r').textContent = ((binsA / 2) * binStep / 100).toFixed(2);
+  $('binsB-r').textContent = ((binsB / 2) * binStep / 100).toFixed(2);
+  $('aBins').textContent = binsA;
+  $('bBins').textContent = binsB;
+}
+
+['vol','apr','threshold','binStep','binsA','binsB'].forEach(id => $(id).addEventListener('input', updateLabels));
+updateLabels();
+
+const PRESETS = {
+  stable:    { vol: 1,  apr: 60  },
+  calm:      { vol: 3,  apr: 100 },
+  normal:    { vol: 5,  apr: 150 },
+  choppy:    { vol: 8,  apr: 220 },
+  volatile:  { vol: 12, apr: 320 },
+  memecoin:  { vol: 20, apr: 500 },
+};
+
+function loadPreset(name) {
+  const p = PRESETS[name];
+  if (!p) return;
+  $('vol').value = p.vol;
+  $('apr').value = p.apr;
+  updateLabels();
+  runSim();
+}
+
+let priceChart, pnlChart, lossChart;
+
+function destroyCharts() {
+  if (priceChart) priceChart.destroy();
+  if (pnlChart) pnlChart.destroy();
+  if (lossChart) lossChart.destroy();
+}
+
+function runSim() {
+  const days = parseInt($('days').value);
+  const dailyVol = parseFloat($('vol').value);
+  const apr = parseFloat($('apr').value);
+  const threshold = parseFloat($('threshold').value);
+  const binStep = parseFloat($('binStep').value);
+  const binsA = parseInt($('binsA').value);
+  const binsB = parseInt($('binsB').value);
+  const seed = parseInt($('seed').value);
+  const capital = parseFloat($('capital').value);
+
+  const prices = generatePriceWalk(days, dailyVol, seed);
+  const N = prices.length;
+
+  const A = simulateStrategy({
+    prices, binCount: binsA, binStepBps: binStep,
+    imbalanceThresholdPct: threshold, poolFeeApr: apr,
+    initialCapitalUsd: capital,
+  });
+  const B = simulateStrategy({
+    prices, binCount: binsB, binStepBps: binStep,
+    imbalanceThresholdPct: threshold, poolFeeApr: apr,
+    initialCapitalUsd: capital,
+  });
+
+  // HODL benchmarks. Initial allocation is half SOL, half USDC.
+  const startPrice = prices[0];
+  const initialSol = (capital / 2) / startPrice;
+  const initialUsdc = capital / 2;
+  const hodlSolOnly = new Float64Array(N);
+  const hodlUsdcOnly = new Float64Array(N);
+  const hodl5050 = new Float64Array(N);
+  for (let t = 0; t < N; t++) {
+    hodlSolOnly[t] = (capital / startPrice) * prices[t];
+    hodlUsdcOnly[t] = capital;
+    hodl5050[t] = initialSol * prices[t] + initialUsdc;
+  }
+
+  // Downsample for chart performance — render at most 1500 points.
+  const stride = Math.max(1, Math.ceil(N / 1500));
+  const labels = [];
+  const sample = (arr) => {
+    const out = [];
+    for (let i = 0; i < N; i += stride) out.push(arr[i]);
+    return out;
+  };
+  for (let i = 0; i < N; i += stride) {
+    const minutes = i;
+    const hours = (minutes / 60).toFixed(1);
+    labels.push(hours + 'h');
+  }
+
+  destroyCharts();
+
+  // ─────────── PRICE CHART with rebalance markers ───────────
+  const priceData = sample(prices);
+  const eventToScatter = (events, color) => events.map(e => ({
+    x: ((e.tick / 60).toFixed(1)) + 'h',
+    y: e.price,
+  }));
+
+  priceChart = new Chart($('priceChart').getContext('2d'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label: 'SOL/USD', data: priceData, borderColor: '#e7ecf3', backgroundColor: 'transparent', pointRadius: 0, borderWidth: 1.5, tension: 0.1 },
+        { label: `Rebalances · A (${binsA} bins, ${A.events.length})`, data: eventToScatter(A.events), backgroundColor: getCss('--A'), borderColor: getCss('--A'), pointRadius: 5, pointHoverRadius: 7, showLine: false, type: 'scatter' },
+        { label: `Rebalances · B (${binsB} bins, ${B.events.length})`, data: eventToScatter(B.events), backgroundColor: getCss('--B'), borderColor: getCss('--B'), pointRadius: 5, pointHoverRadius: 7, showLine: false, type: 'scatter' },
+      ]
+    },
+    options: { responsive: true, plugins: { legend: { labels: { color: '#e7ecf3' } } }, scales: chartScales() }
+  });
+
+  // ─────────── PNL CHART ───────────
+  pnlChart = new Chart($('pnlChart').getContext('2d'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label: `Strategy A (${binsA} bins)`, data: sample(A.valueSeries), borderColor: getCss('--A'), backgroundColor: 'transparent', pointRadius: 0, borderWidth: 2, tension: 0.1 },
+        { label: `Strategy B (${binsB} bins)`, data: sample(B.valueSeries), borderColor: getCss('--B'), backgroundColor: 'transparent', pointRadius: 0, borderWidth: 2, tension: 0.1 },
+        { label: 'HODL-only-SOL',   data: sample(hodlSolOnly),   borderColor: getCss('--hodl-sol'),  backgroundColor: 'transparent', pointRadius: 0, borderWidth: 1, borderDash: [4,4], tension: 0.1 },
+        { label: 'HODL-only-USDC',  data: sample(hodlUsdcOnly),  borderColor: getCss('--hodl-usdc'), backgroundColor: 'transparent', pointRadius: 0, borderWidth: 1, borderDash: [4,4] },
+        { label: 'HODL-50/50',      data: sample(hodl5050),      borderColor: getCss('--hodl-5050'), backgroundColor: 'transparent', pointRadius: 0, borderWidth: 1, borderDash: [4,4], tension: 0.1 },
+      ]
+    },
+    options: { responsive: true, plugins: { legend: { labels: { color: '#e7ecf3' } } }, scales: chartScales() }
+  });
+
+  // ─────────── LOSS ATTRIBUTION CHART ───────────
+  // Stacked area: cumulative IL, cumulative gas+swap costs, for each strategy.
+  // Fees earned overlaid as a positive line so you see the offset.
+  lossChart = new Chart($('lossChart').getContext('2d'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label: `A · IL realised`,        data: sample(A.cumIl),    borderColor: getCss('--A'), backgroundColor: 'rgba(93,171,242,0.12)', borderWidth: 1.5, pointRadius: 0, fill: 'origin' },
+        { label: `A · Gas + swap costs`,   data: sample(A.cumCost),  borderColor: getCss('--A'), borderDash: [3,3], borderWidth: 1.2, pointRadius: 0 },
+        { label: `A · Fees earned`,        data: sample(A.cumFees),  borderColor: getCss('--A'), borderDash: [1,2], borderWidth: 1, pointRadius: 0 },
+
+        { label: `B · IL realised`,        data: sample(B.cumIl),    borderColor: getCss('--B'), backgroundColor: 'rgba(232,161,58,0.12)', borderWidth: 1.5, pointRadius: 0, fill: 'origin' },
+        { label: `B · Gas + swap costs`,   data: sample(B.cumCost),  borderColor: getCss('--B'), borderDash: [3,3], borderWidth: 1.2, pointRadius: 0 },
+        { label: `B · Fees earned`,        data: sample(B.cumFees),  borderColor: getCss('--B'), borderDash: [1,2], borderWidth: 1, pointRadius: 0 },
+      ]
+    },
+    options: { responsive: true, plugins: { legend: { labels: { color: '#e7ecf3' } } }, scales: chartScales() }
+  });
+
+  // ─────────── SUMMARY PANELS ───────────
+  fillSummary('a', A, capital, hodlSolOnly[N-1], hodl5050[N-1], days);
+  fillSummary('b', B, capital, hodlSolOnly[N-1], hodl5050[N-1], days);
+
+  // ─────────── RECOMMENDATION ───────────
+  const aFinal = A.valueSeries[N-1];
+  const bFinal = B.valueSeries[N-1];
+  const winner = aFinal > bFinal ? 'A' : 'B';
+  const winnerBins = winner === 'A' ? binsA : binsB;
+  const margin = Math.abs(aFinal - bFinal);
+  const marginPct = (margin / capital * 100);
+  let regime = '';
+  if (dailyVol < 2) regime = 'this is a stable-pair regime';
+  else if (dailyVol < 6) regime = 'this is calm SOL territory';
+  else if (dailyVol < 12) regime = 'this is normal/choppy SOL';
+  else regime = 'this is high-vol territory';
+
+  const aOorPct = (A.outOfRangeMinutes / N * 100).toFixed(1);
+  const bOorPct = (B.outOfRangeMinutes / N * 100).toFixed(1);
+
+  $('recommend').innerHTML = `
+    <strong>Strategy ${winner} (${winnerBins} bins) wins this run by ${fmt$(margin)} (${fmtPct(marginPct)} of capital) over ${days} day${days===1?'':'s'}.</strong>
+    At ${dailyVol}% daily vol, ${regime}.
+    Strategy A spent <strong>${aOorPct}%</strong> out of range; Strategy B spent <strong>${bOorPct}%</strong>.
+    A triggered <strong>${A.events.length}</strong> rebalances (${(A.events.length/days).toFixed(1)}/day);
+    B triggered <strong>${B.events.length}</strong> (${(B.events.length/days).toFixed(1)}/day).
+    Fee gap: A earned ${fmt$(A.cumFees[N-1])}, B earned ${fmt$(B.cumFees[N-1])}.
+    Cost gap: A paid ${fmt$(A.cumCost[N-1])}, B paid ${fmt$(B.cumCost[N-1])}.
+    Try a different seed (or a different vol regime) to test the conclusion's robustness.
+  `;
+}
+
+function fillSummary(prefix, sim, capital, hodlSolFinal, hodl5050Final, days) {
+  const N = sim.valueSeries.length;
+  const final = sim.valueSeries[N-1];
+  const net = final - capital;
+  const fees = sim.cumFees[N-1];
+  const il = sim.cumIl[N-1];
+  const cost = sim.cumCost[N-1];
+  const oor = sim.outOfRangeMinutes;
+
+  $(prefix + '-net').textContent = fmt$(net);
+  $(prefix + '-net').className = 'v ' + (net >= 0 ? 'pos' : 'neg');
+
+  const vsSol = final - hodlSolFinal;
+  $(prefix + '-vs-sol').textContent = fmt$(vsSol);
+  $(prefix + '-vs-sol').className = 'v ' + (vsSol >= 0 ? 'pos' : 'neg');
+
+  const vs5050 = final - hodl5050Final;
+  $(prefix + '-vs-5050').textContent = fmt$(vs5050);
+  $(prefix + '-vs-5050').className = 'v ' + (vs5050 >= 0 ? 'pos' : 'neg');
+
+  $(prefix + '-fees').textContent = fmt$(fees);
+  $(prefix + '-il').textContent = fmt$(il);
+  $(prefix + '-il').className = 'v ' + (il <= 0 ? 'pos' : 'neg');
+  $(prefix + '-cost').textContent = fmt$(cost);
+  $(prefix + '-cost').className = 'v neg';
+  $(prefix + '-oor').textContent = (oor / N * 100).toFixed(1) + '%  (' + (oor / 60).toFixed(1) + 'h)';
+  $(prefix + '-rb').textContent = sim.events.length;
+  const interval = sim.events.length > 0 ? (N / sim.events.length / 60).toFixed(2) + 'h' : '—';
+  $(prefix + '-int').textContent = interval;
+}
+
+function chartScales() {
+  return {
+    x: { ticks: { color: '#8a96a8', maxTicksLimit: 10 }, grid: { color: 'rgba(255,255,255,0.05)' } },
+    y: { ticks: { color: '#8a96a8' }, grid: { color: 'rgba(255,255,255,0.05)' } }
+  };
+}
+
+function getCss(varName) {
+  return getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
+}
+
+// Run an initial simulation on load with default values (normal SOL).
+window.addEventListener('load', () => {
+  loadPreset('normal');
+});
+</script>
+
+</body>
+</html>

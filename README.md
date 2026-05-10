@@ -274,6 +274,7 @@ For GCP deployment, the persistent paths documented by the project are:
 ## Documentation
 
 - [Tiered procedural runbook](docs/TIERED_PROCEDURAL_RUNBOOK.md)
+- [Interactive Meteora pool tracker diagram](docs/interactive-meteora-pool-tracker-diagram.html)
 - [API reference](docs/API.md)
 - [Position tracking fix](docs/POSITION_TRACKING_FIX.md)
 - [GCP Pulumi deployment](deploy/gcp/pulumi/README.md)

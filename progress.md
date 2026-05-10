@@ -49,6 +49,17 @@
 
 ## 2026-05-08
 
+### Documentation Asset - Interactive Pool Tracker Diagram
+
+**Tasks Completed:**
+- [x] Added `docs/interactive-meteora-pool-tracker-diagram.html` as a standalone interactive HTML architecture diagram.
+- [x] Linked the diagram from `README.md`.
+
+**Notes:**
+- The diagram covers pool discovery, caching, scoring, risk guardrails, operator approval, auto-tune execution, Jupiter swaps, Meteora positions, and state files.
+
+---
+
 ### Runtime Fix - Meteora DLMM Load Under Node 24
 
 **Tasks Completed:**

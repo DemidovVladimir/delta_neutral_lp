@@ -67,6 +67,7 @@ import {
   calculateCenteredPriceRange,
   getActiveBin,
   getPriceFromBinId,
+  isWalletBalancedFor5050,
 } from '../utils/meteoraUtils.js';
 import {
   AutoTuneState,
@@ -80,6 +81,12 @@ import {
   updateUnclaimedLpFees,
 } from './persistence.js';
 import { trackBatchTransactionFees } from '../utils/transactionUtils.js';
+import {
+  recordPositionSnapshot,
+  recordRebalanceTriggered,
+  recordRebalanceCompleted,
+  findOpenPositionIdByMint,
+} from './pnlDb.js';
 
 // Token mint addresses
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
@@ -360,7 +367,7 @@ export class AutoTuneOrchestrator {
           });
         }
 
-        const result = await this.executeRebalance(currentPrice);
+        const result = await this.executeRebalance(currentPrice, balance);
 
         if (result.success) {
           if (!this.watchMode) {
@@ -549,6 +556,22 @@ export class AutoTuneOrchestrator {
       // Update unclaimed fees in state.json for unified tracking
       updateUnclaimedLpFees(position.claimableSol, position.claimableUsdc);
 
+      // PnL DB: per-tick snapshot. We have everything we need in scope —
+      // current price, principal token amounts, unclaimed fees, composition.
+      // The DB helper computes the three HODL benchmark values from the
+      // open-position row (no extra orchestrator math needed). Skipped
+      // silently when the position pre-existed the DB.
+      recordPositionSnapshot({
+        positionMint: position.mint,
+        currentPriceSolUsd: currentPrice,
+        positionSol: position.solAmount,
+        positionUsdc: position.usdcAmount,
+        unclaimedFeesSol: position.claimableSol,
+        unclaimedFeesUsdc: position.claimableUsdc,
+        compositionSolPct: imbalanceCheck.solPercent,
+        compositionUsdcPct: imbalanceCheck.usdcPercent,
+      });
+
       return {
         solPercent: imbalanceCheck.solPercent,
         usdcPercent: imbalanceCheck.usdcPercent,
@@ -731,9 +754,28 @@ export class AutoTuneOrchestrator {
    * - Simple retry logic: max 3 attempts with exponential backoff
    * - Retries are for network errors only (swap already executed if needed)
    */
-  private async executeRebalance(currentPrice: number): Promise<RebalanceResult> {
+  private async executeRebalance(
+    currentPrice: number,
+    triggerBalance?: PositionBalance,
+  ): Promise<RebalanceResult> {
     const startTime = Date.now();
     log.debug('Using SOL price for rebalance cycle', { price: currentPrice });
+
+    // ──────────────────────────────────────────────────────────────────────
+    // PnL DB: open the rebalance row at trigger time. We update it as we
+    // make progress so a crash mid-rebalance still leaves a row with
+    // success=0 and the trigger context — useful for post-mortem.
+    // ──────────────────────────────────────────────────────────────────────
+    const oldPositionDbIdEarly = this.state.currentPositionMint
+      ? findOpenPositionIdByMint(this.state.currentPositionMint)
+      : null;
+    const rebalanceDbId = recordRebalanceTriggered({
+      oldPositionId: oldPositionDbIdEarly,
+      triggerSolPct: triggerBalance?.solPercent ?? 0,
+      triggerUsdcPct: triggerBalance?.usdcPercent ?? 0,
+      triggerPriceSolUsd: currentPrice,
+      triggerReason: triggerBalance?.reason ?? 'imbalance_threshold_crossed',
+    });
 
     try {
 
@@ -944,97 +986,190 @@ export class AutoTuneOrchestrator {
       );
 
       // ========================================================================
-      // PRE-FLIGHT + SWAP DECISION
+      // ALIGNMENT TO 50/50 — mandatory second leg of the rebalance
       // ========================================================================
-      // Delegated to planSwapForDeposit() — pure helper shared with
-      // createInitialPosition. Throws InsufficientFunds-style errors when no
-      // swap can fund the requested position; returns { needed: false } when
-      // wallet already covers the target. After proportional scaling above,
-      // most cycles land on { needed: false } unless price moved significantly.
-      const swapPlan: SwapPlan = planSwapForDeposit({
-        walletSol: actualSol,
-        walletUsdc: actualUsdc,
-        targetSol: solAmount,
-        targetUsdc: usdcAmount,
-        permanentMinimumSol: this.config.minimumWalletBalanceSol,
-        rentReserveSol: this.config.rentReserveSol,
+      //
+      // Phase 1 just emptied a position that was 92%+ on one side (that's
+      // the trigger threshold). The wallet now inherits that lopsided mix.
+      // Re-depositing without first swapping back to 50/50 means the new
+      // position starts already off-centre — taking on inverse exposure
+      // that compounds impermanent loss every minute the trend continues.
+      // The swap-to-50/50 is the only thing that locks in the current
+      // price and resets the IL clock.
+      //
+      // So: at this point in the rebalance flow, the alignment swap is
+      // mandatory. The ONLY case for skipping it is the validation gate
+      // below — and if that gate ever fires in production it's a signal
+      // that something is wrong with the trigger or the snapshot, not
+      // a fee-saving optimization.
+      //
+      // The actual `executeSwap` still relies on planSwapForDeposit to
+      // compute direction + amount + apply per-token guards. Inside the
+      // skewed branch, planSwapForDeposit may STILL return `needed: false`
+      // — that happens when the orchestrator already scaled the target
+      // down proportionally (preserving 50/50 ratio) so the existing
+      // wallet covers the scaled target. In that case Phase 2 deposits
+      // a smaller-but-balanced position from current wallet, which is
+      // semantically equivalent to "swap to 50/50" with zero swap input.
+      // ========================================================================
+
+      // `totalReserve` was already computed upstream alongside maxDepositableSol.
+      const balanceCheck = isWalletBalancedFor5050(
+        actualSol,
+        actualUsdc,
         currentPrice,
-        slippageBufferPct: this.config.swapSlippageBufferPct / 100,
-        context: 'rebalance',
-        autoTuneDepositAmount: this.config.autoTuneDepositAmount,
-      });
+        totalReserve,
+      );
 
-      const availableSolForSwap = swapPlan.availableSolForSwap;
+      let availableSolForSwap = 0;
+      let usedSwap = false;
 
-      if (swapPlan.needed && swapPlan.swap) {
-        const { swap, shortfall } = swapPlan;
-        const missingToken = shortfall.sol > 0 ? 'SOL' : 'USDC';
-        const missingAmount = shortfall.sol > 0 ? shortfall.sol : shortfall.usdc;
-        log.warn(`⚠️  Insufficient ${missingToken} (need ${missingAmount.toFixed(4)} more) - executing swap`);
+      if (balanceCheck.balanced) {
+        // ────────────────────────────────────────────────────────────────────
+        // VALIDATION GATE: imbalance trigger fired but wallet is already
+        // 50/50 ±10% post-Phase-1. This contradicts the trigger's premise.
+        // Log it loudly and skip the swap; Phase 2 proceeds with current
+        // wallet (which is already balanced — no IL gain from a swap).
+        //
+        // Use errorBanner severity so this never gets sampled out of GCP
+        // logs — it's a "your assumptions don't match reality" event the
+        // operator must see.
+        // ────────────────────────────────────────────────────────────────────
+        log.errorBanner(
+          '⚠️  Imbalance trigger fired but wallet is already 50/50 ±10% — skipping alignment swap',
+          {
+            walletSolRatio: balanceCheck.walletSolRatio.toFixed(3),
+            walletTotalUsd: balanceCheck.walletTotalUsd.toFixed(2),
+            walletSol: actualSol.toFixed(4),
+            walletUsdc: actualUsdc.toFixed(2),
+            triggerSolPct:
+              triggerBalance?.solPercent?.toFixed(1) ?? 'unknown',
+            triggerUsdcPct:
+              triggerBalance?.usdcPercent?.toFixed(1) ?? 'unknown',
+            diagnostic:
+              'Validation gate hit. Expected behaviour: trigger fires but wallet does ' +
+              'not actually reflect imbalance. Likely causes: stale position-balance ' +
+              'snapshot between check and rebalance, manual external rebalance, ' +
+              'imbalance threshold misconfigured (' +
+              `${(this.config.autoTuneImbalanceThreshold * 100).toFixed(0)}% currently), ` +
+              'or position closed externally. If this recurs across cycles, investigate.',
+          },
+        );
+      } else {
+        // ────────────────────────────────────────────────────────────────────
+        // SKEWED WALLET — execute the alignment swap (the normal post-92%
+        // trigger path). planSwapForDeposit picks direction + amount + runs
+        // total-value pre-flight + per-token guards. May still return
+        // needed=false if the target was scaled down enough that the
+        // existing skewed wallet covers it; that is OK and intentional.
+        // ────────────────────────────────────────────────────────────────────
+        log.info('🎯 Wallet skewed — executing alignment swap', {
+          walletSolRatio: balanceCheck.walletSolRatio.toFixed(3),
+          walletSol: actualSol.toFixed(4),
+          walletUsdc: actualUsdc.toFixed(2),
+        });
 
-        if (swap.direction === 'SOL_TO_USDC') {
-          log.info('Calculating SOL → USDC swap', {
-            usdcShortfall: shortfall.usdc,
-            currentPrice,
-            bufferMultiplier: 1 + this.config.swapSlippageBufferPct / 100,
-            solToSwap: swap.amount,
-            availableSolForSwap,
-          });
-          log.info(`🔄 Swapping ${swap.amount.toFixed(4)} SOL → ${swap.expectedOutput.toFixed(2)} USDC`);
-        } else {
-          log.info('Calculating USDC → SOL swap', {
-            solShortfall: shortfall.sol,
-            currentPrice,
-            bufferMultiplier: 1 + this.config.swapSlippageBufferPct / 100,
-            usdcToSwap: swap.amount,
-            actualUsdc,
-          });
-          log.info(`🔄 Swapping ${swap.amount.toFixed(2)} USDC → ${swap.expectedOutput.toFixed(4)} SOL`);
-        }
+        const swapPlan: SwapPlan = planSwapForDeposit({
+          walletSol: actualSol,
+          walletUsdc: actualUsdc,
+          targetSol: solAmount,
+          targetUsdc: usdcAmount,
+          permanentMinimumSol: this.config.minimumWalletBalanceSol,
+          rentReserveSol: this.config.rentReserveSol,
+          currentPrice,
+          slippageBufferPct: this.config.swapSlippageBufferPct / 100,
+          context: 'rebalance',
+          autoTuneDepositAmount: this.config.autoTuneDepositAmount,
+        });
 
-        const swapParams = {
-          inputMint: swap.inputMint,
-          outputMint: swap.outputMint,
-          amount: swap.amount,
-        };
+        availableSolForSwap = swapPlan.availableSolForSwap;
+        usedSwap = swapPlan.needed;
 
-        // Execute swap
-        try {
-          const swapResult = await this.jupiterSwapper.executeSwap(swapParams);
-          this.logSwapOutcome(swapResult);
+        if (swapPlan.needed && swapPlan.swap) {
+          const { swap, shortfall } = swapPlan;
+          const missingToken = shortfall.sol > 0 ? 'SOL' : 'USDC';
+          const missingAmount = shortfall.sol > 0 ? shortfall.sol : shortfall.usdc;
+          log.warn(`⚠️  Insufficient ${missingToken} (need ${missingAmount.toFixed(4)} more) - executing swap`);
 
-          // Wait for balance to update
-          await new Promise(resolve => setTimeout(resolve, 2000));
-        } catch (swapError) {
-          // Swap failed - log current wallet balances to help debug
-          const currentSolBalance = await connection.getBalance(wallet.publicKey);
-          const currentActualSol = currentSolBalance / Math.pow(10, 9);
-          const currentActualUsdc = await this.getUsdcBalance();
-
-          log.errorBanner('❌ Swap failed - current wallet balances', {
-            error: swapError instanceof Error ? swapError.message : String(swapError),
-            walletBalances: {
-              sol: currentActualSol,
-              usdc: currentActualUsdc,
-            },
-            swapParams: {
-              inputMint: swapParams.inputMint === SOL_MINT ? 'SOL' : 'USDC',
-              outputMint: swapParams.outputMint === SOL_MINT ? 'SOL' : 'USDC',
-              amount: swapParams.amount,
-            },
-          });
-
-          // Check if position still exists on blockchain (funds might be locked)
-          const positionsAfterSwapFailure = await this.meteoraAdapter.discoverPositionsFromBlockchain();
-          if (positionsAfterSwapFailure.length > 0) {
-            log.errorBanner('⚠️  UNCLOSED POSITION DETECTED', {
-              message: 'Funds may be locked in position that was not properly closed',
-              positions: positionsAfterSwapFailure,
-              suggestion: 'Manually close position from Meteora dashboard or retry rebalance',
+          if (swap.direction === 'SOL_TO_USDC') {
+            log.info('Calculating SOL → USDC swap', {
+              usdcShortfall: shortfall.usdc,
+              currentPrice,
+              bufferMultiplier: 1 + this.config.swapSlippageBufferPct / 100,
+              solToSwap: swap.amount,
+              availableSolForSwap,
             });
+            log.info(`🔄 Swapping ${swap.amount.toFixed(4)} SOL → ${swap.expectedOutput.toFixed(2)} USDC`);
+          } else {
+            log.info('Calculating USDC → SOL swap', {
+              solShortfall: shortfall.sol,
+              currentPrice,
+              bufferMultiplier: 1 + this.config.swapSlippageBufferPct / 100,
+              usdcToSwap: swap.amount,
+              actualUsdc,
+            });
+            log.info(`🔄 Swapping ${swap.amount.toFixed(2)} USDC → ${swap.expectedOutput.toFixed(4)} SOL`);
           }
 
-          throw swapError; // Re-throw to prevent position creation
+          const swapParams = {
+            inputMint: swap.inputMint,
+            outputMint: swap.outputMint,
+            amount: swap.amount,
+            context: 'rebalance' as const,
+            priceSolUsd: currentPrice,
+          };
+
+          // Execute swap
+          try {
+            const swapResult = await this.jupiterSwapper.executeSwap(swapParams);
+            this.logSwapOutcome(swapResult);
+
+            // Wait for balance to update
+            await new Promise(resolve => setTimeout(resolve, 2000));
+          } catch (swapError) {
+            // Swap failed - log current wallet balances to help debug
+            const currentSolBalance = await connection.getBalance(wallet.publicKey);
+            const currentActualSol = currentSolBalance / Math.pow(10, 9);
+            const currentActualUsdc = await this.getUsdcBalance();
+
+            log.errorBanner('❌ Swap failed - current wallet balances', {
+              error: swapError instanceof Error ? swapError.message : String(swapError),
+              walletBalances: {
+                sol: currentActualSol,
+                usdc: currentActualUsdc,
+              },
+              swapParams: {
+                inputMint: swapParams.inputMint === SOL_MINT ? 'SOL' : 'USDC',
+                outputMint: swapParams.outputMint === SOL_MINT ? 'SOL' : 'USDC',
+                amount: swapParams.amount,
+              },
+            });
+
+            // Check if position still exists on blockchain (funds might be locked)
+            const positionsAfterSwapFailure = await this.meteoraAdapter.discoverPositionsFromBlockchain();
+            if (positionsAfterSwapFailure.length > 0) {
+              log.errorBanner('⚠️  UNCLOSED POSITION DETECTED', {
+                message: 'Funds may be locked in position that was not properly closed',
+                positions: positionsAfterSwapFailure,
+                suggestion: 'Manually close position from Meteora dashboard or retry rebalance',
+              });
+            }
+
+            throw swapError; // Re-throw to prevent position creation
+          }
+        } else {
+          // Skewed wallet but planSwapForDeposit returned needed=false —
+          // means scaling already produced a target the existing skewed
+          // wallet can fund. Phase 2 will deposit a (smaller, balanced)
+          // position. This is the "scale-down covered the gap" path.
+          log.info(
+            'Wallet skewed but post-scale target fits without a swap — proceeding to Phase 2',
+            {
+              walletSolRatio: balanceCheck.walletSolRatio.toFixed(3),
+              targetSol: solAmount,
+              targetUsdc: usdcAmount,
+            },
+          );
         }
       }
 
@@ -1047,7 +1182,11 @@ export class AutoTuneOrchestrator {
       let newPositionMint = '';
       let createSignatures: string[] = [];
       let lastError: Error | null = null;
-      let usedSwap = swapPlan.needed; // Track if we used swap
+      // `usedSwap` was declared upstream alongside the alignment-gate
+      // branches; it's true if the alignment swap fired, false if either
+      // the validation gate skipped it or the planner returned needed=false
+      // after scaling. Phase-2-retry-swap may flip it true later in the
+      // loop below.
 
       while (attempt < this.config.autoTuneMaxRetries) {
         attempt++;
@@ -1119,6 +1258,8 @@ export class AutoTuneOrchestrator {
                 inputMint: swap.inputMint,
                 outputMint: swap.outputMint,
                 amount: swap.amount,
+                context: 'retry-rebalance',
+                priceSolUsd: currentPrice,
               });
               this.logSwapOutcome(swapResult, 'Retry swap');
               // Wait for balance to update — same settle window as the
@@ -1183,6 +1324,28 @@ export class AutoTuneOrchestrator {
       const durationMs = Date.now() - startTime;
       log.info(`✅ Rebalance complete in ${(durationMs / 1000).toFixed(1)}s${usedSwap ? ' (with swap)' : ''}`);
 
+      // PnL DB: close out the rebalance row with the new-position FK and
+      // the three signatures. The new-position FK lookup is best-effort —
+      // recordPositionOpened ran inside meteoraAdapter.createPosition, so by
+      // the time we reach here the row exists (synchronous code path).
+      if (rebalanceDbId !== null) {
+        recordRebalanceCompleted({
+          rebalanceId: rebalanceDbId,
+          newPositionId: findOpenPositionIdByMint(newPositionMint),
+          claimedFeesSol: withdrawResult.claimedFees.sol,
+          claimedFeesUsdc: withdrawResult.claimedFees.usdc,
+          withdrawSignature: withdrawResult.signature,
+          createSignature: createSignatures[0],
+          // swap_signature is not threaded through in the success path's local
+          // scope — would require capturing the swap-result signature when
+          // logSwapOutcome runs. Could revisit if/when we want signature-
+          // level rebalance ↔ swap joins; the swaps table already groups by
+          // context='rebalance' which gets us most of the way there.
+          success: true,
+          durationMs,
+        });
+      }
+
       return {
         success: true,
         oldPositionMint,
@@ -1203,6 +1366,19 @@ export class AutoTuneOrchestrator {
       log.errorBanner('Rebalance failed', {
         error: errorMessage,
       });
+
+      // PnL DB: record the failure with the error message and duration.
+      // Even on failure we want a row to exist so the operator's "rebalance
+      // count" matches reality and so error patterns can be aggregated by
+      // strategy_version.
+      if (rebalanceDbId !== null) {
+        recordRebalanceCompleted({
+          rebalanceId: rebalanceDbId,
+          success: false,
+          errorMessage,
+          durationMs,
+        });
+      }
 
       return {
         success: false,
@@ -1359,6 +1535,8 @@ export class AutoTuneOrchestrator {
           inputMint: swap.inputMint,
           outputMint: swap.outputMint,
           amount: swap.amount,
+          context: 'initial-position' as const,
+          priceSolUsd: activeBinPrice,
         };
 
         log.info(`🔄 Swapping ${swap.direction === 'USDC_TO_SOL' ? swap.amount.toFixed(2) + ' USDC → SOL' : swap.amount.toFixed(4) + ' SOL → USDC'}`);

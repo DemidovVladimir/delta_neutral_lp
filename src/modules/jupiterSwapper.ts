@@ -52,6 +52,7 @@ import { log } from '../utils/logger.js';
 import { getConfig } from '../config/env.js';
 import { TransactionError } from '../types/index.js';
 import { fetch } from 'undici';
+import { recordSwap, recordTransaction } from './pnlDb.js';
 
 // Token mint addresses (Solana mainnet)
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
@@ -67,6 +68,20 @@ export interface SwapParams {
   outputMint: string; // Token to swap to
   amount: number; // Amount in lamports/smallest unit (e.g., lamports for SOL, base units for USDC)
   slippageBps?: number; // Slippage tolerance in basis points (default: 50 = 0.5%)
+  /**
+   * Where this swap is being executed from. Stored on the PnL `swaps` row so
+   * post-mortem analysis can split costs by origin (was the swap part of an
+   * initial-position bootstrap, a normal rebalance, or a retry top-up?).
+   * Defaults to 'rebalance' for legacy callers that don't pass it.
+   */
+  context?: 'initial-position' | 'rebalance' | 'retry-rebalance';
+  /**
+   * Optional SOL/USD price observed by the caller at the moment the swap was
+   * planned. Persisted on the `swaps` row for accurate volume math later
+   * (Jupiter's order response carries usd values, but we may want to pin to
+   * the orchestrator's price source for consistency with positions/snapshots).
+   */
+  priceSolUsd?: number;
 }
 
 export interface OrderResponse {
@@ -382,6 +397,47 @@ export class JupiterSwapper {
       // absolute percentage so callers can do simple `> threshold` checks.
       const priceImpactPct = parsePriceImpactPctFromOrder(order);
 
+      // ──────────────────────────────────────────────────────────────────
+      // PnL DB: record the swap + its transaction. Use the orchestrator-
+      // provided context, defaulting to 'rebalance' for legacy callers.
+      // We record *only* successful swaps in this branch — the failure
+      // branch below records its own row with success=0 so the operator
+      // can see attempted-but-failed swap volume in the PnL CLI.
+      // ──────────────────────────────────────────────────────────────────
+      const direction =
+        params.inputMint === SOL_MINT && params.outputMint === USDC_MINT
+          ? 'SOL_TO_USDC'
+          : 'USDC_TO_SOL';
+      recordSwap({
+        signature: executeResponse.signature,
+        direction,
+        inputMint: params.inputMint,
+        outputMint: params.outputMint,
+        inputAmount,
+        expectedOutput: order.outAmount
+          ? this.fromRawAmount(order.outAmount, params.outputMint)
+          : undefined,
+        actualOutput: outputAmount,
+        priceImpactPct,
+        slippageBps: params.slippageBps ?? this.config.swapSlippageBps,
+        slippageBufferPct: this.config.swapSlippageBufferPct,
+        priceSolUsd: params.priceSolUsd,
+        context: params.context ?? 'rebalance',
+        success: executeResponse.status === 'Success',
+      });
+      recordTransaction({
+        signature: executeResponse.signature,
+        kind: 'swap',
+        success: executeResponse.status === 'Success',
+        rawMeta: {
+          direction,
+          inputAmount,
+          outputAmount,
+          priceImpactPct,
+          context: params.context ?? 'rebalance',
+        },
+      });
+
       return {
         signature: executeResponse.signature,
         inputAmount,
@@ -396,6 +452,31 @@ export class JupiterSwapper {
         error: error instanceof Error ? error.message : String(error),
         params,
         durationMs,
+      });
+
+      // Record the failed attempt so the operator can see it in the PnL CLI.
+      // No on-chain signature available here (the failure happened during
+      // order-fetch or signing), so we synthesize one from timestamp + input
+      // amount; the UNIQUE constraint on signature won't fire because each
+      // failure is unique by timestamp. This matters for diagnosing the
+      // "566.81 USDC swap with 9.43 USDC on hand" class of bugs after the fact.
+      const direction =
+        params.inputMint === SOL_MINT && params.outputMint === USDC_MINT
+          ? 'SOL_TO_USDC'
+          : 'USDC_TO_SOL';
+      const failureSignature = `failed-${Date.now()}-${params.inputMint.slice(0, 6)}`;
+      recordSwap({
+        signature: failureSignature,
+        direction,
+        inputMint: params.inputMint,
+        outputMint: params.outputMint,
+        inputAmount: params.amount,
+        slippageBps: params.slippageBps ?? this.config.swapSlippageBps,
+        slippageBufferPct: this.config.swapSlippageBufferPct,
+        priceSolUsd: params.priceSolUsd,
+        context: params.context ?? 'rebalance',
+        success: false,
+        errorMessage: error instanceof Error ? error.message : String(error),
       });
 
       throw new TransactionError('Swap execution failed', {

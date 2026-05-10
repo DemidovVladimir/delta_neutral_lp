@@ -1,0 +1,613 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Meteora Pool Tracker Interactive Diagram</title>
+  <style>
+    :root {
+      --bg: #f6f7f9;
+      --panel: #ffffff;
+      --ink: #17202a;
+      --muted: #5f6b7a;
+      --line: #cfd6df;
+      --blue: #2563eb;
+      --green: #0f766e;
+      --amber: #b45309;
+      --red: #b91c1c;
+      --shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+    }
+
+    header {
+      padding: 24px 32px 12px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel);
+    }
+
+    h1 {
+      margin: 0 0 6px;
+      font-size: 24px;
+      font-weight: 720;
+      letter-spacing: 0;
+    }
+
+    .subhead {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.45;
+      max-width: 920px;
+    }
+
+    main {
+      display: grid;
+      grid-template-columns: minmax(640px, 1fr) 360px;
+      gap: 18px;
+      padding: 20px 24px 24px;
+      min-height: calc(100vh - 94px);
+    }
+
+    .canvas-wrap {
+      position: relative;
+      min-height: 680px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .toolbar {
+      position: absolute;
+      top: 14px;
+      left: 14px;
+      z-index: 4;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    button {
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--ink);
+      height: 34px;
+      padding: 0 12px;
+      font-size: 13px;
+      font-weight: 620;
+      cursor: pointer;
+    }
+
+    button[aria-pressed="true"] {
+      border-color: var(--blue);
+      color: var(--blue);
+      background: #eff6ff;
+    }
+
+    svg {
+      display: block;
+      width: 100%;
+      height: 100%;
+      min-height: 680px;
+      user-select: none;
+    }
+
+    .node rect {
+      fill: #fff;
+      stroke: #b8c2cf;
+      stroke-width: 1.4;
+      rx: 8;
+      filter: drop-shadow(0 5px 10px rgba(15, 23, 42, 0.08));
+      transition: fill 160ms ease, stroke 160ms ease, stroke-width 160ms ease;
+    }
+
+    .node text {
+      pointer-events: none;
+      font-size: 13px;
+      fill: var(--ink);
+      font-weight: 650;
+      letter-spacing: 0;
+    }
+
+    .node .small {
+      font-size: 11px;
+      fill: var(--muted);
+      font-weight: 520;
+    }
+
+    .node:hover rect,
+    .node.selected rect {
+      stroke: var(--blue);
+      stroke-width: 2.2;
+      fill: #f8fbff;
+    }
+
+    .node.source rect {
+      stroke-color: var(--green);
+    }
+
+    .node.execution rect {
+      stroke: #d59a38;
+    }
+
+    .node.risk rect {
+      stroke: #d16a6a;
+    }
+
+    .edge {
+      fill: none;
+      stroke: #98a4b3;
+      stroke-width: 1.8;
+      marker-end: url(#arrow);
+      transition: stroke 160ms ease, stroke-width 160ms ease, opacity 160ms ease;
+    }
+
+    .edge.dimmed,
+    .node.dimmed {
+      opacity: 0.22;
+    }
+
+    .edge.active {
+      stroke: var(--blue);
+      stroke-width: 3;
+      opacity: 1;
+    }
+
+    .side {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+      padding: 18px;
+    }
+
+    .panel h2 {
+      margin: 0 0 8px;
+      font-size: 16px;
+      letter-spacing: 0;
+    }
+
+    .panel p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .facts {
+      display: grid;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .fact {
+      padding: 10px;
+      background: #f8fafc;
+      border: 1px solid #e5eaf0;
+    }
+
+    .fact b {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .fact span {
+      font-size: 13px;
+      line-height: 1.35;
+    }
+
+    .legend {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .swatch {
+      width: 14px;
+      height: 14px;
+      border: 2px solid var(--line);
+      background: #fff;
+    }
+
+    .swatch.green {
+      border-color: var(--green);
+    }
+
+    .swatch.amber {
+      border-color: var(--amber);
+    }
+
+    .swatch.red {
+      border-color: var(--red);
+    }
+
+    .swatch.blue {
+      border-color: var(--blue);
+    }
+
+    @media (max-width: 980px) {
+      main {
+        grid-template-columns: 1fr;
+      }
+
+      .canvas-wrap {
+        min-height: 620px;
+      }
+
+      svg {
+        min-height: 620px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Meteora Pool Tracker And Auto-Tune Architecture</h1>
+    <p class="subhead">Interactive map for adding programmatic Meteora pool tracking to the existing bot. Select a node to see responsibilities, inputs, outputs, and operational concerns.</p>
+  </header>
+
+  <main>
+    <section class="canvas-wrap" aria-label="Interactive architecture diagram">
+      <div class="toolbar">
+        <button type="button" data-filter="all" aria-pressed="true">All</button>
+        <button type="button" data-filter="discovery" aria-pressed="false">Discovery</button>
+        <button type="button" data-filter="selection" aria-pressed="false">Selection</button>
+        <button type="button" data-filter="execution" aria-pressed="false">Execution</button>
+        <button type="button" data-filter="risk" aria-pressed="false">Risk</button>
+      </div>
+
+      <svg viewBox="0 0 1040 700" role="img" aria-labelledby="diagramTitle diagramDesc">
+        <title id="diagramTitle">Meteora pool tracker and auto-tune architecture</title>
+        <desc id="diagramDesc">A directed architecture diagram from pool discovery through scoring, approval, execution, and persistence.</desc>
+        <defs>
+          <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+            <path d="M0,0 L0,6 L9,3 z" fill="#98a4b3"></path>
+          </marker>
+        </defs>
+
+        <path class="edge" data-from="api" data-to="tracker" d="M185 128 C250 128, 265 178, 330 178"></path>
+        <path class="edge" data-from="rpc" data-to="tracker" d="M185 258 C250 258, 265 218, 330 218"></path>
+        <path class="edge" data-from="tracker" data-to="cache" d="M510 198 C560 198, 585 198, 635 198"></path>
+        <path class="edge" data-from="cache" data-to="scorer" d="M815 198 C850 198, 870 245, 870 280"></path>
+        <path class="edge" data-from="price" data-to="scorer" d="M690 345 C735 345, 780 325, 810 310"></path>
+        <path class="edge" data-from="scorer" data-to="policy" d="M810 380 C740 430, 625 430, 555 380"></path>
+        <path class="edge" data-from="policy" data-to="approval" d="M445 380 C445 430, 445 455, 445 500"></path>
+        <path class="edge" data-from="approval" data-to="orchestrator" d="M535 525 C590 525, 625 525, 680 525"></path>
+        <path class="edge" data-from="orchestrator" data-to="meteora" d="M830 495 C885 450, 910 410, 920 350"></path>
+        <path class="edge" data-from="orchestrator" data-to="jupiter" d="M830 555 C880 575, 915 595, 940 625"></path>
+        <path class="edge" data-from="orchestrator" data-to="state" d="M680 555 C590 605, 455 620, 320 605"></path>
+        <path class="edge" data-from="risk" data-to="policy" d="M210 430 C280 410, 320 380, 355 352"></path>
+        <path class="edge" data-from="state" data-to="tracker" d="M230 560 C210 430, 220 255, 330 220"></path>
+
+        <g class="node source" data-id="api" data-group="discovery" transform="translate(40 92)">
+          <rect width="145" height="72"></rect>
+          <text x="18" y="29">Meteora API</text>
+          <text class="small" x="18" y="50">/pools metadata</text>
+        </g>
+
+        <g class="node source" data-id="rpc" data-group="discovery" transform="translate(40 222)">
+          <rect width="145" height="72"></rect>
+          <text x="18" y="29">Solana RPC</text>
+          <text class="small" x="18" y="50">DLMM accounts</text>
+        </g>
+
+        <g class="node" data-id="tracker" data-group="discovery" transform="translate(330 158)">
+          <rect width="180" height="92"></rect>
+          <text x="18" y="31">Pool Tracker</text>
+          <text class="small" x="18" y="52">normalize, dedupe,</text>
+          <text class="small" x="18" y="68">refresh candidates</text>
+        </g>
+
+        <g class="node" data-id="cache" data-group="discovery" transform="translate(635 158)">
+          <rect width="180" height="92"></rect>
+          <text x="18" y="31">Pool Cache</text>
+          <text class="small" x="18" y="52">data/pools-cache.json</text>
+          <text class="small" x="18" y="68">last known metrics</text>
+        </g>
+
+        <g class="node" data-id="price" data-group="selection" transform="translate(540 312)">
+          <rect width="150" height="68"></rect>
+          <text x="18" y="28">Price Feeds</text>
+          <text class="small" x="18" y="49">Jupiter + Pyth</text>
+        </g>
+
+        <g class="node" data-id="scorer" data-group="selection" transform="translate(810 280)">
+          <rect width="180" height="100"></rect>
+          <text x="18" y="31">Pool Scorer</text>
+          <text class="small" x="18" y="52">TVL, volume, fees,</text>
+          <text class="small" x="18" y="68">bin step, price sanity</text>
+        </g>
+
+        <g class="node risk" data-id="risk" data-group="risk" transform="translate(55 392)">
+          <rect width="155" height="84"></rect>
+          <text x="18" y="30">Risk Guard</text>
+          <text class="small" x="18" y="51">allowlists, caps,</text>
+          <text class="small" x="18" y="67">no auto migration</text>
+        </g>
+
+        <g class="node risk" data-id="policy" data-group="risk" transform="translate(355 312)">
+          <rect width="200" height="84"></rect>
+          <text x="18" y="30">Selection Policy</text>
+          <text class="small" x="18" y="51">rank candidates,</text>
+          <text class="small" x="18" y="67">enforce thresholds</text>
+        </g>
+
+        <g class="node risk" data-id="approval" data-group="risk" transform="translate(355 500)">
+          <rect width="180" height="78"></rect>
+          <text x="18" y="30">Operator Approval</text>
+          <text class="small" x="18" y="51">required before</text>
+          <text class="small" x="18" y="66">pool migration</text>
+        </g>
+
+        <g class="node execution" data-id="orchestrator" data-group="execution" transform="translate(680 492)">
+          <rect width="150" height="92"></rect>
+          <text x="18" y="31">Auto-Tune</text>
+          <text class="small" x="18" y="52">withdraw, swap,</text>
+          <text class="small" x="18" y="68">create position</text>
+        </g>
+
+        <g class="node execution" data-id="meteora" data-group="execution" transform="translate(875 308)">
+          <rect width="140" height="72"></rect>
+          <text x="18" y="29">Meteora</text>
+          <text class="small" x="18" y="50">DLMM position</text>
+        </g>
+
+        <g class="node execution" data-id="jupiter" data-group="execution" transform="translate(860 610)">
+          <rect width="150" height="72"></rect>
+          <text x="18" y="29">Jupiter Ultra</text>
+          <text class="small" x="18" y="50">SOL/USDC swap</text>
+        </g>
+
+        <g class="node" data-id="state" data-group="execution" transform="translate(150 558)">
+          <rect width="170" height="76"></rect>
+          <text x="18" y="29">State Files</text>
+          <text class="small" x="18" y="50">positions, fees,</text>
+          <text class="small" x="18" y="65">auto-tune state</text>
+        </g>
+      </svg>
+    </section>
+
+    <aside class="side">
+      <section class="panel">
+        <h2 id="detail-title">Select A Node</h2>
+        <p id="detail-body">Click any box in the diagram to inspect its role in a programmatic Meteora pool tracking workflow.</p>
+        <div class="facts" id="facts"></div>
+      </section>
+
+      <section class="panel">
+        <h2>Legend</h2>
+        <p>Use the filter buttons to isolate the part of the system you are reviewing.</p>
+        <div class="legend">
+          <div class="legend-item"><span class="swatch green"></span>Discovery</div>
+          <div class="legend-item"><span class="swatch blue"></span>Selection</div>
+          <div class="legend-item"><span class="swatch amber"></span>Execution</div>
+          <div class="legend-item"><span class="swatch red"></span>Risk</div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Implementation Path</h2>
+        <p>Start read-only: build pool discovery, cache, and scoring first. Add explicit operator approval before any automated pool migration because that step withdraws, swaps, and redeploys real funds.</p>
+      </section>
+    </aside>
+  </main>
+
+  <script>
+    const details = {
+      api: {
+        title: "Meteora API",
+        body: "Primary discovery source for pool metadata, volume, TVL, fee metrics, and token-pair grouping.",
+        facts: {
+          Input: "HTTP /pools and per-pool endpoints",
+          Output: "Normalized pool metadata",
+          Concern: "Indexer lag and rate limits"
+        }
+      },
+      rpc: {
+        title: "Solana RPC",
+        body: "Direct on-chain verification source for DLMM pool accounts and current pool state.",
+        facts: {
+          Input: "DLMM program accounts",
+          Output: "Raw pool account state",
+          Concern: "RPC cost and account layout filters"
+        }
+      },
+      tracker: {
+        title: "Pool Tracker",
+        body: "Combines API and RPC sources, deduplicates pools, and refreshes candidate data on a schedule.",
+        facts: {
+          Module: "src/modules/poolTracker.ts",
+          Output: "Candidate pool registry",
+          Mode: "Read-only first"
+        }
+      },
+      cache: {
+        title: "Pool Cache",
+        body: "Persists the most recent pool list and metrics so scoring can continue across restarts.",
+        facts: {
+          File: "data/pools-cache.json",
+          Includes: "Address, mints, bin step, TVL, volume, fees",
+          Recovery: "Can be rebuilt from API/RPC"
+        }
+      },
+      price: {
+        title: "Price Feeds",
+        body: "Supplies external price sanity checks so pool prices can be compared against Jupiter and Pyth.",
+        facts: {
+          Sources: "Jupiter Lite and Pyth Hermes",
+          UsedFor: "Outlier rejection",
+          Risk: "Stale or divergent prices"
+        }
+      },
+      scorer: {
+        title: "Pool Scorer",
+        body: "Ranks pools by suitability for LP deployment using liquidity, fees, volume, bin step, and price health.",
+        facts: {
+          Module: "src/modules/poolScorer.ts",
+          Metrics: "fee/TVL, volume/TVL, spread from oracle",
+          Output: "Ranked candidate list"
+        }
+      },
+      risk: {
+        title: "Risk Guard",
+        body: "Applies hard safety constraints before a pool can be considered for migration.",
+        facts: {
+          Controls: "Token allowlist, TVL minimum, bin-step bounds",
+          Prevents: "Thin pools and unsupported token exposure",
+          Default: "Reject unknown token pairs"
+        }
+      },
+      policy: {
+        title: "Selection Policy",
+        body: "Converts scored candidates into an actionable recommendation, while enforcing operator-defined thresholds.",
+        facts: {
+          Config: "POOL_SELECTION_MODE, MIN_POOL_TVL_USD",
+          Output: "Hold current pool or recommend candidate",
+          Rule: "Never migrate on score alone"
+        }
+      },
+      approval: {
+        title: "Operator Approval",
+        body: "Manual approval boundary before the bot withdraws from one pool and creates a position in another.",
+        facts: {
+          Why: "Migration moves real funds",
+          First Version: "Report only",
+          Later Version: "Explicit approve command"
+        }
+      },
+      orchestrator: {
+        title: "Auto-Tune Orchestrator",
+        body: "Existing execution loop that withdraws, optionally swaps through Jupiter, and creates a new Meteora position.",
+        facts: {
+          Current: "Fixed METEORA_POOL_ADDRESS",
+          Extension: "Accept selected pool address",
+          Risk: "Duplicate or unintended positions"
+        }
+      },
+      meteora: {
+        title: "Meteora DLMM Position",
+        body: "The on-chain liquidity position managed by the adapter.",
+        facts: {
+          Operations: "Create, discover, withdraw, claim, close",
+          Strategy: "spot, curve, bidask",
+          State: "Position mint in data/state.json"
+        }
+      },
+      jupiter: {
+        title: "Jupiter Ultra",
+        body: "Swap path used when wallet balances need to be adjusted before creating the next position.",
+        facts: {
+          Direction: "SOL to USDC or USDC to SOL",
+          Guard: "Reserve-aware swap planner",
+          Concern: "Price impact and insufficient funds"
+        }
+      },
+      state: {
+        title: "State Files",
+        body: "Persistent local record for created positions, fee accounting, and auto-tune progress.",
+        facts: {
+          Files: "data/state.json, data/auto-tune-state.json",
+          New File: "data/pools-cache.json",
+          Recovery: "Blockchain discovery refreshes position mints"
+        }
+      }
+    };
+
+    const nodes = Array.from(document.querySelectorAll(".node"));
+    const edges = Array.from(document.querySelectorAll(".edge"));
+    const title = document.getElementById("detail-title");
+    const body = document.getElementById("detail-body");
+    const facts = document.getElementById("facts");
+    const buttons = Array.from(document.querySelectorAll("button[data-filter]"));
+
+    function renderDetails(id) {
+      const item = details[id];
+      title.textContent = item.title;
+      body.textContent = item.body;
+      facts.innerHTML = "";
+      Object.entries(item.facts).forEach(([key, value]) => {
+        const row = document.createElement("div");
+        row.className = "fact";
+        row.innerHTML = `<b>${key}</b><span>${value}</span>`;
+        facts.appendChild(row);
+      });
+    }
+
+    function selectNode(id) {
+      nodes.forEach((node) => {
+        node.classList.toggle("selected", node.dataset.id === id);
+        node.classList.toggle("dimmed", node.dataset.id !== id);
+      });
+      edges.forEach((edge) => {
+        const connected = edge.dataset.from === id || edge.dataset.to === id;
+        edge.classList.toggle("active", connected);
+        edge.classList.toggle("dimmed", !connected);
+      });
+      renderDetails(id);
+    }
+
+    function applyFilter(group) {
+      buttons.forEach((button) => {
+        button.setAttribute("aria-pressed", String(button.dataset.filter === group));
+      });
+
+      nodes.forEach((node) => {
+        const visible = group === "all" || node.dataset.group === group;
+        node.classList.toggle("dimmed", !visible);
+        node.classList.remove("selected");
+      });
+
+      edges.forEach((edge) => {
+        const from = nodes.find((node) => node.dataset.id === edge.dataset.from);
+        const to = nodes.find((node) => node.dataset.id === edge.dataset.to);
+        const visible = group === "all" || from.dataset.group === group || to.dataset.group === group;
+        edge.classList.toggle("dimmed", !visible);
+        edge.classList.remove("active");
+      });
+    }
+
+    nodes.forEach((node) => {
+      node.addEventListener("click", () => selectNode(node.dataset.id));
+      node.setAttribute("tabindex", "0");
+      node.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          selectNode(node.dataset.id);
+        }
+      });
+    });
+
+    buttons.forEach((button) => {
+      button.addEventListener("click", () => applyFilter(button.dataset.filter));
+    });
+  </script>
+</body>
+</html>

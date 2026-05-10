@@ -13,6 +13,7 @@
     "find-pools": "tsx scripts/find-mainnet-pools.ts",
     "auto-tune": "tsx src/cli/auto-tune.ts",
     "auto-tune:watch": "tsx src/cli/auto-tune.ts --watch",
+    "pnl": "tsx src/cli/pnl.ts",
     "lint": "eslint src --ext .ts",
     "format": "prettier --write \"src/**/*.ts\"",
     "api": "bun run src/api/hono-server.ts",
@@ -45,6 +46,7 @@
     "@solana/transactions": "^5.0.0",
     "@solana/web3.js": "^1.95.8",
     "@switchboard-xyz/on-demand": "^3.1.2",
+    "better-sqlite3": "^11.10.0",
     "bn.js": "^5.2.2",
     "bs58": "^6.0.0",
     "decimal.js": "^10.6.0",
@@ -56,6 +58,7 @@
     "winston": "^3.17.0"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@types/bn.js": "^5.2.0",
     "@types/bs58": "^4.0.4",
     "@types/node": "^22.10.2",

@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Delta-Neutral Bot — Strategy & Trigger Diagram</title>
+<style>
+  :root {
+    --bg: #0f1419;
+    --bg-card: #1a212b;
+    --bg-elev: #232c39;
+    --border: #2d3a4a;
+    --text: #e7ecf3;
+    --muted: #8a96a8;
+    --accent: #5dabf2;
+    --read: #3aa9c7;
+    --meteora-write: #4ec07d;
+    --jupiter: #e8a13a;
+    --retry: #b97ce8;
+    --error: #e8615b;
+    --tick: #6c7a8d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px 32px 80px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.55;
+  }
+  h1 { margin: 0 0 4px; font-size: 28px; }
+  h2 { margin: 36px 0 12px; font-size: 20px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+  h3 { margin: 22px 0 8px; font-size: 16px; color: var(--accent); }
+  .subtitle { color: var(--muted); margin-bottom: 28px; }
+
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 18px 22px;
+    margin: 14px 0;
+  }
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+  }
+  @media (max-width: 920px) { .grid-2 { grid-template-columns: 1fr; } }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 8px;
+    font-size: 14px;
+  }
+  th, td {
+    text-align: left;
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  th { background: var(--bg-elev); color: var(--accent); font-weight: 600; }
+  td.mono, code { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+  code { background: var(--bg-elev); padding: 1px 6px; border-radius: 4px; color: #f7d488; }
+
+  .pill {
+    display: inline-block;
+    padding: 2px 9px;
+    border-radius: 11px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .pill.read         { background: rgba(58, 169, 199, 0.18); color: var(--read); }
+  .pill.meteora      { background: rgba(78, 192, 125, 0.18); color: var(--meteora-write); }
+  .pill.jupiter      { background: rgba(232, 161, 58, 0.18); color: var(--jupiter); }
+  .pill.retry        { background: rgba(185, 124, 232, 0.18); color: var(--retry); }
+  .pill.error        { background: rgba(232, 97, 91, 0.18); color: var(--error); }
+  .pill.tick         { background: rgba(108, 122, 141, 0.20); color: #adb6c2; }
+
+  .legend {
+    display: flex; flex-wrap: wrap; gap: 10px 22px;
+    padding: 14px 18px;
+    background: var(--bg-elev);
+    border-radius: 6px; border: 1px solid var(--border);
+  }
+  .legend-item { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+  .swatch { width: 14px; height: 14px; border-radius: 3px; }
+
+  .mermaid {
+    background: #ffffff;   /* mermaid default theme reads better on white */
+    padding: 16px;
+    border-radius: 6px;
+    overflow-x: auto;
+  }
+
+  .keyfacts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 10px;
+    margin: 12px 0 4px;
+  }
+  .fact {
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 14px;
+  }
+  .fact .label { display: block; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .fact .value { display: block; font-size: 16px; margin-top: 4px; font-family: "SF Mono", Menlo, monospace; color: #f7d488; }
+
+  ul.tight { margin: 6px 0 6px 18px; padding: 0; }
+  ul.tight li { margin: 3px 0; }
+
+  .note {
+    background: rgba(232, 161, 58, 0.08);
+    border-left: 3px solid var(--jupiter);
+    padding: 10px 14px;
+    margin: 10px 0;
+    border-radius: 0 6px 6px 0;
+    font-size: 14px;
+  }
+
+  .source {
+    color: var(--muted);
+    font-size: 12px;
+    font-family: "SF Mono", Menlo, monospace;
+  }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
+<script>
+  // Initialise mermaid with a high-contrast palette so the swim lanes line
+  // up with the colour legend on the page.
+  document.addEventListener("DOMContentLoaded", () => {
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: "base",
+      themeVariables: {
+        primaryColor: "#eef3fb",
+        primaryTextColor: "#0f1419",
+        primaryBorderColor: "#5dabf2",
+        lineColor: "#5dabf2",
+        secondaryColor: "#fdf3df",
+        tertiaryColor: "#e9f8ef",
+        fontSize: "14px"
+      },
+      flowchart: { useMaxWidth: true, htmlLabels: true, curve: "basis" }
+    });
+  });
+</script>
+</head>
+
+<body>
+
+<h1>Delta-Neutral Bot — Strategy & Trigger Diagram</h1>
+<p class="subtitle">
+  When does the bot touch Jupiter or Meteora, and how often? This page traces
+  every read/write call against the running auto-tune code so you can validate
+  swap and rebalance frequency at a glance.
+</p>
+
+<!-- ============================================================ -->
+<!-- CONFIG SNAPSHOT                                              -->
+<!-- ============================================================ -->
+<h2>Effective Configuration (defaults shown — your <code>.env</code> may override)</h2>
+<div class="keyfacts">
+  <div class="fact"><span class="label">Check interval</span><span class="value">30 s</span></div>
+  <div class="fact"><span class="label">Imbalance threshold</span><span class="value">0.8 (80 %)</span></div>
+  <div class="fact"><span class="label">Bin count per position</span><span class="value">20</span></div>
+  <div class="fact"><span class="label">Slippage cap (Jupiter)</span><span class="value">50 bps</span></div>
+  <div class="fact"><span class="label">Slippage buffer</span><span class="value">3 % (audited)</span></div>
+  <div class="fact"><span class="label">High-impact warn</span><span class="value">&gt; 1 %</span></div>
+  <div class="fact"><span class="label">Permanent SOL floor</span><span class="value">0.2 SOL</span></div>
+  <div class="fact"><span class="label">Rent reserve</span><span class="value">0.1 SOL</span></div>
+  <div class="fact"><span class="label">Phase 1 / 2 retries</span><span class="value">3 each</span></div>
+</div>
+<div class="source">env keys: <code>AUTO_TUNE_CHECK_INTERVAL_MS</code>, <code>AUTO_TUNE_IMBALANCE_THRESHOLD</code>, <code>AUTO_TUNE_BIN_COUNT</code>, <code>SWAP_SLIPPAGE_BPS</code>, <code>SWAP_SLIPPAGE_BUFFER_PCT</code>, <code>SWAP_HIGH_IMPACT_WARNING_PCT</code>, <code>MINIMUM_WALLET_BALANCE_SOL</code>, <code>RENT_RESERVE_SOL</code>, <code>AUTO_TUNE_MAX_RETRIES</code>.</div>
+
+<!-- ============================================================ -->
+<!-- LEGEND                                                       -->
+<!-- ============================================================ -->
+<h2>Legend</h2>
+<div class="legend">
+  <div class="legend-item"><span class="swatch" style="background: var(--tick);"></span>Per-tick read (every 30 s)</div>
+  <div class="legend-item"><span class="swatch" style="background: var(--read);"></span>On-chain / API read</div>
+  <div class="legend-item"><span class="swatch" style="background: var(--meteora-write);"></span>Meteora write tx (DLMM)</div>
+  <div class="legend-item"><span class="swatch" style="background: var(--jupiter);"></span>Jupiter swap</div>
+  <div class="legend-item"><span class="swatch" style="background: var(--retry);"></span>Retry path</div>
+  <div class="legend-item"><span class="swatch" style="background: var(--error);"></span>Failure / abort</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- MAIN CHECK CYCLE                                             -->
+<!-- ============================================================ -->
+<h2>Main Check Cycle (every 30 s)</h2>
+<p>
+  This is the outer loop in <code>AutoTuneOrchestrator.runCheckCycle</code>.
+  It runs forever; <strong>every iteration is a read-only "is the position
+  still balanced?" check</strong> unless the imbalance threshold is crossed.
+</p>
+
+<div class="card">
+<div class="mermaid">
+flowchart TD
+    Start([⏱ Tick: every 30 s])
+    PriceFetch["getSolPrice()<br/><span style='color:#3aa9c7;font-size:12px'>READ — Jupiter v3 + Pyth</span>"]
+    Discover["meteoraAdapter.discoverPositionsFromBlockchain()<br/><span style='color:#3aa9c7;font-size:12px'>READ — getPositionsByUserAndLbPair</span>"]
+    Branch{Position exists on-chain?}
+
+    Bootstrap["createInitialPosition()<br/><span style='color:#b97ce8;font-size:12px'>One-time bootstrap path →</span>"]
+    Balance["checkPositionBalance()<br/>compute composition % &amp; imbalance flag"]
+    Snapshot["recordPositionSnapshot()<br/><span style='color:#6c7a8d;font-size:12px'>PnL DB row written every tick</span>"]
+    Imbalanced{solPct or usdcPct > 80 %?}
+    Idle([No-op — wait for next tick])
+    Rebalance["executeRebalance(currentPrice, balance)<br/><span style='color:#b97ce8;font-size:12px'>↓ enter 3-phase flow</span>"]
+    Save["saveAutoTuneState()<br/>writes data/auto-tune-state.json"]
+
+    Start --> PriceFetch --> Discover --> Branch
+    Branch -- No, AUTO_CREATE_POSITIONS=true --> Bootstrap --> Save
+    Branch -- Yes --> Balance --> Snapshot --> Imbalanced
+    Imbalanced -- No --> Idle --> Save
+    Imbalanced -- Yes --> Rebalance --> Save
+
+    classDef read fill:#cfe9f1,stroke:#3aa9c7,color:#0a3a45;
+    classDef write fill:#d4f0e0,stroke:#4ec07d,color:#08361f;
+    classDef tick fill:#e3e7ed,stroke:#6c7a8d,color:#1d2a3a;
+    classDef bootstrap fill:#ecddf8,stroke:#b97ce8,color:#3d1c63;
+    classDef rebalance fill:#fdebcf,stroke:#e8a13a,color:#5a3a07;
+    class PriceFetch,Discover,Balance read
+    class Snapshot,Save tick
+    class Bootstrap bootstrap
+    class Rebalance rebalance
+</div>
+</div>
+
+<div class="note">
+  <strong>What this means for "how often":</strong> the bot makes 2 on-chain
+  RPC reads + 1 Jupiter price-API read per tick (twice a minute). It writes
+  one snapshot row to the PnL DB per tick. <em>Rebalances and swaps happen
+  only when the imbalance branch fires</em> — typically tens of minutes to
+  hours apart, depending on volatility.
+</div>
+
+<!-- ============================================================ -->
+<!-- 3-PHASE REBALANCE                                            -->
+<!-- ============================================================ -->
+<h2>Three-Phase Rebalance Flow (only when imbalanced)</h2>
+<p>
+  Triggered by the main loop. The code lives in
+  <code>AutoTuneOrchestrator.executeRebalance</code>. Each phase is wrapped
+  in its own retry loop and re-checks state before retrying.
+</p>
+
+<div class="card">
+<div class="mermaid">
+flowchart TD
+    R0([Imbalance trigger fired])
+    DBOpen["recordRebalanceTriggered()<br/><span style='color:#6c7a8d;font-size:12px'>PnL DB: open rebalance row</span>"]
+
+    P1["PHASE 1: withdrawClaimAndClose()<br/><span style='color:#4ec07d;font-size:12px'>METEORA WRITE — atomic withdraw + claim + close</span>"]
+    P1Retry{Failed?}
+    P1Recheck["discoverPositionsFromBlockchain()<br/><span style='color:#3aa9c7;font-size:12px'>READ — was the prior tx silently a success?</span>"]
+    P1Settled[Treat as synthetic success]
+    P1Backoff["Wait 1–3 s → retry up to 3×"]
+    P1Out([Wallet now holds tokens + claimed fees])
+
+    Plan["planSwapForDeposit()<br/>pure helper — total-value pre-flight + per-branch guards"]
+    SwapNeeded{Shortfall on either side?}
+    NoSwap[Skip swap → straight to Phase 2]
+
+    Swap["jupiterSwapper.executeSwap()<br/><span style='color:#e8a13a;font-size:12px'>JUPITER — order → sign → execute</span>"]
+    SwapOk{Success?}
+    SwapFail([Abort rebalance — leave position closed])
+    Wait[wait 2 s for balance to settle]
+
+    P2["PHASE 2: createPosition()<br/><span style='color:#4ec07d;font-size:12px'>METEORA WRITE — initialise position + add liquidity</span>"]
+    P2Retry{Failed?}
+    P2Reflight["Re-fetch wallet balances<br/>re-run planSwapForDeposit()<br/><span style='color:#b97ce8;font-size:12px'>RETRY — top-up swap if needed</span>"]
+    P2RetrySwap["jupiterSwapper.executeSwap()<br/><span style='color:#e8a13a;font-size:12px'>JUPITER — retry-rebalance context</span>"]
+    P2Backoff["Wait 1–3 s → retry up to 3×"]
+
+    Done["recordRebalanceCompleted()<br/><span style='color:#6c7a8d;font-size:12px'>PnL DB: close rebalance row, link new position FK</span>"]
+    Final([✅ New position centred at current price])
+
+    R0 --> DBOpen --> P1 --> P1Retry
+    P1Retry -- Yes --> P1Recheck
+    P1Recheck -- Position gone --> P1Settled --> Plan
+    P1Recheck -- Still on-chain --> P1Backoff --> P1
+    P1Retry -- No --> P1Out --> Plan
+
+    Plan --> SwapNeeded
+    SwapNeeded -- No --> NoSwap --> P2
+    SwapNeeded -- Yes --> Swap --> SwapOk
+    SwapOk -- Yes --> Wait --> P2
+    SwapOk -- No --> SwapFail
+
+    P2 --> P2Retry
+    P2Retry -- Yes --> P2Reflight --> P2RetrySwap --> P2Backoff --> P2
+    P2Retry -- No --> Done --> Final
+
+    classDef tick fill:#e3e7ed,stroke:#6c7a8d,color:#1d2a3a;
+    classDef read fill:#cfe9f1,stroke:#3aa9c7,color:#0a3a45;
+    classDef write fill:#d4f0e0,stroke:#4ec07d,color:#08361f;
+    classDef jupiter fill:#fdebcf,stroke:#e8a13a,color:#5a3a07;
+    classDef retry fill:#ecddf8,stroke:#b97ce8,color:#3d1c63;
+    classDef fail fill:#fcd9d6,stroke:#e8615b,color:#5d1410;
+    classDef pure fill:#fff,stroke:#5dabf2,color:#0f1419;
+
+    class DBOpen,Done tick
+    class P1Recheck,P2Reflight read
+    class P1,P2 write
+    class Swap,P2RetrySwap jupiter
+    class P1Backoff,P2Backoff,P1Settled retry
+    class SwapFail fail
+    class Plan pure
+</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- INITIAL POSITION FLOW                                        -->
+<!-- ============================================================ -->
+<h2>Initial Position Bootstrap (one-time, on first run with empty wallet of positions)</h2>
+<p>
+  Runs only when <code>AUTO_CREATE_POSITIONS=true</code> AND the blockchain
+  shows zero positions for the wallet. Same swap logic as a rebalance, just
+  no Phase 1.
+</p>
+
+<div class="card">
+<div class="mermaid">
+flowchart TD
+    B0([No position found on first tick])
+    Pool["DLMM.create() + getActiveBin()<br/><span style='color:#3aa9c7;font-size:12px'>READ — pool / current bin</span>"]
+    Range["calculateCenteredPriceRange(20 bins)"]
+    Sized["Compute target deposits<br/>from AUTO_TUNE_DEPOSIT_TOKEN + AMOUNT"]
+    Plan["planSwapForDeposit()<br/>same pure helper as rebalance"]
+    Need{Shortfall?}
+    Swap["jupiterSwapper.executeSwap()<br/><span style='color:#e8a13a;font-size:12px'>JUPITER — initial-position context</span>"]
+    Wait[wait 2 s for balance to settle]
+    Create["createPosition()<br/><span style='color:#4ec07d;font-size:12px'>METEORA WRITE — initialise + add liquidity</span>"]
+    Done([✅ Initial position live])
+
+    B0 --> Pool --> Range --> Sized --> Plan --> Need
+    Need -- No --> Create
+    Need -- Yes --> Swap --> Wait --> Create --> Done
+
+    classDef read fill:#cfe9f1,stroke:#3aa9c7,color:#0a3a45;
+    classDef write fill:#d4f0e0,stroke:#4ec07d,color:#08361f;
+    classDef jupiter fill:#fdebcf,stroke:#e8a13a,color:#5a3a07;
+    classDef pure fill:#fff,stroke:#5dabf2,color:#0f1419;
+    class Pool read
+    class Create write
+    class Swap jupiter
+    class Plan pure
+</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- FREQUENCY CHEAT SHEET                                        -->
+<!-- ============================================================ -->
+<h2>Frequency Cheat Sheet</h2>
+<table>
+  <thead>
+    <tr><th>Event</th><th>How often (worst case)</th><th>Trigger</th><th>Pill</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>SOL price fetch (Jupiter v3 + Pyth)</td>
+      <td>Every <code>AUTO_TUNE_CHECK_INTERVAL_MS</code> (default 30 s)</td>
+      <td>Top of <code>runCheckCycle</code></td>
+      <td><span class="pill read">Read</span></td>
+    </tr>
+    <tr>
+      <td><code>getPositionsByUserAndLbPair</code></td>
+      <td>Every tick (and once before any rebalance)</td>
+      <td><code>discoverPositionsFromBlockchain</code></td>
+      <td><span class="pill read">Read</span></td>
+    </tr>
+    <tr>
+      <td>PnL DB snapshot row</td>
+      <td>Every tick (when position exists)</td>
+      <td><code>recordPositionSnapshot</code> in <code>checkPositionBalance</code></td>
+      <td><span class="pill tick">Tick</span></td>
+    </tr>
+    <tr>
+      <td>Rebalance (Phase 1 + Phase 2)</td>
+      <td>Only when composition crosses 80 %</td>
+      <td><code>executeRebalance</code> from <code>runCheckCycle</code></td>
+      <td><span class="pill meteora">Meteora ×2</span></td>
+    </tr>
+    <tr>
+      <td>Jupiter swap — rebalance path</td>
+      <td>Per rebalance, only if wallet doesn't cover target deposits</td>
+      <td><code>planSwapForDeposit().needed === true</code></td>
+      <td><span class="pill jupiter">Jupiter</span></td>
+    </tr>
+    <tr>
+      <td>Jupiter swap — retry-rebalance path</td>
+      <td>Per Phase 2 retry, only if balance shifted again</td>
+      <td>Retry pre-flight in <code>executeRebalance</code></td>
+      <td><span class="pill jupiter">Jupiter</span> <span class="pill retry">Retry</span></td>
+    </tr>
+    <tr>
+      <td>Jupiter swap — initial-position path</td>
+      <td>Once on bootstrap, only if wallet doesn't cover target</td>
+      <td>Pre-flight in <code>createInitialPosition</code></td>
+      <td><span class="pill jupiter">Jupiter</span></td>
+    </tr>
+    <tr>
+      <td>Phase 1 retry (withdraw+claim+close)</td>
+      <td>Up to 3 attempts on failure, with on-chain re-check before each retry</td>
+      <td>Wrapping retry loop in <code>executeRebalance</code></td>
+      <td><span class="pill retry">Retry</span></td>
+    </tr>
+    <tr>
+      <td>Phase 2 retry (createPosition)</td>
+      <td>Up to 3 attempts; each re-runs <code>planSwapForDeposit</code></td>
+      <td>While loop in <code>executeRebalance</code></td>
+      <td><span class="pill retry">Retry</span></td>
+    </tr>
+    <tr>
+      <td>Hard stop (consecutive failures)</td>
+      <td>After 5 consecutive failed cycles</td>
+      <td><code>state.consecutiveErrors &gt;= 5</code> → <code>stop()</code></td>
+      <td><span class="pill error">Stop</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ============================================================ -->
+<!-- WRITE SITES                                                  -->
+<!-- ============================================================ -->
+<h2>All Jupiter Swap Sites (3 — and only 3)</h2>
+<div class="card">
+<table>
+  <thead>
+    <tr><th>#</th><th>Caller</th><th>Context tag</th><th>When</th><th>What if it fails?</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>1</td>
+      <td><code>createInitialPosition</code></td>
+      <td><code>initial-position</code></td>
+      <td>One-time bootstrap; only if wallet shortfall after total-value pre-flight</td>
+      <td>Throws → bot logs &amp; tries again on next tick</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td><code>executeRebalance</code> (first attempt)</td>
+      <td><code>rebalance</code></td>
+      <td>After Phase 1, only if shortfall</td>
+      <td>Throws → rebalance aborts, position stays closed; bot retries on next imbalance tick</td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td><code>executeRebalance</code> (retry preflight)</td>
+      <td><code>retry-rebalance</code></td>
+      <td>Per Phase 2 retry, only if balance shifted enough to need a top-up</td>
+      <td>Logged but doesn't abort — Phase 2 still attempts <code>createPosition</code></td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<h2>All Meteora Write Sites (3 — and only 3)</h2>
+<div class="card">
+<table>
+  <thead>
+    <tr><th>#</th><th>Method</th><th>SDK call</th><th>When</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>1</td>
+      <td><code>createPosition</code></td>
+      <td><code>initializePositionAndAddLiquidityByStrategy</code></td>
+      <td>Initial bootstrap + Phase 2 of every rebalance</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td><code>withdrawClaimAndClose</code></td>
+      <td><code>removeLiquidity({ shouldClaimAndClose: true })</code></td>
+      <td>Phase 1 of every rebalance — single atomic tx (withdraw 100 % + claim + close)</td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td>Internal SDK transactions for fee accounting / ATA setup</td>
+      <td>Implicit via SDK</td>
+      <td>Bundled into the writes above; no standalone call site</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<!-- ============================================================ -->
+<!-- TIMING ESTIMATES                                             -->
+<!-- ============================================================ -->
+<h2>Realistic Timing Estimate (single rebalance cycle)</h2>
+<div class="card">
+<table>
+  <thead>
+    <tr><th>Step</th><th>Typical wall-clock</th><th>Notes</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Phase 1 build + sign + confirm</td><td>3–10 s</td><td>SDK build can spike to &gt;30 s on slow RPC; 90 s hard timeout</td></tr>
+    <tr><td>Plan swap (pure helper)</td><td>&lt; 1 ms</td><td>No I/O</td></tr>
+    <tr><td>Jupiter swap (Ultra)</td><td>1–2 s</td><td>95th percentile sub-2 s per Jupiter</td></tr>
+    <tr><td>Settle wait</td><td>2 s</td><td>Hard-coded sleep before reading post-swap balances</td></tr>
+    <tr><td>Phase 2 build + sign + confirm</td><td>3–8 s</td><td>Single transaction</td></tr>
+    <tr><td><strong>End-to-end (no retries)</strong></td><td><strong>~10–22 s</strong></td><td></td></tr>
+  </tbody>
+</table>
+</div>
+
+<!-- ============================================================ -->
+<!-- TICK BUDGET                                                  -->
+<!-- ============================================================ -->
+<h2>What a Quiet Day Looks Like (1 hour, no imbalance)</h2>
+<div class="keyfacts">
+  <div class="fact"><span class="label">Ticks</span><span class="value">120</span></div>
+  <div class="fact"><span class="label">Jupiter price reads</span><span class="value">120</span></div>
+  <div class="fact"><span class="label">Pyth price reads</span><span class="value">120</span></div>
+  <div class="fact"><span class="label">RPC position reads</span><span class="value">240</span></div>
+  <div class="fact"><span class="label">PnL snapshots written</span><span class="value">120</span></div>
+  <div class="fact"><span class="label">Meteora writes</span><span class="value">0</span></div>
+  <div class="fact"><span class="label">Jupiter swaps</span><span class="value">0</span></div>
+  <div class="fact"><span class="label">Network fees burned</span><span class="value">~0 SOL</span></div>
+</div>
+<div class="note">
+  Cost on a quiet hour is just RPC + API bandwidth — no on-chain footprint.
+  All write activity is gated behind the imbalance branch.
+</div>
+
+<!-- ============================================================ -->
+<!-- VALIDATION CHECKLIST                                         -->
+<!-- ============================================================ -->
+<h2>Validation Checklist for "Are We Swapping/Rebalancing Too Often?"</h2>
+<div class="card">
+<ul class="tight">
+  <li>Run <code>pnpm pnl</code> — the "Recent rebalances" list shows trigger composition (sol % / usdc %) per event. Two rebalances with composition near 80 % suggest the threshold is too aggressive for current vol; raise <code>AUTO_TUNE_IMBALANCE_THRESHOLD</code>.</li>
+  <li>"Recent swaps" with <code>context = retry-rebalance</code> rows mean Phase 2 retries are repeatedly topping up — usually because slippage ate into the first swap. Bump <code>SWAP_SLIPPAGE_BUFFER_PCT</code>.</li>
+  <li>Failed swaps (✗ rows) by direction tell you whether the wallet under-funds one side; check the per-position scaling banner in the orchestrator log.</li>
+  <li>Compare lifetime <em>realized PnL</em> against <em>HODL-only-SOL</em> and <em>HODL-50/50</em> PnL — if the LP is losing to HODL-50/50 over several positions, you're paying impermanent loss faster than fees compound.</li>
+  <li>Compare <em>network fees paid</em> against <em>LP fees claimed</em> — the bot must out-earn its own friction. If fees-paid &gt; fees-claimed for several cycles, the rebalance cadence is too tight.</li>
+</ul>
+</div>
+
+<p style="color: var(--muted); margin-top: 36px; font-size: 12px;">
+  Source: <code>src/modules/autoTuneOrchestrator.ts</code>, <code>src/modules/meteoraAdapter.ts</code>, <code>src/modules/jupiterSwapper.ts</code>, <code>src/modules/swapPlanner.ts</code>. Diagram regenerated from these files — open the page in any browser to render the Mermaid charts.
+</p>
+
+</body>
+</html>

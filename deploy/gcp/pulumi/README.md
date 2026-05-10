@@ -124,6 +124,119 @@ $(pulumi stack output logsCommand)
 $(pulumi stack output sshCommand)
 ```
 
+## Overnight-Run Runbook
+
+Quick checklist for "I want to run this for a night and look at PnL in the
+morning". Assumes `pulumi stack init` and `gcloud auth` are already done.
+
+### 1. Pre-flight (one-time per code change)
+
+```bash
+# From project root — make sure code typechecks and tests pass before
+# anything ships to GCP.
+npx tsc --noEmit
+pnpm test
+
+# Confirm .env has at minimum:
+#   RPC_URL=https://mainnet.helius-rpc.com/?api-key=...
+#   PRIVATE_KEY=...
+#   AUTO_TUNE_ENABLED=true
+#   AUTO_CREATE_POSITIONS=true   # if you want the bot to create the position
+#   METEORA_POOL_ADDRESS=...
+#   AUTO_TUNE_DEPOSIT_TOKEN=SOL  # or USDC
+#   AUTO_TUNE_DEPOSIT_AMOUNT=1
+#   AUTO_TUNE_IMBALANCE_THRESHOLD=0.92
+#
+# Optional new flags (May 2026):
+#   SEND_OPTIMIZED=true          # adaptive priority fee + tight CU limit (recommended)
+#   STRATEGY_LABEL="my-experiment"  # human-friendly label for PnL DB rows
+```
+
+### 2. Deploy
+
+```bash
+cd deploy/gcp/pulumi
+pulumi up --yes
+```
+
+Pulumi will detect the local git short hash and inject it as
+`STRATEGY_VERSION` so every PnL row stamps the actual commit. If the working
+tree is dirty you'll see `-dirty` appended. If you *want* to override (e.g.
+to pin a label), set `STRATEGY_VERSION=…` in `.env`.
+
+The new Dockerfile installs `python3 / make / g++ / git` so better-sqlite3
+compiles cleanly on Alpine when no prebuild matches. First build is ~3-4
+minutes; rebuilds with the same image cache are <1 minute.
+
+### 3. Watch it boot
+
+```bash
+# Startup script (Docker pull, env-file build, container start):
+./scripts/manage.sh logs-startup
+
+# Once container is up, follow live bot logs:
+./scripts/manage.sh logs
+```
+
+Look for these lines on a healthy boot:
+
+- `📈 PnL database opened { path: '/app/data/pnl.db' }`
+- `AutoTuneOrchestrator initialized { enabled: true, ... }`
+- `Auto-tune check cycle started`
+- If `SEND_OPTIMIZED=true`: `📤 [sendOptimized:createPosition] sending { cuLimit, cuPriceMicroLamports, ... }`
+- New validation gate (rare): `⚠️  Imbalance trigger fired but wallet is already 50/50 ±10%` — should never fire under normal trading; if it does, investigate.
+
+### 4. Check PnL in the morning
+
+The PnL CLI lives in the container, so the cleanest path is to copy
+`pnl.db` down and run `pnpm pnl` locally:
+
+```bash
+# 1. SCP the DB down (read-only — does not interrupt the running bot).
+gcloud compute scp \
+  autotune-prod:/var/lib/autotune/data/pnl.db \
+  /tmp/pnl.db \
+  --zone=$(pulumi stack output instanceZone)
+
+# 2. Run the inspector locally (uses /tmp/pnl.db via the same path the bot uses).
+#    The CLI hard-codes data/pnl.db, so symlink it into your project:
+ln -sf /tmp/pnl.db ./data/pnl.db
+pnpm pnl
+```
+
+Or stay on the VM:
+
+```bash
+./scripts/manage.sh ssh
+docker exec -it autotune-prod sh
+cd /app && bun run src/cli/pnl.ts
+```
+
+What to look for on the report:
+
+- **Realized PnL vs HODL-only-SOL** — over a full night you should beat HODL
+  if SOL was choppy. If SOL trended hard one way, expect HODL to win.
+- **Network fees by operation** — with `SEND_OPTIMIZED=true` the
+  `create_position` and `withdraw_claim_close` rows should show ~30-70 %
+  lower `fee_sol` totals than they did before the wrapper landed.
+- **Recent rebalances** — count + average duration + claimed fees per event.
+  Rebalance count per hour ≈ trigger threshold tightness.
+- **Validation-gate hits in logs** — should be zero. If non-zero, investigate.
+
+### 5. Stop the bot
+
+```bash
+./scripts/manage.sh stop    # stops the VM (keeps disk + state)
+# … or
+./scripts/manage.sh restart # bounces VM (re-pulls image, useful after pulumi up)
+```
+
+State files (`state.json`, `auto-tune-state.json`, `pnl.db`) live on the
+boot disk under `/var/lib/autotune/data` and survive VM stop/start. They
+do NOT survive `pulumi destroy`.
+
+---
+
 ## Configuration Options
 
 All configuration is done via `pulumi config`:

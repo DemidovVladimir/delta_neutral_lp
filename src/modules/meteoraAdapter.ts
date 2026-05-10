@@ -49,6 +49,11 @@ import {
   saveCreatedPositionMints,
 } from './persistence.js';
 import {
+  recordPositionOpened,
+  recordPositionClosed,
+  recordTransaction,
+} from './pnlDb.js';
+import {
   LpExposure,
   CreatePositionParams,
   CreatePositionResult,
@@ -62,6 +67,7 @@ import {
   getMeteoraPairInfo,
 } from '../utils/meteoraUtils.js';
 import { getTransactionFees, logTransactionFees } from '../utils/transactionUtils.js';
+import { sendOptimized } from '../utils/sendOptimized.js';
 
 export class MeteoraAdapter {
   private config = getConfig();
@@ -328,28 +334,39 @@ export class MeteoraAdapter {
         slippage: SLIPPAGE_BPS.default / 10000, // Convert BPS to decimal (50 BPS = 0.005)
       });
 
-      // Add priority fees
-      // TODO: Consider bringing this back if needed, just trying without to save fees
-      // await this.enhanceTransaction(tx);
-
-      // Sign and send transaction
-      tx.partialSign(wallet);
-      tx.partialSign(positionKeypair);
-      const signature = await connection.sendRawTransaction(tx.serialize(), {
-        skipPreflight: false,
-        preflightCommitment: 'confirmed',
+      // Build → simulate-for-CU-limit → Helius-priority-fee → sign → send.
+      // When SEND_OPTIMIZED=false the wrapper falls through to a plain
+      // sign+send so this site's behaviour matches the pre-wrapper code path.
+      // The wrapper also returns the blockhash it used so we can confirm
+      // against the matching pair (the previous implementation fetched a
+      // fresh blockhash for confirmation, which could falsely time out if
+      // the build blockhash had already expired).
+      const sendResult = await sendOptimized({
+        connection,
+        tx,
+        wallet,
+        additionalSigners: [positionKeypair],
+        label: 'createPosition',
       });
+      const signature = sendResult.signature;
 
       log.info('Position creation transaction submitted', {
         signature,
         solscan: `https://solscan.io/tx/${signature}`,
+        optimized: sendResult.optimized,
+        ...(sendResult.optimized
+          ? {
+              cuLimit: sendResult.cuLimit,
+              cuPriceMicroLamports: sendResult.cuPriceMicroLamports,
+            }
+          : {}),
       });
 
-      // Wait for confirmation
-      const latestBlockhash = await connection.getLatestBlockhash();
+      // Wait for confirmation against the build-time blockhash.
       await connection.confirmTransaction({
         signature,
-        ...latestBlockhash,
+        blockhash: sendResult.blockhash,
+        lastValidBlockHeight: sendResult.lastValidBlockHeight,
       });
 
       const positionMint = positionKeypair.publicKey.toBase58();
@@ -384,6 +401,40 @@ export class MeteoraAdapter {
       log.info('Position mint saved to state', {
         positionMint,
         totalPositions: this.positionMints.length,
+      });
+
+      // ────────────────────────────────────────────────────────────────────
+      // PnL DB: record the freshly-opened position + transaction.
+      //
+      // We use solPriceData.usd (already fetched above for trackTransactionFee)
+      // as the entry price — it's the same price the position was sized
+      // around, so the HODL baselines line up with the operator's intent.
+      // We also pass binCount = maxBinId − minBinId + 1 so the snapshot
+      // matches the actual on-chain range (which validateAndAdjustPriceRange
+      // may have shrunk from the requested range).
+      // ────────────────────────────────────────────────────────────────────
+      const positionId = recordPositionOpened({
+        positionMint,
+        poolAddress: params.poolAddress,
+        signature,
+        depositSol: params.solAmount,
+        depositUsdc: params.usdcAmount,
+        priceSolUsdAtOpen: solPriceData.usd,
+        rangeLowerPrice: adjustedLower,
+        rangeUpperPrice: adjustedUpper,
+        binCount: maxBinId - minBinId + 1,
+        strategyType: this.config.meteoraStrategyType,
+      });
+      recordTransaction({
+        signature,
+        kind: 'create_position',
+        positionId,
+        rawMeta: {
+          requestedLower: params.priceLower,
+          requestedUpper: params.priceUpper,
+          adjustedLower,
+          adjustedUpper,
+        },
       });
 
       return {
@@ -769,6 +820,16 @@ export class MeteoraAdapter {
       const claimableUsdc = parseFloat(position.positionData.feeY.toString()) / 10 ** DECIMALS.USDC;
       log.info('✅ Fees calculated');
 
+      // Snapshot principal token amounts BEFORE the SDK call. After
+      // `shouldClaimAndClose=true` the position account is closed and we lose
+      // visibility into what was inside; we need these for recordPositionClosed
+      // PnL math. Same parseFloat(toString()) trick getLpExposure uses to
+      // dodge BN precision issues.
+      const exitSolAmount =
+        parseFloat(position.positionData.totalXAmount.toString()) / 10 ** DECIMALS.SOL;
+      const exitUsdcAmount =
+        parseFloat(position.positionData.totalYAmount.toString()) / 10 ** DECIMALS.USDC;
+
       log.info('Position details', {
         lowerBinId: position.positionData.lowerBinId,
         upperBinId: position.positionData.upperBinId,
@@ -824,32 +885,40 @@ export class MeteoraAdapter {
         throw new Error('No withdraw transactions returned from SDK');
       }
 
-      // Use the first transaction (SDK already added compute budget)
+      // Use the first transaction (SDK already added compute budget — the
+      // sendOptimized wrapper strips and replaces them with adaptive values
+      // when SEND_OPTIMIZED=true).
       const tx = withdrawTxs[0];
 
-
-      // Sign and send transaction
-      tx.feePayer = wallet.publicKey;
-      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
-      tx.recentBlockhash = blockhash;
-      tx.sign(wallet);
-
-      const signature = await connection.sendRawTransaction(tx.serialize(), {
-        skipPreflight: false,
-        preflightCommitment: 'confirmed',
-        maxRetries: 3,
+      // Build → simulate-for-CU-limit → Helius-priority-fee → sign → send.
+      // Single signer (wallet); no additionalSigners. The wrapper returns
+      // the build-time blockhash so confirmation matches — preserving the
+      // existing on-chain race-recovery semantics in the catch block below.
+      const sendResult = await sendOptimized({
+        connection,
+        tx,
+        wallet,
+        label: 'withdrawClaimAndClose',
       });
+      const signature = sendResult.signature;
 
       log.info('SINGLE TRANSACTION submitted: Withdraw + Claim + Close', {
         signature,
         solscan: `https://solscan.io/tx/${signature}`,
+        optimized: sendResult.optimized,
+        ...(sendResult.optimized
+          ? {
+              cuLimit: sendResult.cuLimit,
+              cuPriceMicroLamports: sendResult.cuPriceMicroLamports,
+            }
+          : {}),
       });
 
       // Wait for confirmation using the SAME blockhash we used when building the transaction
       await connection.confirmTransaction({
         signature,
-        blockhash,
-        lastValidBlockHeight,
+        blockhash: sendResult.blockhash,
+        lastValidBlockHeight: sendResult.lastValidBlockHeight,
       });
 
       log.info('✅ Withdraw + Claim + Close completed successfully (1 TX)', {
@@ -867,6 +936,36 @@ export class MeteoraAdapter {
       const { trackTransactionFee } = await import('../utils/transactionUtils.js');
       trackTransactionFee(connection, signature, 'withdrawClaimClose', solPriceData.usd).catch(err => {
         log.warn('Failed to track transaction fee in state', { error: err.message });
+      });
+
+      // ────────────────────────────────────────────────────────────────────
+      // PnL DB: close the position row + record the close transaction.
+      //
+      // recordPositionClosed will look up the open position by mint, compute
+      // PnL vs each HODL benchmark from the persisted entry-time amounts, and
+      // mark it closed. If no open row matches (position was opened before
+      // the DB existed), the helper logs and returns null without throwing.
+      // ────────────────────────────────────────────────────────────────────
+      const closedDbId = recordPositionClosed({
+        positionMint,
+        signature,
+        exitSol: exitSolAmount,
+        exitUsdc: exitUsdcAmount,
+        priceSolUsdAtClose: solPriceData.usd,
+        claimedFeesSol: claimableSol,
+        claimedFeesUsdc: claimableUsdc,
+      });
+      recordTransaction({
+        signature,
+        kind: 'withdraw_claim_close',
+        positionId: closedDbId,
+        rawMeta: {
+          claimedFeesSol: claimableSol,
+          claimedFeesUsdc: claimableUsdc,
+          exitSol: exitSolAmount,
+          exitUsdc: exitUsdcAmount,
+          priceSolUsdAtClose: solPriceData.usd,
+        },
       });
 
       // Remove from our position list (in-memory only, don't save to disk yet!)

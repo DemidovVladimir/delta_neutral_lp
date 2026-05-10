@@ -435,4 +435,121 @@ describe('planSwapForDeposit', () => {
     expect(caught!.message).not.toMatch(/AUTO_TUNE_DEPOSIT_AMOUNT/);
     expect(caught!.message).toMatch(/Deposit more funds/);
   });
+
+  // ───────────────────────────────────────────────────────────────────────
+  // User-described scenario: 200 USDC + 2 SOL @ $100, SOL drops to $90,
+  // rebalance triggers. The bot must withdraw, then swap USDC → SOL to
+  // reach a 50/50 deposit at the new price. This pins the planner's
+  // behaviour for that exact trajectory so it can never silently break.
+  // ───────────────────────────────────────────────────────────────────────
+
+  it('user scenario — 200 USDC + 2 SOL @ $100 → SOL drops to $90: planner picks USDC → SOL with the right amount', () => {
+    // The user's described trajectory:
+    //   • Initial deposit at price $100: 2 SOL + 200 USDC == $400.
+    //   • Price drops to $90. Position becomes ~92% USDC (imbalance trigger).
+    //   • Bot withdraws+claims+closes. Wallet now holds the position's
+    //     (now-imbalanced) tokens.
+    //
+    // For the rebalance, the orchestrator computes a 50/50 deposit at the
+    // NEW price ($90) — possibly scaled to fit the wallet (handled in
+    // autoTuneOrchestrator before this helper is called). The wallet has
+    // lots of USDC and little SOL → planner must pick USDC_TO_SOL.
+    //
+    // Concrete numbers chosen so the wallet's USD value safely covers the
+    // (already-scaled) target — the "happy" rebalance path the user is
+    // asking us to verify:
+    //
+    //   wallet after Phase 1: 0.5 SOL + 200 USDC == $245 USD
+    //   target at price $90:   1.0 SOL + 90 USDC  == $180 USD
+    //
+    // available SOL after reserves (0.3) = 0.2. Target 1.0 SOL → short 0.8 SOL.
+    // USDC: target 90, wallet 200 → not short.
+    // Direction: USDC_TO_SOL. Amount = 0.8 * 90 * 1.03 = 74.16 USDC.
+    const plan = planSwapForDeposit(
+      makeInput({
+        walletSol: 0.5,
+        walletUsdc: 200,
+        targetSol: 1.0,
+        targetUsdc: 90,
+        permanentMinimumSol: 0.2,
+        rentReserveSol: 0.1,
+        currentPrice: 90,
+        slippageBufferPct: 0.03, // post-audit default
+        context: 'rebalance',
+        autoTuneDepositAmount: 1.0,
+      })
+    );
+
+    expect(plan.needed).toBe(true);
+    expect(plan.swap).toBeDefined();
+    expect(plan.swap!.direction).toBe('USDC_TO_SOL');
+    expect(plan.swap!.inputMint).toBe(USDC_MINT);
+    expect(plan.swap!.outputMint).toBe(SOL_MINT);
+
+    const expectedSolShort = 1.0 - (0.5 - 0.3); // 0.8
+    const expectedSwapAmount = expectedSolShort * 90 * 1.03; // 74.16
+    expect(plan.swap!.amount).toBeCloseTo(expectedSwapAmount, 6);
+    expect(plan.swap!.expectedOutput).toBeCloseTo(expectedSolShort, 8);
+    // The whole point: wallet's USDC must exceed swap input so the swap
+    // actually executes — no "Insufficient funds" from Jupiter.
+    expect(plan.swap!.amount).toBeLessThan(200);
+  });
+
+  it('user scenario — same trajectory at the configured (un-scaled) deposit size still picks USDC → SOL', () => {
+    // Same scenario but with AUTO_TUNE_DEPOSIT_TOKEN=USDC, AMOUNT=200.
+    // No scaling needed: wallet has plenty of USD value to cover.
+    //
+    //   wallet: 0.5 SOL + 460 USDC == $505 USD
+    //   target at price $90: 200/90 + 0.01 = 2.232 SOL, 200 USDC == $401 USD
+    //
+    // available SOL = 0.2. target 2.232 → short 2.032 SOL.
+    // amount = 2.032 * 90 * 1.03 ≈ 188.4 USDC. Wallet 460 ≫ 188 → fine.
+    const targetSol = 200 / 90 + 0.01;
+    const plan = planSwapForDeposit(
+      makeInput({
+        walletSol: 0.5,
+        walletUsdc: 460,
+        targetSol,
+        targetUsdc: 200,
+        permanentMinimumSol: 0.2,
+        rentReserveSol: 0.1,
+        currentPrice: 90,
+        slippageBufferPct: 0.03,
+        context: 'rebalance',
+        autoTuneDepositAmount: 200,
+      })
+    );
+
+    expect(plan.needed).toBe(true);
+    expect(plan.swap!.direction).toBe('USDC_TO_SOL');
+
+    const expectedSolShort = targetSol - (0.5 - 0.3);
+    const expectedSwapAmount = expectedSolShort * 90 * 1.03;
+    expect(plan.swap!.amount).toBeCloseTo(expectedSwapAmount, 4);
+    expect(plan.swap!.expectedOutput).toBeCloseTo(expectedSolShort, 8);
+    expect(plan.swap!.amount).toBeLessThan(460);
+  });
+
+  it('user scenario — total-value pre-flight catches under-funded wallet (90% of target)', () => {
+    // The original 0.4544 + 200.5 wallet is only ~$241 vs $401 target.
+    // The total-value pre-flight should throw with a clear "no swap can
+    // resolve this" error — exactly what we want the operator to see
+    // when they haven't topped up.
+    expect(() =>
+      planSwapForDeposit(
+        makeInput({
+          walletSol: 0.4544,
+          walletUsdc: 200.5,
+          targetSol: 200.5 / 90 + 0.01,
+          targetUsdc: 200.5,
+          permanentMinimumSol: 0.2,
+          rentReserveSol: 0.1,
+          currentPrice: 90,
+          slippageBufferPct: 0.03,
+          context: 'rebalance',
+          autoTuneDepositAmount: 200,
+        })
+      )
+    ).toThrow(/Wallet does not have enough total value for rebalance/);
+  });
 });

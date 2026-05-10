@@ -62,6 +62,17 @@ export interface BotConfig {
   apiAllowedOrigins: string[];
   /** Max mutating POST requests per remote IP per minute. */
   apiRateLimitPerMin: number;
+
+  /**
+   * Enables the `sendOptimized` wrapper around Meteora SDK transaction sends.
+   * When true, every Meteora write tx is simulated to set a tight
+   * `setComputeUnitLimit`, and Helius `getPriorityFeeEstimate` drives the
+   * `setComputeUnitPrice` — replacing the static SDK-injected priority-fee
+   * default with adaptive per-tx pricing. Both changes are latency-preserving
+   * (or net-faster). Default off so operators can A/B against the legacy path
+   * before flipping over.
+   */
+  sendOptimizedEnabled: boolean;
 }
 
 function parseEnvString(key: string, required: true): string;
@@ -250,6 +261,11 @@ function loadConfigFromEnv(): BotConfig {
     throw new Error('API_RATE_LIMIT_PER_MIN must be > 0');
   }
 
+  // Default false — operators flip to true after validating in `pnpm pnl`
+  // that the per-tx fee column has dropped without confirms suffering. Once
+  // a few rebalance cycles look good, set SEND_OPTIMIZED=true permanently.
+  const sendOptimizedEnabled = parseEnvBoolean('SEND_OPTIMIZED', false);
+
   // Validate auto-tune parameters
   if (autoTuneEnabled) {
     if (autoTuneBinCount <= 0) {
@@ -301,6 +317,7 @@ function loadConfigFromEnv(): BotConfig {
     apiKey: apiKey || undefined,
     apiAllowedOrigins,
     apiRateLimitPerMin,
+    sendOptimizedEnabled,
   };
 }
 

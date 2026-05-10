@@ -275,6 +275,69 @@ export function checkPositionImbalance(
 }
 
 /**
+ * Check whether the wallet's USD-weighted SOL/USDC composition is close enough
+ * to 50/50 to skip the alignment swap during a rebalance.
+ *
+ * The alignment swap is normally MANDATORY on every rebalance: when the
+ * imbalance trigger fires (e.g. at 92%), the pool composition has already
+ * shifted heavily to one side. After Phase 1 the wallet inherits that
+ * lopsided mix. Re-depositing without a swap means the new position starts
+ * already off-centre, taking on inverse exposure that compounds impermanent
+ * loss if the trend continues. So the swap-to-50/50 is the only thing that
+ * locks in the current price and resets the IL exposure clock.
+ *
+ * The ONE legitimate case to skip the swap is if the wallet is somehow
+ * already balanced post-Phase-1 — surprising given the trigger threshold,
+ * usually a sign of stale snapshot data, manual external rebalance, or
+ * threshold misconfiguration. This helper is the gate that detects that
+ * case so we can log it loudly rather than silently churn fees.
+ *
+ * Reserve handling: the permanent-minimum SOL floor and rent reserve are
+ * subtracted from `walletSol` BEFORE computing the ratio. Reserves aren't
+ * available for the position, so they shouldn't count toward composition.
+ *
+ * @param walletSol      Current wallet SOL balance (human-readable)
+ * @param walletUsdc     Current wallet USDC balance (human-readable)
+ * @param currentPrice   SOL/USD price for USD-weighting
+ * @param totalReserveSol Permanent-min + rent reserve (subtracted from walletSol)
+ * @param toleranceFraction How far either side of 0.5 still counts as balanced. Default 0.10 == 50/50 ±10%.
+ */
+export function isWalletBalancedFor5050(
+  walletSol: number,
+  walletUsdc: number,
+  currentPrice: number,
+  totalReserveSol: number,
+  toleranceFraction: number = 0.10,
+): {
+  balanced: boolean;
+  walletSolRatio: number;
+  walletTotalUsd: number;
+} {
+  const availableSol = Math.max(0, walletSol - totalReserveSol);
+  const solUsd = availableSol * currentPrice;
+  const usdcUsd = walletUsdc;
+  const totalUsd = solUsd + usdcUsd;
+
+  // Empty / zero-value wallet: report as balanced (ratio 0.5) so the gate
+  // doesn't trigger an unnecessary swap that has nothing to swap with —
+  // the planner's pre-flight will throw a clear error downstream.
+  if (totalUsd <= 0) {
+    return { balanced: true, walletSolRatio: 0.5, walletTotalUsd: 0 };
+  }
+
+  const walletSolRatio = solUsd / totalUsd;
+  // Use Math.abs(ratio - 0.5) form with a tiny FP epsilon. Comparing
+  // (0.9 - 0.3) * 100 = 60.00000000000001 against 0.5 + 0.1 = 0.6 directly
+  // can produce off-by-an-ulp surprises at the exact boundary; the
+  // operator's intent is "within ±tolerance", so we honour it numerically.
+  const FP_EPSILON = 1e-9;
+  const balanced =
+    Math.abs(walletSolRatio - 0.5) <= toleranceFraction + FP_EPSILON;
+
+  return { balanced, walletSolRatio, walletTotalUsd: totalUsd };
+}
+
+/**
  * Calculate price range for a centered position with fixed bin count
  *
  * Creates a symmetric range around the current price using the pool's bin step
