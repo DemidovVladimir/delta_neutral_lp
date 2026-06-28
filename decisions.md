@@ -1195,6 +1195,192 @@ pnpm auto-tune  # Start automated rebalancing
 
 ---
 
+## ADR-014: Drift Hedge Engine via @drift-labs/sdk (not Solana Agent Kit)
+
+**Date:** 2026-06-26
+**Status:** Proposed
+**Deciders:** Operator
+**Related:** Epic M, ADR-001 (superseded), ADR-002 (band rebalancing)
+
+### Context
+
+The bot is described as "delta-neutral" but currently runs **LP-only with full
+directional SOL exposure** — the Drift hedge engine was never implemented. To
+actually neutralise ΔSOL we need a perpetuals execution layer on Drift that:
+
+- opens/maintains a **SOL-PERP short** sized to the LP's SOL exposure,
+- reads position size, funding rate, margin/health, and liquidation price,
+- deposits/withdraws collateral, and
+- supports an emergency unwind.
+
+Two candidate execution layers were evaluated:
+
+1. **SendAI Solana Agent Kit v2** (`@solana-agent-kit/plugin-defi`) — exposes
+   Drift methods (`openPerpTradeLong`/`closePerpTradeLong`,
+   `tradeUsingDriftPerpAccount`, collateral deposit/withdraw). It is an
+   AI-agent / LLM-tool-calling abstraction built **on top of** `@drift-labs/sdk`.
+2. **Official `@drift-labs/sdk` (protocol-v2)** directly — `DriftClient` + `User`
+   give the full surface: long/short perp orders, settle funding, collateral
+   deposit/withdraw, `getPerpPosition`, `getPerpMarketAccount`, funding records,
+   margin/health/liquidation via the subscribed `User` account, sub-accounts.
+
+### Decision
+
+Build a dedicated **`DriftEngine`** module on the official **`@drift-labs/sdk`**,
+pinned to the **`stable`** dist-tag (`2.156.0` at time of writing) — **not** the
+Agent Kit, and **not** the `latest`/beta line.
+
+### Rationale
+
+- **The hard part is the controller and the read side, not order placement.**
+  A delta-neutral hedge continuously reads position size, funding, margin, and
+  liquidation price. The Drift SDK's subscribed `User`/`DriftClient` expose all
+  of it (no RPC per read); the Agent Kit is built around *firing* trades and is
+  thinnest exactly where we need depth.
+- **Re-adopting the kit reverses a deliberate decision.** ADR-001 adopted
+  `solana-agent-kit` (chiefly for Jito bundling), then it was removed in favour
+  of "direct SDK, no wrapper libraries." `@drift-labs/sdk` matches that
+  philosophy (cf. direct `@meteora-ag/dlmm` and `@solana/web3.js` usage).
+- **Dependency surface.** The kit pulls a large transitive tree (LangChain
+  adapters + many unrelated protocol plugins) for one protocol we need. The SDK
+  is one focused dependency.
+- **The kit lags upstream** — new Drift perp features arrive only once the kit
+  re-exposes them.
+
+### Dependency-compatibility check (performed 2026-06-26)
+
+- Tree already runs three anchor versions side-by-side via nested isolation:
+  `0.32.1` (top), `0.31.0` (Meteora), `0.29.0` (Pyth). Drift `stable` wants
+  **anchor `0.29.0`**, which is already present nested — **no new conflict.**
+- Drift is on **web3.js 1.x**; project is on `1.98.4` (same major) — compatible.
+- `bn.js` 5.x on both sides — compatible.
+- **Avoid `latest` (`2.163.0-beta.x`)**: it aliases anchor to
+  `@anchor-lang/core` — unacceptable churn for a fund-handling bot. Pin `stable`.
+- **Lockfile hazard:** repo carries `package-lock.json`, `pnpm-lock.yaml`, and
+  `bun.lock`; the Dockerfile installs with `bun install`, so the dep must land
+  in `bun.lock`. The three-lockfile split should be resolved separately.
+
+### Alternatives Considered
+
+1. **Solana Agent Kit `plugin-defi`** — rejected: wrapper tax, dependency bloat,
+   thinner read surface, reverses ADR-001's removal, lags upstream.
+2. **Hand-rolled instruction builder from the Drift IDL** — rejected: large
+   surface, high correctness risk on a fund path, no upside over the official SDK.
+3. **Keep LP-only / no hedge** — rejected: contradicts the product's stated
+   delta-neutral goal; leaves full directional SOL exposure.
+
+### Consequences
+
+**Positive:** complete, maintained perp surface; fits the direct-SDK philosophy;
+single focused dependency; full read side for the controller and risk guards.
+
+**Negative / risks:**
+- Drift's default account model uses **websocket subscriptions** — heavier on a
+  free-tier RPC. **Mitigation:** configure the client for **polling** mode.
+- Drift SDK pins **anchor 0.29.0** (older than top-level `0.32.1`); relies on
+  nested isolation holding under `bun install`. **Mitigation:** verify the
+  built image actually resolves Drift's nested anchor before mainnet.
+- New risk config must be wired into `env.ts`/`BotConfig`
+  (`DELTA_THRESHOLD_SOL`, `MIN_COLLATERAL_RATIO`, `MAX_SHORT_NOTIONAL_USD`,
+  `FUNDING_RATE_CAP_BPS`, `DRIFT_MARKET_SOL_PERP`, collateral sizing).
+
+### Implementation plan (subsequent commits)
+
+1. `src/modules/driftEngine.ts` — interface skeleton (this ADR's companion).
+2. Wire Drift/risk config into `BotConfig` + `.env.example`.
+3. `pnpm add @drift-labs/sdk@stable`; verify nested anchor in the bun image.
+4. Implement read side (`getHedgeState`) first; smoke-test on mainnet read-only.
+5. Implement `rebalanceHedge` with band logic (ADR-002) + risk guards.
+6. Implement `emergencyUnwind`; integration-test before any funded run.
+
+---
+
+## ADR-015: Pivot Hedge Venue from Drift to Jupiter Perpetuals
+
+**Date:** 2026-06-28
+**Status:** Accepted
+**Deciders:** Operator
+**Related:** ADR-014 (superseded as the active venue), Epic M
+
+### Context
+
+While implementing the Drift hedge (ADR-014, pinned `@drift-labs/sdk@stable` =
+2.156.0), dry-run smoke tests of account creation failed: the live mainnet
+Drift program (`dRiftyHA39MWEi3m9aunc5MzRF1JYuBsbn6VPcn33UH`) rejected the SDK's
+`initialize_user` / `initialize_user_stats` instructions with
+`InstructionFallbackNotFound (Custom 101)`. Systematic diagnosis ruled out SDK
+version (stable and latest IDLs ship identical canonical discriminators),
+dual-web3 identity, simulation mechanics (v0/legacy, signed/unsigned), RPC
+provider (Helius **and** public mainnet reject identically), program migration
+(`vELoC…` address in the latest beta IDL does not exist on mainnet), and
+fork/non-mainnet (genesis confirmed mainnet).
+
+**Root cause (external):** Drift suffered a **~$285M exploit on 2026-04-01** and
+is in a full reboot. The frontend is down ("Drift will be back soon"), the
+deployed program is frozen/transitional, and the relaunch **changes the
+settlement asset from USDC to USDT** (Tether's $148M facility). Our pinned SDK
+targets the now-dead program. **dry-run + smoke-testing prevented sending funds
+to an exploited, frozen protocol.**
+
+### Decision
+
+Pivot the hedge to **Jupiter Perpetuals** (`PERPHjGBqRHArX4DySjwM6UJHiR3sWAatqfdBS2qQJu`):
+- live, ~80% of Solana perps volume, oracle-priced (no orderbook slippage),
+- **SOL short collateralised in USDC** (matches the LP/swap USDC flow),
+- integrated by **parsing the program's Anchor IDL** (no official TS SDK).
+
+Keep the engine **venue-agnostic** behind a new `HedgeEngine` interface
+(`src/modules/hedgeEngine.ts`) so a Drift backend can return if/when it
+relaunches. The Drift code is retained but inert.
+
+### Alternatives Considered
+
+- **Wait for Drift relaunch** — rejected: timing is uncertain (tentative
+  May/June 2026), it's post-exploit, and the USDC→USDT change would require
+  rework anyway. Operator chose to pivot to a live venue.
+- **Zeta/Bullet** — CLOB with funding (potentially cheaper carry) but mid
+  rebrand to ZK/Bullet and thinner liquidity.
+- **Adrena** — pool-based like Jupiter but smaller/less battle-tested.
+- **Upgrade Drift SDK to `latest` beta** — rejected: same discriminators, would
+  not fix it, and the beta IDL targets a non-existent mainnet program.
+
+### Consequences
+
+**Positive:** live, deep, reliable venue; USDC collateral; oracle pricing;
+single focused IDL dependency; venue-agnostic interface validated end-to-end
+(read side + dashboard) with no funds touched.
+
+**Negative / risks:**
+- **Carry is a cost, not income.** Jupiter charges a utilization-based **borrow
+  fee** (no funding income). Jump curve: 10% APR @ 0% util → 35% @ 80% → 150% @
+  100%. Currently ≈ 11.8% APR. Sign convention in code: `carryRateBps` negative
+  = the short pays. Break-even ≈ `LP_fee_APR > carry_APR / 2` (hedge covers only
+  the SOL half of the LP). Utilization spikes are the key economic risk.
+- **No official TS SDK** — we parse the IDL directly. The IDL is the old
+  (anchor 0.29) format, so an isolated `jup-anchor` alias (= `@coral-xyz/anchor@0.29`)
+  is used only in `src/utils/jupiterPerps.ts`.
+- **2-transaction request/keeper execution model** for opens/closes (more async
+  handling than a direct send).
+
+### Implementation status (2026-06-28)
+
+- Done & validated (read-only, live mainnet): `HedgeEngine` interface,
+  `JupiterPerpsEngine.getHedgeState`/`computeDelta`, `jupiterPerps.ts` (loader +
+  borrow-rate math), vendored IDL, dashboard on Jupiter, `pnpm jupiter:read`.
+- Not started: write side (open/adjust/close short via `positionRequest`,
+  dry-run gated), `rebalanceHedge` controller, liquidation-price computation.
+- See `HANDOVER.md` for the full resume guide.
+
+### References
+
+- `src/utils/jupiterPerps.ts`, `src/modules/jupiterPerpsEngine.ts`,
+  `src/modules/hedgeEngine.ts`, `src/idl/jupiter-perps-idl.json`
+- Reference repo: `julianfssen/jupiter-perps-anchor-idl-parsing`
+- `bugs.md` BUG-003 (Drift down), BUG-004 (Meteora pool 404)
+- `progress.md` 2026-06-28 session
+
+---
+
 ## Decision Index
 
 - ADR-001: Use solana-agent-kit for Transaction Execution *(superseded — direct @solana/web3.js)*
@@ -1209,13 +1395,15 @@ pnpm auto-tune  # Start automated rebalancing
 - ADR-010: Dynamic Jito Tipping with 5-Second Cache *(superseded — Jito bundling removed)*
 - ADR-011: Jupiter Lite API v3 Migration
 - ADR-012: Auto-Tune Two-Step Rebalancing Strategy
-- ADR-013: Audit-Hardening Pass (May 2026) — new
+- ADR-013: Audit-Hardening Pass (May 2026)
+- ADR-014: Drift Hedge Engine via @drift-labs/sdk *(superseded as active venue by ADR-015 — Drift down post-exploit)*
+- ADR-015: Pivot Hedge Venue from Drift to Jupiter Perpetuals — new (Accepted)
 
 ---
 
 ## Decision Status
 
-- **Accepted:** 11
-- **Superseded:** 2 (ADR-001 by direct web3.js, ADR-010 by removal of Jito)
+- **Accepted:** 12 (incl. ADR-015 — Jupiter Perps pivot)
+- **Superseded:** 3 (ADR-001 by direct web3.js, ADR-010 by removal of Jito, ADR-014 as active venue by ADR-015)
 - **Proposed:** 0
 - **Deprecated:** 0

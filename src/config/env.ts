@@ -73,6 +73,27 @@ export interface BotConfig {
    * before flipping over.
    */
   sendOptimizedEnabled: boolean;
+
+  // Drift hedge engine (ADR-014) — a SOL-PERP short on Drift that neutralises
+  // the LP's directional SOL exposure (net ΔSOL ≈ 0). The engine is gated by
+  // `driftHedgeEnabled`; when false the bot runs LP-only (current production
+  // behaviour) and none of the fields below have any effect. The remaining
+  // fields size and risk-bound the short; DriftEngine reads them via
+  // `getDriftConfig()`. Defaults mirror the "Risk parameters" block in CLAUDE.md.
+  /** Master switch for the hedge. False = LP-only, full directional exposure. */
+  driftHedgeEnabled: boolean;
+  /** Drift market index for SOL-PERP (typically 0). Env: DRIFT_MARKET_SOL_PERP */
+  driftMarketSolPerp: number;
+  /** Drift sub-account id used for the hedge (default 0). Env: DRIFT_SUBACCOUNT_ID */
+  driftSubAccountId: number;
+  /** Max net ΔSOL tolerated before a rebalance fires (band, ADR-002). Env: DELTA_THRESHOLD_SOL */
+  deltaThresholdSol: number;
+  /** Minimum collateral ratio (free collateral / short notional). Env: MIN_COLLATERAL_RATIO */
+  minCollateralRatio: number;
+  /** Hard ceiling on short notional in USD. Env: MAX_SHORT_NOTIONAL_USD */
+  maxShortNotionalUsd: number;
+  /** Funding-rate cap (bps) above which we refuse to add/keep the short. Env: FUNDING_RATE_CAP_BPS */
+  fundingRateCapBps: number;
 }
 
 function parseEnvString(key: string, required: true): string;
@@ -266,6 +287,40 @@ function loadConfigFromEnv(): BotConfig {
   // a few rebalance cycles look good, set SEND_OPTIMIZED=true permanently.
   const sendOptimizedEnabled = parseEnvBoolean('SEND_OPTIMIZED', false);
 
+  // Parse Drift hedge engine parameters (ADR-014). All optional with
+  // production-safe defaults; only validated when the hedge is enabled.
+  const driftHedgeEnabled = parseEnvBoolean('DRIFT_HEDGE_ENABLED', false);
+  const driftMarketSolPerp = parseEnvNumber('DRIFT_MARKET_SOL_PERP', 0);
+  const driftSubAccountId = parseEnvNumber('DRIFT_SUBACCOUNT_ID', 0);
+  const deltaThresholdSol = parseEnvNumber('DELTA_THRESHOLD_SOL', 2);
+  const minCollateralRatio = parseEnvNumber('MIN_COLLATERAL_RATIO', 0.15);
+  const maxShortNotionalUsd = parseEnvNumber('MAX_SHORT_NOTIONAL_USD', 12000);
+  const fundingRateCapBps = parseEnvNumber('FUNDING_RATE_CAP_BPS', 80);
+
+  // Validate Drift parameters only when the hedge is actually engaged, so an
+  // LP-only operator is never blocked by hedge config they don't use. When it
+  // IS engaged these guards fail fast at boot rather than mid-rebalance.
+  if (driftHedgeEnabled) {
+    if (!Number.isInteger(driftMarketSolPerp) || driftMarketSolPerp < 0) {
+      throw new Error('DRIFT_MARKET_SOL_PERP must be a non-negative integer');
+    }
+    if (!Number.isInteger(driftSubAccountId) || driftSubAccountId < 0) {
+      throw new Error('DRIFT_SUBACCOUNT_ID must be a non-negative integer');
+    }
+    if (deltaThresholdSol <= 0) {
+      throw new Error('DELTA_THRESHOLD_SOL must be positive');
+    }
+    if (minCollateralRatio <= 0 || minCollateralRatio >= 1) {
+      throw new Error('MIN_COLLATERAL_RATIO must be between 0 and 1 (exclusive)');
+    }
+    if (maxShortNotionalUsd <= 0) {
+      throw new Error('MAX_SHORT_NOTIONAL_USD must be positive');
+    }
+    if (fundingRateCapBps < 0) {
+      throw new Error('FUNDING_RATE_CAP_BPS must be >= 0');
+    }
+  }
+
   // Validate auto-tune parameters
   if (autoTuneEnabled) {
     if (autoTuneBinCount <= 0) {
@@ -318,6 +373,13 @@ function loadConfigFromEnv(): BotConfig {
     apiAllowedOrigins,
     apiRateLimitPerMin,
     sendOptimizedEnabled,
+    driftHedgeEnabled,
+    driftMarketSolPerp,
+    driftSubAccountId,
+    deltaThresholdSol,
+    minCollateralRatio,
+    maxShortNotionalUsd,
+    fundingRateCapBps,
   };
 }
 

@@ -6,6 +6,50 @@
 
 ## Active Bugs
 
+### BUG-003: Drift protocol down post-exploit — write instructions rejected on-chain
+**Status:** Won't Fix (external) — pivoted away
+**Severity:** Critical (blocked the hedge)
+**Reported:** 2026-06-28
+**Related:** ADR-014, ADR-015
+
+**Description:**
+Drift suffered a ~$285M exploit on 2026-04-01 and is in a full relaunch
+(settlement asset changing USDC→USDT, new program). The deployed program
+`dRiftyHA39MWEi3m9aunc5MzRF1JYuBsbn6VPcn33UH` is frozen/transitional and rejects
+account-creation instructions from `@drift-labs/sdk@2.156.0`.
+
+**Actual Behavior:**
+`pnpm hedge --init` dry-run → `InstructionError [1, Custom(101)]` =
+`InstructionFallbackNotFound`. Reproduced on Helius **and** public mainnet RPC,
+signed/unsigned, v0/legacy. SDK discriminators are canonical and identical
+across stable/latest; not a dual-web3 or simulation artifact. Reads still work
+(account layouts compatible) but writes do not.
+
+**Resolution:** Pivoted the hedge to Jupiter Perpetuals (ADR-015). Drift code
+retained as a paused backend in case Drift relaunches.
+
+---
+
+### BUG-004: Configured Meteora LP pool returns 404 / position not on-chain
+**Status:** Open
+**Severity:** High (the LP side we hedge currently reads 0)
+**Reported:** 2026-06-28
+**Related:** Auto-tune, hedge
+
+**Description:**
+`METEORA_POOL_ADDRESS=5rCf1DM8LjKTw4YqhnoLcngyZYeNnQqztScTogYHAS6` returns HTTP
+404 from `https://dlmm-api.meteora.ag/pair/{addr}`. The saved position mint
+`EUXx25SLaS3sbPvcirLw7QzaBQepkB9M4QJ7u4eXxhVs` (in `data/state.json`) is not
+found on-chain ("No positions found matching configured mints").
+
+**Impact:** LP exposure reads as 0 everywhere (dashboard, hedge delta). There is
+nothing to hedge until the LP side is restored.
+
+**Fix (TODO):** Find a live SOL/USDC DLMM pool (`pnpm find-pools`), update
+`METEORA_POOL_ADDRESS`, clear/refresh stale state, recreate the position.
+
+---
+
 ### BUG-001: [Bug Title]
 **Status:** Open | In Progress | Fixed | Won't Fix
 **Severity:** Critical | High | Medium | Low

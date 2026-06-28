@@ -5,6 +5,38 @@
 
 ---
 
+## 2026-06-28
+
+### Session 10 — Hedge build: Drift attempt → exploit discovery → pivot to Jupiter Perps
+
+**Goal:** Implement the perpetuals hedge to make the bot actually delta-neutral.
+
+**What happened (full arc):**
+
+1. **Drift config + SDK (ADR-014 path).** Wired risk config into `BotConfig`/`.env.example`; installed `@drift-labs/sdk@2.156.0` (nested anchor 0.29 isolated); implemented `DriftEngine` read side (`getHedgeState`/`computeDelta`) + `pnpm drift:read`. Read side worked live.
+2. **Read-only observability dashboard** (blessed-contrib): `dashboardData.ts` (pure, JSON-dumpable) + `dashboard.ts` + `pnpm dashboard` (`--json`/`--mock`/live). Validated via mock + live JSON + non-TTY guard.
+3. **Drift write side (dry-run) hit a wall.** `pnpm hedge --init` dry-run simulation rejected on-chain: `InstructionFallbackNotFound (Custom 101)`. Diagnosed exhaustively — ruled out SDK version (stable/latest identical discriminators), dual-web3, sim mechanics, RPC (Helius + public both reject), program migration (`vELoC…` not on mainnet), fork.
+4. **Root cause = Drift exploit.** Drift suffered ~$285M exploit 2026-04-01, is mid-relaunch (USDC→USDT), old program frozen. dry-run prevented sending funds to a dead protocol.
+5. **Pivot to Jupiter Perpetuals (ADR-015).** Confirmed live on-chain (program/pool/custodies). Vendored the Perps IDL, added isolated `jup-anchor` (= @coral-xyz/anchor@0.29) alias to parse the old-format IDL. Built `HedgeEngine` venue-agnostic interface + `JupiterPerpsEngine` read side + `jupiterPerps.ts` (loader + faithful borrow-rate math) + `pnpm jupiter:read`. Re-pointed the dashboard to Jupiter. All validated live, read-only.
+6. **Economics assessed.** Carry ≈ 11.8% APR now (borrow fee, a cost — not funding income). Break-even ≈ LP_fee_APR > carry/2 (hedge covers SOL half). Operator chose to proceed.
+
+**Validation (all read-only / dry-run — no funds moved):**
+- [x] `npx tsc --noEmit` clean throughout
+- [x] `pnpm jupiter:read` live: carry ≈ -11.76% APR, no position, correct delta math
+- [x] `pnpm dashboard --json` live + `--mock --json` offline + non-TTY guard
+
+**Key findings (also in bugs.md):**
+- BUG-003: Drift down post-exploit — write instructions rejected on-chain.
+- BUG-004: configured Meteora pool `5rCf1DM8LjKTw4YqhnoLcngyZYeNnQqztScTogYHAS6` returns 404; position `EUXx25SLaS3sbPvcirLw7QzaBQepkB9M4QJ7u4eXxhVs` not on-chain — **LP side currently broken**.
+
+**Decisions:** ADR-015 (pivot to Jupiter Perps); ADR-014 superseded as active venue.
+
+**Next session (see `HANDOVER.md`):** Jupiter write side — open/adjust/close short via `positionRequest` (2-tx keeper, dry-run gated), `rebalanceHedge` controller, liquidation-price computation. Also fix the broken LP pool config.
+
+**Caveats:** `.gitignore` `*.json` excludes the vendored IDL — force-added. Drift code retained as a paused backend.
+
+---
+
 ## 2026-05-09
 
 ### Session 9 — Audit Hardening Pass (10 findings closed)
