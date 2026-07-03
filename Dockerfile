@@ -1,50 +1,46 @@
-# Simplified Dockerfile for Delta-Neutral LP Bot Auto-Tune
-# Uses Bun to run TypeScript directly (no build step needed)
+# Dockerfile for the Delta-Neutral LP Bot (LP auto-tune + Jupiter Perps hedge)
+#
+# node:22-slim + pnpm + tsx — the exact runtime the bot uses in local dev.
+# Why not Bun (the previous base): Bun advertises Node 24's ABI to native
+# addons, and better-sqlite3 ships no prebuilt binary for it — every image
+# build recompiled the whole SQLite amalgamation via node-gyp (15+ silent
+# minutes; worse on a small Hetzner vCPU). Under Node 22 the prebuild
+# downloads in seconds and the compiler toolchain stays out of the image.
 
-FROM oven/bun:1.3.1-alpine
+FROM node:22-slim
 
 WORKDIR /app
 
-# Install runtime + build deps:
-#  • dumb-init       — proper signal handling
-#  • python3 / make / g++ — required for the rare case where better-sqlite3
-#    has no prebuild matching this image (musl libc + node-abi). Without
-#    these the `prebuild-install || node-gyp rebuild` fallback in
-#    better-sqlite3's install script aborts the whole image build.
-#  • git             — needed at runtime by getStrategyVersion() so each
-#    container can self-detect its commit hash if STRATEGY_VERSION is
-#    not injected via env (defence in depth — Pulumi normally injects it).
-RUN apk add --no-cache dumb-init python3 make g++ git
+# Runtime deps:
+#  • dumb-init — proper signal handling (PID 1)
+#  • git       — needed at runtime by getStrategyVersion() so each container
+#    can self-detect its commit hash if STRATEGY_VERSION is not injected via
+#    env (defence in depth — deploy/hetzner/deploy.sh normally injects it).
+RUN apt-get update && apt-get install -y --no-install-recommends dumb-init git \
+  && rm -rf /var/lib/apt/lists/* \
+  && npm install -g pnpm@10
 
-# Create non-root user for security
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nodejs -u 1001
+# Copy package files (pnpm-lock.yaml is the source of truth for the image).
+COPY package.json pnpm-lock.yaml ./
 
-# Copy package files
-COPY --chown=nodejs:nodejs package.json bun.lock ./
-
-# Install all dependencies. better-sqlite3 will run its `prebuild-install
-# || node-gyp rebuild` postinstall here — the build deps above ensure the
-# rebuild path can succeed if no prebuild matches.
-RUN bun install
+# Full install (tsx lives in devDependencies and IS the runtime here).
+# better-sqlite3's postinstall downloads its prebuilt glibc binary (no compile).
+RUN pnpm install --frozen-lockfile
 
 # Copy source code
-COPY --chown=nodejs:nodejs src ./src
-COPY --chown=nodejs:nodejs tsconfig.json ./
+COPY src ./src
+COPY tsconfig.json ./
 
 # Create data directory for state persistence (state.json, auto-tune-state.json,
 # and pnl.db all land here; the host-mounted volume preserves them across
-# container restarts).
-RUN mkdir -p /app/data && chown nodejs:nodejs /app/data
+# container restarts) and hand the tree to the unprivileged user.
+RUN mkdir -p /app/data && chown -R node:node /app
 
-# Switch to non-root user
-USER nodejs
-
-# Expose port for health checks (optional)
-EXPOSE 3001
+# Switch to non-root user (node:22-slim ships a `node` user)
+USER node
 
 # Use dumb-init to handle signals properly
 ENTRYPOINT ["dumb-init", "--"]
 
-# Default command: run TypeScript directly with Bun
-CMD ["bun", "run", "src/cli/auto-tune.ts"]
+# Default command: run TypeScript directly with tsx
+CMD ["./node_modules/.bin/tsx", "src/cli/auto-tune.ts"]

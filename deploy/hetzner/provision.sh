@@ -12,7 +12,20 @@
 # Usage:
 #   HCLOUD_TOKEN=... bash deploy/hetzner/provision.sh [server-name]
 #   SERVER_TYPE=cpx11 LOCATION=nbg1 bash deploy/hetzner/provision.sh
+#
+# HCLOUD_TOKEN may also live in deploy/hetzner/host.env (gitignored).
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -f "${SCRIPT_DIR}/host.env" ]]; then
+  # shellcheck disable=SC1091
+  source "${SCRIPT_DIR}/host.env"
+fi
+export HCLOUD_TOKEN="${HCLOUD_TOKEN:-}"
+if [[ -z "${HCLOUD_TOKEN}" ]] && ! hcloud context active >/dev/null 2>&1; then
+  echo "ERROR: no HCLOUD_TOKEN (env or deploy/hetzner/host.env) and no active hcloud context." >&2
+  exit 1
+fi
 
 SERVER_NAME="${1:-delta-bot}"
 SERVER_TYPE="${SERVER_TYPE:-cx22}"     # 2 vCPU / 4 GB, ~€4/mo. Alternative: cpx11 (AMD).
