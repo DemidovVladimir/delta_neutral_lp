@@ -293,6 +293,32 @@ Two issues bundled:
 
 ---
 
+### BUG-007: Hedge Carry Read From the Wrong Custody (SOL Instead of Collateral)
+**Status:** Fixed
+**Severity:** Medium (misleading economics, no fund loss)
+**Reported:** 2026-07-03 (found during the both-sides generalization design)
+**Fixed:** 2026-07-03
+**Related:** ADR-015, ADR-017
+
+**Description:**
+`JupiterPerpsEngine.getHedgeState()` computed `carryRateBps` from the **SOL
+custody** unconditionally. On Jupiter Perps, borrow fees accrue on the
+position's **collateral** custody — USDC for a short, SOL for a long. The
+liquidation-price port already used `collateralCustody.fundingRateState`
+correctly; only the headline carry number was wrong. Effect: the reported
+short carry was the SOL-side borrow APR (~11.8% at the time) instead of the
+USDC-side rate (~5.5% at fix time) — overstating the hedge cost and feeding
+the wrong number into the controller's carry-cap gate.
+
+**Resolution:**
+`readSides()` computes per-side carry from each side's collateral custody
+(USDC custody for the short, SOL custody for the long); the carry-cap guard in
+`decideHedgeAction` receives the side-correct cost. Verified live:
+`pnpm jupiter:read` now reports `carryRateBps ≈ -552` (USDC custody) for the
+prospective short.
+
+---
+
 ### BUG-002: Node 24 Crashes Loading Meteora DLMM ESM Bundle
 **Status:** Fixed
 **Severity:** High

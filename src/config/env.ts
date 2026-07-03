@@ -46,23 +46,6 @@ export interface BotConfig {
   rentReserveSol: number;
   minimumWalletBalanceSol: number;
 
-  // API server (Hono) — fund-affecting POST endpoints are guarded by these.
-  /**
-   * Shared secret required on POST /api/positions/* via X-API-Key header.
-   * When undefined the API server fail-closes mutating endpoints (returns
-   * 503) so an exposed port can never move funds without explicit auth.
-   * GET endpoints (read-only) remain available either way.
-   */
-  apiKey?: string;
-  /**
-   * Allowed Origin values for CORS. Empty array == no cross-origin requests
-   * accepted (same-origin only). Defaults to common local dev ports so the
-   * paired UI keeps working out of the box.
-   */
-  apiAllowedOrigins: string[];
-  /** Max mutating POST requests per remote IP per minute. */
-  apiRateLimitPerMin: number;
-
   /**
    * Enables the `sendOptimized` wrapper around Meteora SDK transaction sends.
    * When true, every Meteora write tx is simulated to set a tight
@@ -292,20 +275,6 @@ function loadConfigFromEnv(): BotConfig {
   const rentReserveSol = parseEnvNumber('RENT_RESERVE_SOL', 0.1); // Default 0.1 SOL for rent/fees
   const minimumWalletBalanceSol = parseEnvNumber('MINIMUM_WALLET_BALANCE_SOL', 0.2); // Default 0.2 SOL minimum balance
 
-  // Parse API server security parameters
-  const apiKey = parseEnvString('API_KEY', false, '');
-  // Default to common local dev ports so the paired UI works without extra
-  // setup. Production should set this explicitly to a known-frontend origin.
-  const apiAllowedOrigins = parseEnvStringArray(
-    'API_ALLOWED_ORIGINS',
-    false,
-    ['http://localhost:5173', 'http://localhost:3000']
-  );
-  const apiRateLimitPerMin = parseEnvNumber('API_RATE_LIMIT_PER_MIN', 10);
-  if (apiRateLimitPerMin <= 0) {
-    throw new Error('API_RATE_LIMIT_PER_MIN must be > 0');
-  }
-
   // Default false — operators flip to true after validating in `pnpm pnl`
   // that the per-tx fee column has dropped without confirms suffering. Once
   // a few rebalance cycles look good, set SEND_OPTIMIZED=true permanently.
@@ -407,9 +376,6 @@ function loadConfigFromEnv(): BotConfig {
     swapHighImpactWarningPct,
     rentReserveSol,
     minimumWalletBalanceSol,
-    apiKey: apiKey || undefined,
-    apiAllowedOrigins,
-    apiRateLimitPerMin,
     sendOptimizedEnabled,
     hedgeEnabled,
     hedgeDryRun,

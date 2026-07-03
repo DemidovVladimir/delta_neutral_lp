@@ -1462,6 +1462,78 @@ SOL-half ≈ **~6% of LP/yr**. Carry is not what erodes returns.
 
 ---
 
+## ADR-017: Simplification + both-sides target-delta hedge + Hetzner deploy
+
+**Date:** 2026-07-03
+**Status:** Accepted
+**Deciders:** Operator (defaults chosen in absentia per plan review; approved via plan)
+**Related:** ADR-015, ADR-016, BUG-007
+
+### Context
+
+The repo carried three generations of dead weight: the exploded-Drift code
+(ADR-014), a GCP/Pulumi deploy being abandoned, an unauthenticated-then-hardened
+Hono API with no UI consumer in the repo, and six npm dependencies with zero
+import sites. Meanwhile the Jupiter Perps write side (ADR-015) was complete and
+dry-run-validated but (a) not wired into the loop, (b) short-only, and (c) had
+no deployment target. The operator asked for: a simpler codebase, flexible
+Meteora LPing with flexible perps shorts **or** longs, and a Hetzner launch.
+
+### Decision
+
+1. **Prune, evidence-based.** Delete Drift cluster, Hono server (+ its config
+   surface), `deploy/gcp`, orphan scripts/docs, and 11 dependencies — every
+   item verified to have zero live importers. Winston stays (the actual
+   logger); dashboard + pnl stay (they ARE the observation story).
+2. **Target-delta controller, both sides.** New pure decision core
+   `hedgeController.decideHedgeAction` steering
+   `error = (lpSol + longSol − shortSol) − HEDGE_TARGET_DELTA_SOL` into a band.
+   Decrease-first (never hold both sides), one mutation per cycle, increases
+   gated by carry cap / notional cap / projected CR / wallet reserves (longs).
+   Longs are collateralised in pre-wrapped wSOL (`jupiterMinimumOut: null`,
+   mirrors Jupiter's reference; USDC-in was rejected — the keeper-swap bound is
+   unknowable at request time for decreases). Long full close = `BN(1)` price
+   floor; the $100k ceiling is short-only.
+3. **Keeper-fill cooldown, persisted.** `AutoTuneState.hedge.lastActionAt`
+   (set only on LIVE sends) + `HEDGE_COOLDOWN_MS` (default 120s) block hedge
+   mutations while a keeper fill may be in flight — including across restarts.
+   In-flight request-PDA detection was rejected (random counter, needs
+   getProgramAccounts every cycle).
+4. **Loop wiring with hard isolation.** The orchestrator reuses the
+   `LpExposure` it already fetched each cycle; hedge errors count on their own
+   counter and can only disable the hedge (loud banner), never the LP loop.
+   Hedge skips cycles where the LP was mutated (stale exposure). Every
+   non-`none` decision is recorded to a new `hedge_actions` table in pnl.db.
+5. **Hetzner over GCP.** Three shell scripts (provision via hcloud+cloud-init,
+   rsync+compose deploy, logs) instead of a Pulumi stack. STRATEGY_VERSION is
+   stamped into the uploaded .env at deploy time (image ships no .git).
+6. **Staged go-live.** Stage A: hedge enabled + `HEDGE_DRY_RUN=true`,
+   `AUTO_CREATE_POSITIONS=false` — observable, unspendable. Stage B (explicit
+   operator sign-off on sizing): fund USDC, flip both flags.
+
+### Consequences
+
+- −8,000 lines and 11 dependencies; single-process bot; the only entrypoints
+  are `auto-tune`, the read/mutation CLIs, and the dashboard.
+- The hedge can now also express a deliberate directional tilt
+  (`HEDGE_TARGET_DELTA_SOL ≠ 0`), including a perp long beyond LP exposure.
+- BUG-007 fixed en route: carry was read from the SOL custody unconditionally;
+  it accrues on the COLLATERAL custody (short ≈ −5.5% APR at fix time, not
+  −11.8%).
+- A long decrease leaves proceeds as wSOL (the receiving ATA must outlive the
+  keeper fill); the loop unwraps idle wSOL back to native SOL when in band.
+- Legacy `MAX_SHORT_NOTIONAL_USD` still parses (fallback for
+  `MAX_HEDGE_NOTIONAL_USD`) so existing .env files keep their cap.
+
+### References
+
+- `src/modules/hedgeController.ts` (+ 23-case test), `src/modules/jupiterPerpsEngine.ts`,
+  `src/modules/autoTuneOrchestrator.ts` (`maybeRebalanceHedge`),
+  `src/modules/pnlDb.ts` (`hedge_actions`), `deploy/hetzner/`
+- `bugs.md` BUG-007; live dry-run validation logged in `progress.md` 2026-07-03
+
+---
+
 ## Decision Index
 
 - ADR-001: Use solana-agent-kit for Transaction Execution *(superseded — direct @solana/web3.js)*
@@ -1480,12 +1552,13 @@ SOL-half ≈ **~6% of LP/yr**. Carry is not what erodes returns.
 - ADR-014: Drift Hedge Engine via @drift-labs/sdk *(superseded as active venue by ADR-015 — Drift down post-exploit)*
 - ADR-015: Pivot Hedge Venue from Drift to Jupiter Perpetuals — new (Accepted)
 - ADR-016: Hedge sizing/economics policy (3× leverage, 50% carry cap) + pool analytics on-chain (Accepted)
+- ADR-017: Simplification + both-sides target-delta hedge + Hetzner deploy (Accepted)
 
 ---
 
 ## Decision Status
 
-- **Accepted:** 13 (incl. ADR-015 — Jupiter Perps pivot, ADR-016 — hedge economics/analytics)
+- **Accepted:** 14 (incl. ADR-017 — simplification, both-sides hedge, Hetzner)
 - **Superseded:** 3 (ADR-001 by direct web3.js, ADR-010 by removal of Jito, ADR-014 as active venue by ADR-015)
 - **Proposed:** 0
 - **Deprecated:** 0

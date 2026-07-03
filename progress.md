@@ -5,6 +5,30 @@
 
 ---
 
+## 2026-07-03
+
+### Session 14 — ADR-017: simplification, both-sides target-delta hedge, loop wiring, Hetzner deploy
+
+**Goal (operator):** simplify the project, keep flexible Meteora LPing + flexible perps shorts **or** longs, launch on Hetzner and observe. Plan approved via plan mode; recommended defaults used (operator AFK for the clarifying questions).
+
+**Commits this session:**
+1. `bceb9a5` — checkpoint: committed the previously-uncommitted write side (open/close/rebalance/liq/emergency + CLI) exactly as validated in Session 13.
+2. `6c7d2d4` — prune (−8,034 lines): Drift cluster + SDK, Hono API server + docs, `deploy/gcp` (Pulumi), 11 zero-import-site dependencies (pino, pino-pretty, @google-cloud/logging, @switchboard-xyz/on-demand, @pythnetwork/client, @pythnetwork/pyth-solana-receiver, @solana/signers, @solana/transactions, @solana/transaction-messages, @drift-labs/sdk, hono), orphan scripts/docs, dead `PROGRAM_IDS`, broken package.json scripts.
+3. `deac1cc` — both-sides hedge: `generateSolPositionPda(wallet, side)` (long = side [1], collateralCustody = SOL custody), side-parameterised `openOrIncrease`/`decreaseOrClose` (long collateral = pre-wrapped wSOL in-TX; slippage direction flips; long full close = BN(1) floor), `readSides()` reads both PDAs + custodies, **BUG-007 fixed** (carry now read from the COLLATERAL custody — short ≈ −5.5% APR, not the SOL custody's −11.8%), NEW pure `hedgeController.decideHedgeAction` (23 table-driven tests) + config (`HEDGE_ENABLED`/`HEDGE_DRY_RUN`/`HEDGE_TARGET_DELTA_SOL`/`HEDGE_COOLDOWN_MS`/`MAX_HEDGE_NOTIONAL_USD`), CLI `--side`/`--target-delta`/`--unwrap`.
+4. `0e8e8f3` — loop wiring: orchestrator owns the engine (init failure → LP-only), `checkPositionBalance` returns the `LpExposure` it always computed, `maybeRebalanceHedge` every cycle (skipped after LP mutations), persisted keeper-fill cooldown in `AutoTuneState.hedge`, isolated hedge error counter (5 strikes → hedge-only kill switch), `hedge_actions` table + `recordHedgeAction` in pnl.db, idle-wSOL unwrap housekeeping.
+5. `15f9d55` — Hetzner deploy kit (`deploy/hetzner/`): provision.sh (hcloud + cloud-init Docker), deploy.sh (rsync + .env upload with STRATEGY_VERSION stamped), logs.sh/ssh.sh, runbook README, npm scripts.
+6. (this commit) — docs: CLAUDE.md rewritten for the new shape, ADR-017, BUG-007, .env.example hedge block, HANDOVER refresh. Also removed the now-dead API server config from env.ts.
+
+**Validation (live mainnet, no funds moved):**
+- `tsc` clean, 60 vitest tests green (23 new controller cases + 2 PDA pins incl. the live-verified short PDA `6HFhuYzQGcqdj4NGwC6vfVETRvMA3pXaVeZnHgWSKsJK`).
+- `pnpm jupiter:read`: both PDAs derived (long `FqymRcB92t63jpwh7om4RLbxMNUGoHnZPQMkkAA8ksVY`), carry −551.97 bps (USDC custody — BUG-007 fix visible), SOL ≈ $80.95.
+- Dry-runs: short open unchanged (blocks only on 0 USDC); **long open simulates clean end-to-end** (113,558 CU incl. wSOL wrap ixs); long close reverts only `AccountNotInitialized` (no position); controller `none`/`increase_short`/`increase_long` branches all exercised (`--rebalance --lp-sol=3`, `--target-delta=5` → increase_long $404.76 notional / 1.65 SOL collateral @ 0.33 ratio, simulated OK).
+- Two full live loop cycles (`HEDGE_ENABLED=true HEDGE_DRY_RUN=true AUTO_CREATE_POSITIONS=false`): engine boot, stale-mint self-heal, hedge "in band" each cycle, graceful SIGTERM shutdown.
+
+**Next (blocked on operator input):** Hetzner server (HCLOUD_TOKEN or existing IP) → Stage A dry-run deploy → operator sign-off on go-live sizing (wallet holds 3.266365303 SOL + 0 USDC; needs a SOL→USDC swap for short collateral). Launch knobs proposed in `deploy/hetzner/README.md` (band 0.15 SOL, notional cap $150, 3× collateral ratio).
+
+---
+
 ## 2026-06-30
 
 ### Session 13 — Jupiter Perps write side Steps 4–5 (liquidationPrice + emergencyUnwind) + BUG-004 LP stale-state heal
