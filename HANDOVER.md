@@ -1,8 +1,8 @@
 # HANDOVER — Delta-Neutral Bot (LP + Jupiter Perps hedge, both sides)
 
-**Last updated:** 2026-07-03
-**Branch:** `feature/hedge-jupiter-perps-pivot`
-**Status:** **Code complete (ADR-017).** Simplified single-process bot; hedge (short OR long) wired into the auto-tune loop, dry-run-validated live; Hetzner deploy scripts ready. **Blocked on operator input for launch** — see "What's next".
+**Last updated:** 2026-07-03 (end of Session 14, session closing)
+**Branch:** `feature/hedge-jupiter-perps-pivot` (12 commits ahead of the last pre-session commit; NOT pushed to a remote — local only)
+**Status:** **LIVE IN PRODUCTION.** The bot is running delta-neutral with real funds (~$30) on Hetzner `167.233.105.131` — real Meteora LP position + real Jupiter Perps short, net ΔSOL in band. Next session starts at "Next-session checklist" below.
 
 ---
 
@@ -45,6 +45,42 @@ Operator budget decision: **~$30 total experiment** — `.env` sized accordingly
 **Ongoing observation:** `pnpm logs:hetzner`, local `pnpm dashboard`, `pnpm pnl` (hedge_actions table).
 Watch-fors: first LP auto-tune rebalance (composition threshold 0.92) and the hedge re-centering after
 it; utilization spikes in carry; the first live long-close/unwrap if a long ever opens (dry-run-validated only).
+
+### Post-launch notes (end of session)
+
+- **The mystery +34.085672 USDC is RESOLVED — it's the operator's own money.** TX
+  `5VVvDccXxcsVYhaFXn7TmdTQqW2t9LhTkGw6vtkwUbePAqyPPGQHS5V2cTHaEipXurQehzDPjVDbUVrKL2mdMYA1`
+  (13:04:26 UTC, plain spl-token transfer from hot wallet `F7p3dFrjRTbtRp8FRF6qHLomXbKRBzpvBLjtQcfcgmNe`)
+  is the payout of the operator's Jupiter cross-chain swap USDC(Ethereum) → USDC(Solana), done just
+  before launch. Not a rebalance, not a hedge payout, not an attack. Do NOT re-investigate.
+- Wallet reconciliation at close (SOL ≈ $81.5): SOL 3.266365303 → 2.706501121 (0.35 swap + 0.15 LP +
+  ~0.057 refundable position rent + fees); USDC 0 → 44.266678 (= +34.085672 bridge +28.512026 swap
+  −12.220768 LP −6.110256 short collateral). Everything accounted for.
+- The bot does not distinguish "own" vs "extra" USDC: a future LP rebalance may deposit part of the
+  free 44 USDC toward its target (it won't swap unnecessarily). Operator was offered isolation and
+  declined («забей»).
+- First ~15 min of fee flow: claimable ≈ $0.008 (0.000043249 SOL + 0.004216 USDC) vs short carry
+  ≈ $0.002/DAY (−5.48% APR on $12.22 notional). Early unit economics strongly positive; do not
+  extrapolate a 15-minute sample.
+- LP position opening happened BEFORE the pnl.db fix landed on the server, so `positions` has no row
+  for `KS1p61P3g5Rub8Ar9TXWp8rbu2Wxi1jpQQLDJVtaMrA` — per-tick snapshots are silently skipped (by
+  design) until the FIRST rebalance creates the next position; from then on stats are complete.
+  `hedge_actions` records fine regardless.
+
+## Next-session checklist (start here)
+
+1. Read state: `pnpm logs:hetzner` (or `ssh root@167.233.105.131 'cd /opt/delta-bot && docker compose logs --tail=200'`), local `pnpm dashboard --json`, and on-server pnl:
+   `ssh root@167.233.105.131 'cd /opt/delta-bot && docker compose exec -T delta-neutral-bot ./node_modules/.bin/tsx src/cli/pnl.ts'`.
+2. Questions to answer for the operator (he speaks Russian, wants a profitability read):
+   - How many LP rebalances happened; realized PnL vs HODL benchmarks (`pnpm pnl`).
+   - How many hedge adjustments (`hedge_actions` table), did net ΔSOL stay in the ±0.1 band.
+   - Fee income rate vs carry cost; network fees burned.
+3. If the hedge ever opened a LONG and closed it: verify the wSOL unwrap path worked live (first
+   live exercise of that path; the loop's idle-unwrap should have folded wSOL back to native).
+4. Consider: push the branch to a remote (12 local commits, no backup!) and open a PR to main.
+5. Emergency commands if something looks wrong: `pnpm hedge:emergency --live` flattens ALL perp
+   positions at any price; `ssh … docker compose down` stops the bot; LP can be closed from the
+   Meteora UI or by the bot's own withdrawClaimAndClose.
 
 ---
 
