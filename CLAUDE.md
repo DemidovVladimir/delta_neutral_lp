@@ -26,6 +26,7 @@ pnpm dashboard           # blessed TUI: wallet, LP, hedge, net-ΔSOL band, liq p
 pnpm dashboard --json    # one JSON snapshot (works without a TTY)
 pnpm jupiter:read        # hedge state smoke check
 pnpm pnl                 # PnL report from data/pnl.db
+pnpm hodl                # whole-strategy equity vs HODL-SOL/USDC/as-is (baseline: data/hodl-baseline.json; --init to set; see .claude/skills/hodl-check)
 
 # Hedge mutations (DRY-RUN by default; --live to send)
 pnpm hedge:open --size-usd=10 --collateral=5              # short (USDC collateral)

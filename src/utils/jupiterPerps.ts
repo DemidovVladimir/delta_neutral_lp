@@ -246,6 +246,20 @@ export function borrowAprPct(custody: any): number {
 }
 
 /**
+ * Borrow fees accrued on an open position since entry, as a BN in 6-dp USD:
+ * (collateral custody's cumulative interest rate − the position's snapshot at
+ * entry) × sizeUsd / RATE_POWER. This is the "carry paid so far" that Jupiter
+ * will deduct from collateral on close — divide by USD_PRECISION for a human
+ * number. The same term feeds the liquidation-price math below.
+ */
+export function accruedBorrowFeeUsdBn(position: any, collateralCustody: any): any {
+  return collateralCustody.fundingRateState.cumulativeInterestRate
+    .sub(position.cumulativeInterestSnapshot)
+    .mul(position.sizeUsd)
+    .div(RATE_POWER);
+}
+
+/**
  * Liquidation price for an open position, in human USD. Faithful port of
  * Jupiter's reference `getLiquidationPrice` (julianfssen repo). The position is
  * liquidated once its loss (price move against it) plus close + already-accrued
@@ -282,10 +296,7 @@ export function computeLiquidationPrice(
   const totalFeeBps = custody.decreasePositionBps.add(priceImpactFeeBps);
   const closeFeeUsd = position.sizeUsd.mul(totalFeeBps).div(BPS_POWER);
 
-  const borrowFeeUsd = collateralCustody.fundingRateState.cumulativeInterestRate
-    .sub(position.cumulativeInterestSnapshot)
-    .mul(position.sizeUsd)
-    .div(RATE_POWER);
+  const borrowFeeUsd = accruedBorrowFeeUsdBn(position, collateralCustody);
 
   const totalFeeUsd = closeFeeUsd.add(borrowFeeUsd);
   const maxLossUsd = position.sizeUsd.mul(BPS_POWER).div(maxLeverage).add(totalFeeUsd);

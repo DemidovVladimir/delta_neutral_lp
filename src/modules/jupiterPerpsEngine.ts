@@ -47,6 +47,7 @@ import {
   USDC_DECIMALS_POW,
   USDC_MINT,
   USD_PRECISION,
+  accruedBorrowFeeUsdBn,
   borrowAprPct,
   computeLiquidationPrice,
   createAtaIdempotentIx,
@@ -146,9 +147,15 @@ export class JupiterPerpsEngine implements HedgeEngine {
       const pos = await this.program.account.position.fetch(this.positionPdas[side]);
       // Jupiter doesn't close position accounts; a closed position has sizeUsd == 0.
       return pos.sizeUsd.eqn(0) ? null : pos;
-    } catch {
-      // Account does not exist yet => no position.
-      return null;
+    } catch (e) {
+      // Anchor reports a never-opened side as "Account does not exist or has
+      // no data <pda>" — that is a legitimate flat state. Anything else (RPC
+      // timeout, 429, decode failure) must NOT read as "no position": the
+      // controller could double-hedge against a phantom-flat side and the
+      // hodl CLI would book real collateral as zero. Rethrow those.
+      const msg = e instanceof Error ? e.message : String(e);
+      if (/does not exist|has no data|could not find/i.test(msg)) return null;
+      throw e;
     }
   }
 
@@ -179,11 +186,13 @@ export class JupiterPerpsEngine implements HedgeEngine {
     // shorts (this is also where the liq-price port reads the accrued rate).
     const longCarryBps = -(borrowAprPct(solCustody) * 100);
     const shortCarryBps = -(borrowAprPct(usdcCustody) * 100);
+    const oraclePriceUsd = priceData?.usd ?? 0;
 
     const toSideState = (
       position: any,
       collateralCustody: any,
       carryRateBps: number,
+      side: PositionSide,
     ): (HedgeSideState & { position: any }) | null => {
       if (!position) return null;
       let liquidationPrice: number | null = null;
@@ -194,21 +203,43 @@ export class JupiterPerpsEngine implements HedgeEngine {
           error: e instanceof Error ? e.message : String(e),
         });
       }
+      const notionalUsd = position.sizeUsd.toNumber() / USD_PRECISION;
+      const entryPriceUsd = position.price.toNumber() / USD_PRECISION;
+      // Price PnL only; borrow fees are surfaced separately so callers can
+      // reconstruct side equity = collateral + pnl − fees.
+      const priceMoveUsd =
+        side === 'long' ? oraclePriceUsd - entryPriceUsd : entryPriceUsd - oraclePriceUsd;
+      const unrealizedPnlUsd =
+        entryPriceUsd > 0 && oraclePriceUsd > 0 ? (notionalUsd * priceMoveUsd) / entryPriceUsd : 0;
+      // Same containment as the liq-price port above: exotic custody-layout
+      // drift must degrade one field, not kill readSides() for the live loop.
+      let accruedBorrowFeeUsd = 0;
+      try {
+        accruedBorrowFeeUsd =
+          accruedBorrowFeeUsdBn(position, collateralCustody).toNumber() / USD_PRECISION;
+      } catch (e) {
+        log.warn('Failed to compute accrued borrow fee', {
+          error: e instanceof Error ? e.message : String(e),
+        });
+      }
       return {
         position,
-        notionalUsd: position.sizeUsd.toNumber() / USD_PRECISION,
+        notionalUsd,
         collateralUsd: position.collateralUsd.toNumber() / USD_PRECISION,
+        entryPriceUsd,
+        unrealizedPnlUsd,
+        accruedBorrowFeeUsd,
         liquidationPrice,
         carryRateBps,
       };
     };
 
     return {
-      long: toSideState(longPos, solCustody, longCarryBps),
-      short: toSideState(shortPos, usdcCustody, shortCarryBps),
+      long: toSideState(longPos, solCustody, longCarryBps, 'long'),
+      short: toSideState(shortPos, usdcCustody, shortCarryBps, 'short'),
       solCustody,
       usdcCustody,
-      oraclePriceUsd: priceData?.usd ?? 0,
+      oraclePriceUsd,
       walletSol: walletLamports / SOL_DECIMALS_POW,
     };
   }

@@ -75,8 +75,17 @@ export class MeteoraAdapter {
   private poolInfo: MeteoraPairInfo | null = null;
   private poolInfoLastFetched: number = 0;
   private readonly POOL_INFO_CACHE_MS = 2500; // Cache for 2.5 seconds
+  /**
+   * Read-only adapters (dashboard, hodl CLI) must never write state.json:
+   * they can run alongside the live auto-tune loop, and a discovery/prune
+   * write from an observer would race the owner process's writes (e.g. an
+   * empty read during a rebalance's close→create window clobbering the
+   * freshly created mint).
+   */
+  private readonly readOnly: boolean;
 
-  constructor() {
+  constructor(options: { readOnly?: boolean } = {}) {
+    this.readOnly = options.readOnly ?? false;
     // Initialize position mints based on config mode
     if (this.config.autoCreatePositions) {
       // Auto-create mode: Try to load positions from state.json
@@ -107,6 +116,12 @@ export class MeteoraAdapter {
         });
       }
     }
+  }
+
+  /** Persist tracked mints to state.json — no-op for read-only adapters. */
+  private persistPositionMints(mints: string[]): void {
+    if (this.readOnly) return;
+    saveCreatedPositionMints(mints);
   }
 
   /**
@@ -159,7 +174,7 @@ export class MeteoraAdapter {
             staleMints: this.positionMints,
           });
           this.positionMints = [];
-          saveCreatedPositionMints([]);
+          this.persistPositionMints([]);
         }
         return [];
       }
@@ -183,7 +198,7 @@ export class MeteoraAdapter {
           });
         }
         this.positionMints = [discoveredMints[0]];
-        saveCreatedPositionMints(this.positionMints);
+        this.persistPositionMints(this.positionMints);
         return [discoveredMints[0]];
       }
 
@@ -195,7 +210,7 @@ export class MeteoraAdapter {
 
       // Save merged positions to state for future startups
       if (mergedMints.length > this.positionMints.length) {
-        saveCreatedPositionMints(mergedMints);
+        this.persistPositionMints(mergedMints);
         log.info('State updated with newly discovered positions', {
           previousCount: this.positionMints.length,
           newCount: mergedMints.length,
@@ -661,10 +676,14 @@ export class MeteoraAdapter {
       // Get all positions for this user and pool
       const { userPositions } = await dlmmPool.getPositionsByUserAndLbPair(wallet.publicKey);
 
-      // Filter positions to only those in our positionMints list
-      const ourPositions = userPositions.filter((pos: any) =>
-        this.positionMints.includes(pos.publicKey.toBase58())
-      );
+      // Filter positions to only those in our positionMints list.
+      // Read-only observers skip the filter: their local state.json goes stale
+      // every time the owner process rebalances (new position mint), and an
+      // equity read filtered on stale mints would report $0 while funds sit in
+      // the pool. For an observer the on-chain set IS the truth.
+      const ourPositions = this.readOnly
+        ? userPositions
+        : userPositions.filter((pos: any) => this.positionMints.includes(pos.publicKey.toBase58()));
 
       if (ourPositions.length === 0) {
         log.warn('No positions found matching configured mints', {
@@ -679,7 +698,7 @@ export class MeteoraAdapter {
             staleMints: this.positionMints,
           });
           this.positionMints = [];
-          saveCreatedPositionMints([]);
+          this.persistPositionMints([]);
         }
         return {
           solAmount: 0,

@@ -51,7 +51,9 @@ function initMeteora(): MeteoraAdapter | null {
   const cfg = getConfig();
   if (!cfg.meteoraPoolAddress) return null;
   try {
-    return new MeteoraAdapter();
+    // Read-only: the dashboard may run beside the live loop and must never
+    // write state.json (discovery/prune writes would race the owner process).
+    return new MeteoraAdapter({ readOnly: true });
   } catch {
     return null;
   }

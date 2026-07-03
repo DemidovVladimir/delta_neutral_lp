@@ -17,6 +17,7 @@
     "hedge:rebalance": "tsx src/cli/jupiter-hedge.ts --rebalance",
     "hedge:emergency": "tsx src/cli/jupiter-hedge.ts --emergency",
     "pnl": "tsx src/cli/pnl.ts",
+    "hodl": "tsx src/cli/hodl-compare.ts",
     "lint": "eslint src --ext .ts",
     "format": "prettier --write \"src/**/*.ts\"",
     "docker:build": "docker compose build",

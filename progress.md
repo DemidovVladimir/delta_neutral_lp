@@ -7,6 +7,30 @@
 
 ## 2026-07-03
 
+### Session 15 — `pnpm hodl`: campaign-level HODL benchmark + `hodl-check` skill
+
+**Goal (operator):** a reusable local tool answering "would I be richer just HODLing SOL or USDC than running the LP+hedge strategy?" The per-position HODL columns in pnl.db reset at every rebalance and ignore the hedge; this compares TOTAL portfolio equity against counterfactuals frozen at a campaign baseline.
+
+**Built:**
+- `src/modules/hodlBenchmark.ts` — pure math (no I/O, 12 vitest tests): equity = wallet SOL/wSOL/USDC + LP incl. unclaimed fees + perp equity (collateral + price PnL − accrued borrow fees); benchmarks HODL-SOL / HODL-USDC / HODL-as-is; verdict + annualized edges (flagged as noise under 3 days).
+- `src/cli/hodl-compare.ts` (`pnpm hodl`) — reads everything on-chain (works locally, no Hetzner pnl.db needed); baseline persisted at `data/hodl-baseline.json` (gitignored); `--init` freezes current holdings, manual `--date/--price/--sol/--usdc` backdates to campaign start, `--force` guarded against goalpost-moving, `--json` for machines. Fails HARD on degraded reads (partial equity → lying verdict), unlike the dashboard's degrade-gracefully.
+- `HedgeSideState` extended with `entryPriceUsd` / `unrealizedPnlUsd` (price PnL only) / `accruedBorrowFeeUsd` — computed in `jupiterPerpsEngine.readSides()`; new `accruedBorrowFeeUsdBn()` helper in `utils/jupiterPerps.ts` (extracted from the liq-price port, same term).
+- Project skill `.claude/skills/hodl-check/SKILL.md` — future sessions invoke/interpret it (verdict first; delta-neutral is SUPPOSED to lag HODL-SOL in pumps; watch HODL-as-is edge ≈ fees − IL − carry).
+
+**Validation:** tsc clean, 72/72 tests green; end-to-end smoke against live mainnet with a throwaway manual baseline (then deleted — operator sets the real one): wallet 2.688186 SOL + $49.95 USDC, LP $24.50, perp equity +$1.86 (collateral $1.88, PnL −$0.01), SOL @ $81.59, all sections + verdict rendered.
+
+**Baseline set (operator choice — from current holdings):** captured `2026-07-03T17:24:55.725Z`, 2.742789 SOL + 71.88 USDC @ $81.677 = $295.90 total (`data/hodl-baseline.json`, note "Campaign baseline — set from live holdings").
+
+**Pre-merge review (workflow code-review, high):** 19 candidates → 16 verified, 2 refuted, 6 unique real issues — all fixed:
+1. `readTokenBalance` bare catch booked ANY RPC error as $0 USDC/wSOL (could flip the verdict or poison a `--init` baseline) → now getAccountInfo-null = legit zero, other errors propagate (fail-hard).
+2. `fetchOpenPosition` bare catch made an OPEN perp side read as flat on transient RPC errors (danger for the live controller too: phantom-flat → double-hedge) → only anchor "account does not exist"-style errors return null, everything else rethrows.
+3. `--init --force` dead loop on a malformed baseline file (loadBaseline threw before force was consulted; error told the user to run the failing command) → force now recovers; JSON/date validation hardened (unparseable `capturedAt` would have printed `elapsed: NaN days`).
+4. **Observer writes to state.json:** `getLpExposure`'s stale-mint prune (and discovery saves) could WRITE `data/state.json` from `pnpm hodl`/`pnpm dashboard`, racing the live loop during a rebalance's close→create window → `MeteoraAdapter({ readOnly: true })` suppresses all state writes; both observer CLIs use it.
+5. **Stale-observer LP=0:** a read-only observer's local state.json goes stale after every Hetzner rebalance; mint-filtered exposure would silently report LP=$0 → readOnly adapters skip the tracked-mint filter (on-chain set is the truth). Verified live: with a planted fake mint, LP still read from chain and state.json untouched.
+6. `accruedBorrowFeeUsdBn` ran unguarded in `readSides` (custody layout drift would kill the live hedge read, where pre-diff the same BN math was try/catch-contained) → guarded like the liq-price port. Plus cleanups: equity composition triplication → `equityComponents()` helper; `collectBreakdown` reads all sources in one `Promise.all`.
+
+---
+
 ### Session 14 — ADR-017: simplification, both-sides target-delta hedge, loop wiring, Hetzner deploy
 
 **Goal (operator):** simplify the project, keep flexible Meteora LPing + flexible perps shorts **or** longs, launch on Hetzner and observe. Plan approved via plan mode; recommended defaults used (operator AFK for the clarifying questions).

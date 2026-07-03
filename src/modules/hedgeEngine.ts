@@ -18,6 +18,16 @@ export interface HedgeSideState {
   notionalUsd: number;
   /** Collateral posted on this side, USD. */
   collateralUsd: number;
+  /** Average entry price of this side, USD. */
+  entryPriceUsd: number;
+  /**
+   * Mark-to-market PRICE PnL vs entry, USD. Positive = the side is in profit.
+   * Borrow fees are NOT netted here — see accruedBorrowFeeUsd.
+   * Side equity ≈ collateralUsd + unrealizedPnlUsd − accruedBorrowFeeUsd.
+   */
+  unrealizedPnlUsd: number;
+  /** Borrow fees accrued since entry, USD (always a cost on Jupiter). */
+  accruedBorrowFeeUsd: number;
   /** Estimated liquidation price for this side, USD. Null when unavailable. */
   liquidationPrice: number | null;
   /**
