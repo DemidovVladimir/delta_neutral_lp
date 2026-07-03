@@ -25,7 +25,9 @@
 - Dry-runs: short open unchanged (blocks only on 0 USDC); **long open simulates clean end-to-end** (113,558 CU incl. wSOL wrap ixs); long close reverts only `AccountNotInitialized` (no position); controller `none`/`increase_short`/`increase_long` branches all exercised (`--rebalance --lp-sol=3`, `--target-delta=5` → increase_long $404.76 notional / 1.65 SOL collateral @ 0.33 ratio, simulated OK).
 - Two full live loop cycles (`HEDGE_ENABLED=true HEDGE_DRY_RUN=true AUTO_CREATE_POSITIONS=false`): engine boot, stale-mint self-heal, hedge "in band" each cycle, graceful SIGTERM shutdown.
 
-**Next (blocked on operator input):** Hetzner server (HCLOUD_TOKEN or existing IP) → Stage A dry-run deploy → operator sign-off on go-live sizing (wallet holds 3.266365303 SOL + 0 USDC; needs a SOL→USDC swap for short collateral). Launch knobs proposed in `deploy/hetzner/README.md` (band 0.15 SOL, notional cap $150, 3× collateral ratio).
+**Launch (same day, operator present):** budget decision **~$30 total**; `.env` resized (deposit 0.15 SOL, band 0.1, notional cap $40, collateral ratio 0.5). Server provisioned via hcloud (`delta-bot`, cpx22, 167.233.105.131 — CX line gone, ARM cax11 out of stock everywhere; hcloud v1.66 flag rename fixed). Stage A dry-run verified on-server (EACCES on the bind-mounted data dir fixed via chown 1000). Docker base moved alpine→node:22-slim (Bun advertises Node 24 ABI → better-sqlite3 had no prebuild → silent 15-min source compiles); phantom dep `@solana/spl-token` declared; pnpm-10 build-script block fixed (`onlyBuiltDependencies`) — pnl.db now records on-server.
+
+**Stage B — LIVE:** funding swap 0.35 SOL → 28.512026 USDC; LP auto-created (mint `KS1p61P3g5Rub8Ar9TXWp8rbu2Wxi1jpQQLDJVtaMrA`, 0.15 SOL + 12.22 USDC, $81.15–$81.77); hedge opened live next cycle (short −0.15 SOL, $12.22 notional, 6.11 USDC collateral, keeper filled ≤15s) → **netΔSOL ≈ −0.02, in band**. Survived redeploy/restart with on-chain rediscovery. Full signatures in HANDOVER.md.
 
 ---
 

@@ -27,13 +27,24 @@ Validation: `tsc` clean; **60 vitest tests** green; live-mainnet dry-runs — sh
 
 Operator budget decision: **~$30 total experiment** — `.env` sized accordingly (`AUTO_TUNE_DEPOSIT_AMOUNT=0.15` SOL → LP ≈ $24, `HEDGE_TARGET_COLLATERAL_RATIO=0.5` → short collateral ≈ $6, `DELTA_THRESHOLD_SOL=0.1`, `MAX_HEDGE_NOTIONAL_USD=40`).
 
-## What's NEXT (blocked on operator sign-off)
+## Stage B — LIVE since 2026-07-03 ~13:07 UTC (operator: «погнали»)
 
-**Stage B (go-live)**: wallet `F3YvPiLdniRPGpeKrbeGWR2zg2wPpzVuvqBA5BBJBQ5S` holds **3.266365303 SOL + 0 USDC**.
-1. Swap ~0.35 SOL → USDC (≈$28: ~$12 for the LP's USDC half via the bot's own swap planner is NOT enough alone — the hedge needs its own USDC collateral in the wallet, so pre-swap covers both).
-2. Flip `AUTO_CREATE_POSITIONS=true` + `HEDGE_DRY_RUN=false` in `.env`, `pnpm deploy:hetzner`, watch the first cycle end-to-end (`pnpm logs:hetzner`).
-3. Success criteria: |netΔSOL − target| stays inside the 0.1-SOL band across LP rebalances; `hedge_actions` rows carry signatures; carry cost visibly below LP fee income (`pnpm pnl`).
-4. Watch the first live long-close/unwrap if a long ever opens (dry-run-validated only; see caveat 3 below).
+1. Funding swap: **0.35 SOL → 28.512026 USDC**, signature
+   `iVj7MvsFEyF2a4A3uRQRXsYFhcg54QWhghqDcFcT7uaa1t2ZDh1gjt9tPz4nU9K1GLYxZHJGjZuJL2yDJ54jUWh`.
+2. LP position auto-created: **0.15 SOL + 12.220767521156759 USDC**, range **$81.14661214654234–$81.76555161061418** (20 bins),
+   mint `KS1p61P3g5Rub8Ar9TXWp8rbu2Wxi1jpQQLDJVtaMrA`, signature
+   `537VY8KsFkXvUwiKKrDabJ3e2YKyrTAbPAH1wuD5EJqeTrMeJAV9huAw5SHZ195ZLtiMM19kfZttzsRmfFcafdRj`.
+3. Hedge opened LIVE next cycle: **increase_short −0.149999997 SOL** ($12.220511976089755 notional,
+   6.1102559880448775 USDC collateral, fill floor $81.06 @ oracle $81.47), request
+   `Ae3j8h9zPZv24eGYXLrZeix7aLyJ9Jf6gYCafvzBcBck`, TX1 signature
+   `3mtTAD5wScCLaXMSqGGvYYbx3o5Nf3xJWfjoy1NEoALijuV9fkTErKh44yziUKB4N2uHPUMqdWpoUZYs35ih5A9o`.
+   Keeper filled within ~15s; the bot read **netΔSOL ≈ −0.02** (inside the ±0.1 band) — delta-neutral.
+4. Survived a redeploy/restart: position rediscovered from chain, hedge stayed in band, pnl.db writes
+   clean after the pnpm-10 build-script fix (`pnpm.onlyBuiltDependencies`).
+
+**Ongoing observation:** `pnpm logs:hetzner`, local `pnpm dashboard`, `pnpm pnl` (hedge_actions table).
+Watch-fors: first LP auto-tune rebalance (composition threshold 0.92) and the hedge re-centering after
+it; utilization spikes in carry; the first live long-close/unwrap if a long ever opens (dry-run-validated only).
 
 ---
 
