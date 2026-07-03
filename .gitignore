@@ -125,3 +125,6 @@ target/
 .yarn-integrity
 yarn-error.log
 package-lock.json
+
+# Hetzner deploy server coordinates (per-operator)
+deploy/hetzner/host.env
