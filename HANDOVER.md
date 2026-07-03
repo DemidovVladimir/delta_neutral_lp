@@ -21,14 +21,19 @@ Validation: `tsc` clean; **60 vitest tests** green; live-mainnet dry-runs — sh
 
 ---
 
-## What's NEXT (blocked on operator)
+## Deployment status (2026-07-03)
 
-1. **Hetzner server** — either:
-   - `HCLOUD_TOKEN=... bash deploy/hetzner/provision.sh` (creates a CX22 with Docker), or
-   - an existing server IP into `deploy/hetzner/host.env` (copy from `host.env.example`).
-2. **Stage A (dry-run on the server)**: create `.env.hetzner` per `deploy/hetzner/README.md` (`AUTO_TUNE_ENABLED=true`, `AUTO_CREATE_POSITIONS=false`, `HEDGE_ENABLED=true`, `HEDGE_DRY_RUN=true`) → `pnpm deploy:hetzner` → observe via `pnpm logs:hetzner` / local `pnpm dashboard`.
-3. **Stage B (go-live — needs explicit operator sign-off on sizing)**: wallet `F3YvPiLdniRPGpeKrbeGWR2zg2wPpzVuvqBA5BBJBQ5S` holds **3.266365303 SOL + 0 USDC**. Proposed small-stakes launch: reserve 0.3 SOL, swap ~1.4 SOL → USDC, LP ≈ 1.2 SOL-equivalent (`AUTO_TUNE_DEPOSIT_TOKEN=SOL`, `AUTO_TUNE_DEPOSIT_AMOUNT≈1.2`), `DELTA_THRESHOLD_SOL=0.15`, `MAX_HEDGE_NOTIONAL_USD=150`, `HEDGE_TARGET_COLLATERAL_RATIO=0.33` (ADR-016). Flip `AUTO_CREATE_POSITIONS=true` + `HEDGE_DRY_RUN=false`, redeploy, watch the first cycle.
-4. Success criteria: |netΔSOL − target| stays inside the band across LP rebalances; `hedge_actions` rows carry signatures; carry cost visibly below LP fee income (`pnpm pnl`).
+**Stage A is LIVE on Hetzner**: server `delta-bot`, **cpx22** (2 vCPU x86 / 4 GB, fsn1), IP **167.233.105.131**, Docker Compose, container running the loop every 15s with `AUTO_CREATE_POSITIONS=false`, `HEDGE_ENABLED=true`, `HEDGE_DRY_RUN=true`. Hedge heartbeat (`Hedge: no action — in band`, sampled INFO) confirmed in server logs; state persists to `/opt/delta-bot/data` (uid 1000). Server coordinates + `HCLOUD_TOKEN` live in gitignored `deploy/hetzner/host.env`. Redeploy = `pnpm deploy:hetzner`; logs = `pnpm logs:hetzner`.
+
+Operator budget decision: **~$30 total experiment** — `.env` sized accordingly (`AUTO_TUNE_DEPOSIT_AMOUNT=0.15` SOL → LP ≈ $24, `HEDGE_TARGET_COLLATERAL_RATIO=0.5` → short collateral ≈ $6, `DELTA_THRESHOLD_SOL=0.1`, `MAX_HEDGE_NOTIONAL_USD=40`).
+
+## What's NEXT (blocked on operator sign-off)
+
+**Stage B (go-live)**: wallet `F3YvPiLdniRPGpeKrbeGWR2zg2wPpzVuvqBA5BBJBQ5S` holds **3.266365303 SOL + 0 USDC**.
+1. Swap ~0.35 SOL → USDC (≈$28: ~$12 for the LP's USDC half via the bot's own swap planner is NOT enough alone — the hedge needs its own USDC collateral in the wallet, so pre-swap covers both).
+2. Flip `AUTO_CREATE_POSITIONS=true` + `HEDGE_DRY_RUN=false` in `.env`, `pnpm deploy:hetzner`, watch the first cycle end-to-end (`pnpm logs:hetzner`).
+3. Success criteria: |netΔSOL − target| stays inside the 0.1-SOL band across LP rebalances; `hedge_actions` rows carry signatures; carry cost visibly below LP fee income (`pnpm pnl`).
+4. Watch the first live long-close/unwrap if a long ever opens (dry-run-validated only; see caveat 3 below).
 
 ---
 
