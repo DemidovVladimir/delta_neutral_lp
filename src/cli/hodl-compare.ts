@@ -51,6 +51,7 @@ const USDC_MINT = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
 const WSOL_MINT = new PublicKey('So11111111111111111111111111111111111111112');
 
 const BASELINE_PATH = path.resolve(process.cwd(), 'data', 'hodl-baseline.json');
+const HISTORY_PATH = path.resolve(process.cwd(), 'data', 'hodl-history.jsonl');
 
 // ----------------------------- baseline file ---------------------------------
 
@@ -80,6 +81,34 @@ function loadBaseline(): HodlBaseline | null {
 function saveBaseline(b: HodlBaseline): void {
   fs.mkdirSync(path.dirname(BASELINE_PATH), { recursive: true });
   fs.writeFileSync(BASELINE_PATH, JSON.stringify(b, null, 2) + '\n');
+}
+
+/**
+ * Append one JSONL row per compare run — the experiment's time series (full
+ * breakdown included so component drift is analyzable later). Fail-safe:
+ * history is analytics, never the critical path of the verdict.
+ */
+function appendHistory(
+  baseline: HodlBaseline,
+  breakdown: EquityBreakdown,
+  cmp: HodlComparison,
+): void {
+  try {
+    const row = {
+      takenAt: new Date().toISOString(),
+      baselineCapturedAt: baseline.capturedAt,
+      solPriceUsd: breakdown.solPriceUsd,
+      equityUsd: cmp.strategyTotalUsd,
+      benchmarks: Object.fromEntries(cmp.benchmarks.map((b) => [b.name, b.valueUsd])),
+      verdict: cmp.verdict,
+      elapsedDays: cmp.elapsedDays,
+      breakdown,
+    };
+    fs.mkdirSync(path.dirname(HISTORY_PATH), { recursive: true });
+    fs.appendFileSync(HISTORY_PATH, JSON.stringify(row) + '\n');
+  } catch (e) {
+    console.error(`⚠️  hodl-history append failed: ${e instanceof Error ? e.message : String(e)}`);
+  }
 }
 
 // ----------------------------- on-chain reads --------------------------------
@@ -339,6 +368,7 @@ HODL benchmark — read-only, no funds touched
     breakdown.solPriceUsd,
     new Date().toISOString(),
   );
+  appendHistory(baseline, breakdown, comparison);
 
   if (json) {
     console.log(JSON.stringify({ walletAddress, baseline, breakdown, comparison }, null, 2));

@@ -21,6 +21,19 @@ Read-only, safe while the bot is live. Reads everything on-chain (RPC), so it
 works from this machine — it does NOT need the Hetzner pnl.db. Requires a
 populated `.env` (`RPC_URL`, `PRIVATE_KEY`).
 
+Every compare run also appends one JSONL row (full breakdown included) to
+`data/hodl-history.jsonl` — the experiment's time series. The CANONICAL
+history lives on the Hetzner server (`/opt/delta-bot/data/hodl-history.jsonl`),
+fed by a daily root crontab at 00:17 UTC that runs the CLI inside the
+container. Fetch it for trend analysis with:
+
+```bash
+bash -c 'source deploy/hetzner/lib.sh; remote "cat /opt/delta-bot/data/hodl-history.jsonl"'
+```
+
+Rows carry `baselineCapturedAt` — filter on it when the baseline was ever
+re-initialized, so campaigns don't mix.
+
 ## Baseline (required once per campaign)
 
 The comparison is measured from `data/hodl-baseline.json`. If `pnpm hodl` says

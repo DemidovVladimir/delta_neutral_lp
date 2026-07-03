@@ -73,8 +73,11 @@ it; utilization spikes in carry; the first live long-close/unwrap if a long ever
    `ssh root@167.233.105.131 'cd /opt/delta-bot && docker compose exec -T delta-neutral-bot ./node_modules/.bin/tsx src/cli/pnl.ts'`.
 2. Questions to answer for the operator (he speaks Russian, wants a profitability read):
    - **Whole-strategy vs HODL: `pnpm hodl`** (campaign-level verdict; skill: `.claude/skills/hodl-check`).
-     Baseline is set (local `data/hodl-baseline.json`): captured 2026-07-03T17:24:55.725Z,
-     2.742789 SOL + 71.88 USDC @ $81.677 = $295.90. Do not re-init without the operator asking.
+     **Campaign 2 baseline** (local `data/hodl-baseline.json` + server copy): captured
+     2026-07-03T20:26:42.414Z, 2.237812341 SOL + 113.16 USDC @ $82.50 = $297.78, note
+     "Campaign 2: ~$100 working capital". Do NOT re-init without the operator asking.
+     Daily history: server crontab (00:17 UTC) appends to /opt/delta-bot/data/hodl-history.jsonl.
+     **Operator plan: срез Jul 4 (sanity), verdict Tuesday Jul 7 (~3.5-day window).**
    - How many LP rebalances happened; realized PnL vs HODL benchmarks (`pnpm pnl`).
    - How many hedge adjustments (`hedge_actions` table), did net ΔSOL stay in the ±0.1 band.
    - Fee income rate vs carry cost; network fees burned.

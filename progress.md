@@ -7,6 +7,23 @@
 
 ## 2026-07-03
 
+### Session 15b — Campaign 2: resize to ~$100 working capital + experiment instrumentation
+
+**Goal (operator, explicit approval for the full production sequence):** the whole-portfolio HODL edge was structurally tiny with only ~$31 deployed of $296 — resize the working slice to ~$100, re-init the baseline, add analysis elements. Срез Jul 4, verdict Tuesday Jul 7.
+
+**Config changes (.env, deployed):** `AUTO_TUNE_DEPOSIT_AMOUNT` 0.15 → 0.61 SOL, `DELTA_THRESHOLD_SOL` 0.1 → 0.06 (~10% of new LP SOL exposure), `MAX_HEDGE_NOTIONAL_USD` 40 → 100.
+
+**Execution (live mainnet):**
+- Funding swap 0.6 SOL → 49.435943 USDC (impact 0.055%), sig `5C6VfFR6cirEg4CHFVUccn4HRe5TwBm5u9hTLGRU91BE38TcNbER4885B8bFYwUBbVQmAdDWPkUZ18gp1zaEiM1X` — needed because after funding the LP's $50 USDC side the wallet couldn't also cover the grown short's collateral.
+- Resize via temporary `AUTO_TUNE_IMBALANCE_THRESHOLD=0.5` + deploy: the bot itself closed the old position and created the new one (proper pnl.db accounting server-side). **Mistake worth remembering: 0.5 is a permanent trigger (one side is always ≥50%) — the bot looped one extra rebalance (~2¢ fees + swap impact) before the 0.92 restore deploy landed.** Use e.g. 0.65 next time.
+- New LP `7hjp47kAaRaLi5CHRwhSJrgabnocYsxMaAFxC93VW94R`: 0.610173733 SOL + 50.32 USDC ≈ $100.6. Hedge increase_short +$30.36 notional / 15.18 USDC collateral (request `94KnyFYpoSZ5saadyHyMY1a7ptVDUTXfv5rCqaeW9x5E`, TX1 `3njxVexBsXPq7SeiQAS9yhApLrAtnknTZfPELUzwJKKUgbdwVUtrU9ahhfrgKquQ1xhHJ2QcJpDkNt4sD12yWr3A`), keeper filled ≤15s → **netΔSOL 0.000538, in band**.
+- **Campaign 2 baseline:** `2026-07-03T20:26:42.414Z`, 2.237812341 SOL + 113.16 USDC @ $82.50 = **$297.78** (local + server copy).
+- Gotcha discovered: `deploy/hetzner/ssh.sh` is interactive-only (`exec ssh` without `"$@"`) — remote one-liners must go through `lib.sh`'s `remote()`; an early "docker compose down" silently never ran because of this.
+
+**Instrumentation:** every `pnpm hodl` compare run appends a JSONL row (full breakdown) to `data/hodl-history.jsonl`; canonical history on the server via root crontab `17 0 * * *` running the CLI inside the container. Rows carry `baselineCapturedAt` to separate campaigns.
+
+---
+
 ### Session 15 — `pnpm hodl`: campaign-level HODL benchmark + `hodl-check` skill
 
 **Goal (operator):** a reusable local tool answering "would I be richer just HODLing SOL or USDC than running the LP+hedge strategy?" The per-position HODL columns in pnl.db reset at every rebalance and ignore the hedge; this compares TOTAL portfolio equity against counterfactuals frozen at a campaign baseline.
