@@ -239,6 +239,29 @@ function initSchema(db: DatabaseT): void {
       FOREIGN KEY (strategy_version) REFERENCES strategy_versions(git_hash)
     );
     CREATE INDEX IF NOT EXISTS idx_snapshots_position ON position_snapshots(position_id, taken_at);
+
+    CREATE TABLE IF NOT EXISTS hedge_actions (
+      id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+      taken_at            TEXT NOT NULL,
+      strategy_version    TEXT NOT NULL,
+      venue               TEXT NOT NULL,
+      -- increase_short / decrease_short / increase_long / decrease_long / blocked
+      action              TEXT NOT NULL,
+      dry_run             INTEGER NOT NULL,
+      lp_sol              REAL NOT NULL,
+      perp_base_sol       REAL NOT NULL,
+      target_delta_sol    REAL NOT NULL,
+      net_delta_sol       REAL NOT NULL,
+      adjusted_sol        REAL NOT NULL,
+      size_usd            REAL,
+      oracle_price_usd    REAL,
+      blocked_reason      TEXT,
+      signature           TEXT,
+      detail              TEXT,
+
+      FOREIGN KEY (strategy_version) REFERENCES strategy_versions(git_hash)
+    );
+    CREATE INDEX IF NOT EXISTS idx_hedge_actions_when ON hedge_actions(taken_at);
   `);
 }
 
@@ -802,6 +825,63 @@ export function recordPositionSnapshot(
     );
     return null;
   }, 'recordPositionSnapshot');
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// HEDGE ACTIONS (ADR-017)
+// ──────────────────────────────────────────────────────────────────────────
+
+export interface RecordHedgeActionInput {
+  venue: string;
+  action: string;
+  dryRun: boolean;
+  lpSol: number;
+  perpBaseSol: number;
+  targetDeltaSol: number;
+  netDeltaSol: number;
+  adjustedSol: number;
+  sizeUsd?: number;
+  oraclePriceUsd?: number;
+  blockedReason?: string;
+  signature?: string;
+  detail?: string;
+}
+
+/**
+ * Record one hedge-controller decision (every non-`none` outcome: increases,
+ * decreases, and blocked — dry-run included, flagged as such). `none` is
+ * deliberately not recorded: it fires every check cycle and would swamp the
+ * table without adding information.
+ */
+export function recordHedgeAction(input: RecordHedgeActionInput): void {
+  safe(() => {
+    const db = openDb();
+    const version = getStrategyVersion();
+    db.prepare(
+      `INSERT INTO hedge_actions (
+        taken_at, strategy_version, venue, action, dry_run,
+        lp_sol, perp_base_sol, target_delta_sol, net_delta_sol, adjusted_sol,
+        size_usd, oracle_price_usd, blocked_reason, signature, detail
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      nowIso(),
+      version.gitHash,
+      input.venue,
+      input.action,
+      input.dryRun ? 1 : 0,
+      input.lpSol,
+      input.perpBaseSol,
+      input.targetDeltaSol,
+      input.netDeltaSol,
+      input.adjustedSol,
+      input.sizeUsd ?? null,
+      input.oraclePriceUsd ?? null,
+      input.blockedReason ?? null,
+      input.signature ?? null,
+      input.detail ?? null,
+    );
+    return null;
+  }, 'recordHedgeAction');
 }
 
 // ──────────────────────────────────────────────────────────────────────────

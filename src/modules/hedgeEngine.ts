@@ -111,6 +111,8 @@ export interface HedgeRebalanceResult {
   signatures: string[];
   deltaBefore: DeltaView;
   deltaAfter?: DeltaView;
+  /** Oracle SOL price the decision was made at, USD. 0 when unavailable. */
+  oraclePriceUsd?: number;
   /** The underlying open/decrease mutation (sim result in dry-run, sigs when live). */
   mutation?: MutationResult;
 }

@@ -684,10 +684,24 @@ export class JupiterPerpsEngine implements HedgeEngine {
     });
 
     if (decision.action === 'none') {
-      return { action: 'none', adjustedSol: 0, signatures: [], deltaBefore, blockedReason: decision.reason };
+      return {
+        action: 'none',
+        adjustedSol: 0,
+        signatures: [],
+        deltaBefore,
+        blockedReason: decision.reason,
+        oraclePriceUsd: price,
+      };
     }
     if (decision.action === 'blocked') {
-      return { action: 'blocked', adjustedSol: 0, blockedReason: decision.reason, signatures: [], deltaBefore };
+      return {
+        action: 'blocked',
+        adjustedSol: 0,
+        blockedReason: decision.reason,
+        signatures: [],
+        deltaBefore,
+        oraclePriceUsd: price,
+      };
     }
 
     let mutation: MutationResult;
@@ -716,6 +730,7 @@ export class JupiterPerpsEngine implements HedgeEngine {
       signatures: mutation.signatures ?? [],
       deltaBefore,
       mutation,
+      oraclePriceUsd: price,
     };
   }
 

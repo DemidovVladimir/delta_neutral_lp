@@ -341,6 +341,17 @@ export interface AutoTuneState {
     };
     timestamp: number; // When position was created
   };
+
+  // Perps hedge tracking (ADR-017). `lastActionAt` is set ONLY after a LIVE
+  // mutation and drives the keeper-fill cooldown: Jupiter fills our request
+  // asynchronously (TX2), so the controller must not act again until it can
+  // read the filled position. Persisted so a restart right after a send
+  // cannot double-hedge.
+  hedge?: {
+    lastActionAt: number; // Timestamp of the last LIVE hedge mutation
+    lastAction: string; // e.g. 'increase_short'
+    lastSignatures?: string[]; // TX1 signature(s) of that mutation
+  };
 }
 
 export interface RebalanceResult {

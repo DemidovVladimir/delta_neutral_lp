@@ -55,6 +55,7 @@ import { PublicKey } from '@solana/web3.js';
 import { getAssociatedTokenAddress } from '@solana/spl-token';
 import { MeteoraAdapter } from './meteoraAdapter.js';
 import { JupiterSwapper } from './jupiterSwapper.js';
+import { JupiterPerpsEngine } from './jupiterPerpsEngine.js';
 import { planSwapForDeposit, type SwapPlan } from './swapPlanner.js';
 import { getConfig } from '../config/env.js';
 import { log } from '../utils/logger.js';
@@ -71,6 +72,7 @@ import {
 } from '../utils/meteoraUtils.js';
 import {
   AutoTuneState,
+  LpExposure,
   PositionBalance,
   RebalanceResult,
 } from '../types/index.js';
@@ -85,6 +87,7 @@ import {
   recordPositionSnapshot,
   recordRebalanceTriggered,
   recordRebalanceCompleted,
+  recordHedgeAction,
   findOpenPositionIdByMint,
 } from './pnlDb.js';
 
@@ -97,6 +100,14 @@ export class AutoTuneOrchestrator {
   private config = getConfig();
   private meteoraAdapter: MeteoraAdapter;
   private jupiterSwapper: JupiterSwapper;
+  /** Perps hedge (ADR-017). Null = disabled (HEDGE_ENABLED=false or init/error kill switch). */
+  private hedgeEngine: JupiterPerpsEngine | null = null;
+  /**
+   * Hedge failures are isolated: they must never kill the LP loop, so they get
+   * their own counter (NOT state.consecutiveErrors, which stops the bot at 5).
+   * At 5 consecutive hedge errors the hedge alone is disabled for the session.
+   */
+  private hedgeConsecutiveErrors = 0;
   private state: AutoTuneState;
   private intervalHandle?: NodeJS.Timeout;
   private watchMode: boolean;
@@ -105,6 +116,7 @@ export class AutoTuneOrchestrator {
     this.watchMode = watchMode;
     this.meteoraAdapter = new MeteoraAdapter();
     this.jupiterSwapper = new JupiterSwapper();
+    this.hedgeEngine = this.config.hedgeEnabled ? new JupiterPerpsEngine() : null;
 
     // Load saved state or initialize new state
     const savedState = loadAutoTuneState();
@@ -162,6 +174,32 @@ export class AutoTuneOrchestrator {
       imbalanceThreshold: this.config.autoTuneImbalanceThreshold,
     });
 
+    // Bring up the hedge engine before the first cycle. Init failure disables
+    // the hedge for the session but never blocks the LP loop.
+    if (this.hedgeEngine) {
+      try {
+        await this.hedgeEngine.initialize();
+        if (!this.config.hedgeDryRun) {
+          log.errorBanner('⚠️  HEDGE IS LIVE — perp mutations WILL be sent', {
+            targetDeltaSol: this.config.hedgeTargetDeltaSol,
+            bandSol: this.config.deltaThresholdSol,
+            maxHedgeNotionalUsd: this.config.maxHedgeNotionalUsd,
+            targetCollateralRatio: this.config.hedgeTargetCollateralRatio,
+          });
+        } else {
+          log.info('Hedge enabled in DRY-RUN mode — decisions simulated, nothing sent', {
+            targetDeltaSol: this.config.hedgeTargetDeltaSol,
+            bandSol: this.config.deltaThresholdSol,
+          });
+        }
+      } catch (error) {
+        log.errorBanner('❌ Hedge engine failed to initialize — running LP-only this session', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        this.hedgeEngine = null;
+      }
+    }
+
     this.state.running = true;
     saveAutoTuneState(this.state);
 
@@ -184,6 +222,8 @@ export class AutoTuneOrchestrator {
       clearInterval(this.intervalHandle);
       this.intervalHandle = undefined;
     }
+
+    await this.hedgeEngine?.shutdown().catch(() => {});
 
     this.state.running = false;
     saveAutoTuneState(this.state);
@@ -289,12 +329,16 @@ export class AutoTuneOrchestrator {
       const currentPrice = solPriceData.usd;
       log.debug('Using SOL price for check cycle', { price: currentPrice, source: solPriceData.source });
 
-      // 1. Check position balance
-      const balance = await this.checkPositionBalance();
+      // 1. Check position balance (also yields the LpExposure the hedge needs)
+      const { balance, exposure } = await this.checkPositionBalance();
 
       if (!balance) {
         const elapsed = Date.now() - startTime;
         this.displayWatchMode(null, elapsed);
+        // No LP position. The hedge must still see this (exposure ≈ 0): a
+        // leftover perp with no LP is naked directional risk to unwind. Skip
+        // only when we create a position below (exposure would be stale).
+        let lpMutatedThisCycle = false;
 
         // Auto-create initial position if enabled
         if (this.config.autoCreatePositions && this.config.meteoraPoolAddress) {
@@ -318,6 +362,7 @@ export class AutoTuneOrchestrator {
 
           try {
             await this.createInitialPosition();
+            lpMutatedThisCycle = true;
             if (!this.watchMode) {
               log.info('✅ Initial position created successfully - will monitor on next cycle');
             }
@@ -332,6 +377,8 @@ export class AutoTuneOrchestrator {
             log.warn('No position found to monitor (AUTO_CREATE_POSITIONS not enabled)');
           }
         }
+
+        await this.maybeRebalanceHedge(exposure, lpMutatedThisCycle);
 
         this.state.consecutiveErrors = 0;
         saveAutoTuneState(this.state);
@@ -452,6 +499,11 @@ export class AutoTuneOrchestrator {
         this.state.consecutiveErrors = 0;
       }
 
+      // 3. Hedge controller (ADR-017). Runs every cycle EXCEPT when the LP was
+      // rebalanced above — then `exposure` predates the new position and the
+      // next 30s cycle will see fresh on-chain state instead.
+      await this.maybeRebalanceHedge(exposure, balance.isImbalanced);
+
       saveAutoTuneState(this.state);
 
       const elapsed = Date.now() - startTime;
@@ -486,9 +538,16 @@ export class AutoTuneOrchestrator {
   }
 
   /**
-   * Check current position balance
+   * Check current position balance. Also returns the LpExposure it fetched —
+   * the hedge controller consumes `exposure.solAmount` every cycle (ADR-017),
+   * and reusing this read avoids a second RPC round-trip. `exposure` is a
+   * zeroed object (not null) when there is simply no LP position: "no LP" is a
+   * real exposure of 0 that the hedge must still see (to unwind a stale perp).
    */
-  private async checkPositionBalance(): Promise<PositionBalance | null> {
+  private async checkPositionBalance(): Promise<{
+    balance: PositionBalance | null;
+    exposure: LpExposure | null;
+  }> {
     try {
       // ALWAYS discover positions from blockchain first to ensure we don't miss unclosed positions
       const discoveredMints = await this.meteoraAdapter.discoverPositionsFromBlockchain();
@@ -505,7 +564,7 @@ export class AutoTuneOrchestrator {
 
       if (exposure.positions.length === 0) {
         log.warn('No positions found to check balance');
-        return null;
+        return { balance: null, exposure };
       }
 
       // Use the first position (auto-tune manages single position)
@@ -573,19 +632,129 @@ export class AutoTuneOrchestrator {
       });
 
       return {
-        solPercent: imbalanceCheck.solPercent,
-        usdcPercent: imbalanceCheck.usdcPercent,
-        isImbalanced: imbalanceCheck.isImbalanced,
-        currentPrice,
-        lowerPrice: lowerBinPrice,
-        upperPrice: upperBinPrice,
-        reason: imbalanceCheck.reason,
+        balance: {
+          solPercent: imbalanceCheck.solPercent,
+          usdcPercent: imbalanceCheck.usdcPercent,
+          isImbalanced: imbalanceCheck.isImbalanced,
+          currentPrice,
+          lowerPrice: lowerBinPrice,
+          upperPrice: upperBinPrice,
+          reason: imbalanceCheck.reason,
+        },
+        exposure,
       };
     } catch (error) {
       log.error('Failed to check position balance', {
         error: error instanceof Error ? error.message : String(error),
       });
       throw error;
+    }
+  }
+
+  /**
+   * Run the perps hedge controller once for this cycle (ADR-017).
+   *
+   * Isolation contract: NOTHING thrown here may kill the LP loop. Hedge
+   * failures increment their own counter; at 5 consecutive failures the hedge
+   * alone is disabled for the session (loud banner) while LP keeps running.
+   *
+   * Skips when: the hedge is disabled/dead, the exposure read failed (never
+   * act on a transient failure — it would look like "LP gone → close the
+   * hedge"), or the LP was mutated this cycle (exposure is stale; the next
+   * cycle sees fresh state). The keeper-fill cooldown itself lives in the
+   * decision core and is fed from persisted state, so a restart right after a
+   * live TX1 cannot double-hedge.
+   */
+  private async maybeRebalanceHedge(
+    exposure: LpExposure | null,
+    lpMutatedThisCycle: boolean,
+  ): Promise<void> {
+    if (!this.hedgeEngine) return;
+    if (!exposure) {
+      log.debug('Hedge skipped: no LP exposure reading this cycle');
+      return;
+    }
+    if (lpMutatedThisCycle) {
+      log.debug('Hedge skipped: LP mutated this cycle — exposure is stale until next cycle');
+      return;
+    }
+
+    const dryRun = this.config.hedgeDryRun;
+    try {
+      const result = await this.hedgeEngine.rebalanceHedge(exposure, {
+        dryRun,
+        lastActionAtMs: this.state.hedge?.lastActionAt ?? null,
+      });
+
+      if (result.action === 'none') {
+        log.debug('Hedge: no action', {
+          reason: result.blockedReason ?? 'in band',
+          netDeltaSol: result.deltaBefore.netDeltaSol,
+          targetDeltaSol: result.deltaBefore.targetDeltaSol,
+        });
+      } else {
+        const logFn = result.action === 'blocked' ? log.warn : log.info;
+        logFn(`🎯 Hedge ${dryRun ? '[DRY-RUN] ' : ''}${result.action}`, {
+          adjustedSol: result.adjustedSol,
+          blockedReason: result.blockedReason,
+          delta: result.deltaBefore,
+          detail: result.mutation?.detail,
+          signatures: result.signatures,
+          simulated: result.mutation?.simulated?.success,
+        });
+        recordHedgeAction({
+          venue: this.hedgeEngine.venue,
+          action: result.action,
+          dryRun,
+          lpSol: result.deltaBefore.lpSolExposure,
+          perpBaseSol: result.deltaBefore.longSol - result.deltaBefore.shortSol,
+          targetDeltaSol: result.deltaBefore.targetDeltaSol,
+          netDeltaSol: result.deltaBefore.netDeltaSol,
+          adjustedSol: result.adjustedSol,
+          sizeUsd: result.oraclePriceUsd
+            ? Math.abs(result.adjustedSol) * result.oraclePriceUsd
+            : undefined,
+          oraclePriceUsd: result.oraclePriceUsd,
+          blockedReason: result.blockedReason,
+          signature: result.signatures[0],
+          detail: result.mutation?.detail,
+        });
+      }
+
+      // Start the keeper-fill cooldown ONLY after a real send.
+      if (!dryRun && result.signatures.length > 0) {
+        this.state.hedge = {
+          lastActionAt: Date.now(),
+          lastAction: result.action,
+          lastSignatures: result.signatures,
+        };
+      } else if (!dryRun && result.action === 'none') {
+        // Housekeeping while idle and live: a past long decrease leaves its
+        // proceeds as wSOL (the receiving ATA must outlive the keeper fill);
+        // fold them back into native SOL. No-ops when there is no wSOL ATA.
+        const unwrap = await this.hedgeEngine.unwrapWsol({ dryRun: false });
+        if (unwrap.signatures?.length) {
+          log.info('♻️ Unwrapped idle wSOL back to native SOL', {
+            detail: unwrap.detail,
+            signatures: unwrap.signatures,
+          });
+        }
+      }
+
+      this.hedgeConsecutiveErrors = 0;
+    } catch (error) {
+      this.hedgeConsecutiveErrors++;
+      log.error('Hedge rebalance failed (LP loop unaffected)', {
+        error: error instanceof Error ? error.message : String(error),
+        hedgeConsecutiveErrors: this.hedgeConsecutiveErrors,
+      });
+      if (this.hedgeConsecutiveErrors >= 5) {
+        log.errorBanner('🛑 Hedge disabled for this session after 5 consecutive failures', {
+          hint: 'LP loop continues WITHOUT a hedge — directional SOL exposure is unhedged. Investigate and restart.',
+        });
+        await this.hedgeEngine.shutdown().catch(() => {});
+        this.hedgeEngine = null;
+      }
     }
   }
 
