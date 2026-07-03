@@ -43,8 +43,12 @@ export const CUSTODY = {
 export const TOKEN_PROGRAM_ID = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
 export const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL');
 export const USDC_MINT = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
+/** Wrapped SOL mint — the collateral token of a LONG SOL position. */
+export const SOL_MINT = new PublicKey('So11111111111111111111111111111111111111112');
 /** USDC raw token units = human amount * 1e6 (6 decimals). */
 export const USDC_DECIMALS_POW = 1_000_000;
+/** SOL raw units (lamports) = human amount * 1e9 (9 decimals). */
+export const SOL_DECIMALS_POW = 1_000_000_000;
 
 /** sizeUsd / collateralUsd / price are fixed-point with 6 decimals. */
 export const USD_PRECISION = 1_000_000;
@@ -71,16 +75,25 @@ export function getPerpsProgram(): any {
   return new anchor.Program(idl, JUPITER_PERPETUALS_PROGRAM_ID, provider);
 }
 
-/** Derive the SHORT SOL position PDA for a wallet (collateral = USDC, side = short [2]). */
-export function generateShortSolPositionPda(walletAddress: any): any {
+export type PositionSide = 'long' | 'short';
+
+/**
+ * Derive the SOL position PDA for a wallet and side. Jupiter collateralises
+ * LONGS in the traded asset itself (collateralCustody = SOL custody, side byte
+ * [1]) and SHORTS in stables (collateralCustody = USDC custody, side byte [2]).
+ * Seeds verified against Jupiter's reference repo.
+ */
+export function generateSolPositionPda(walletAddress: any, side: PositionSide): any {
+  const collateralCustody = side === 'long' ? CUSTODY.SOL : CUSTODY.USDC;
+  const sideByte = side === 'long' ? 1 : 2;
   const [pda] = PublicKey.findProgramAddressSync(
     [
       Buffer.from('position'),
       walletAddress.toBuffer(),
       JLP_POOL_ACCOUNT.toBuffer(),
       CUSTODY.SOL.toBuffer(),
-      CUSTODY.USDC.toBuffer(),
-      Buffer.from([2]), // Side::Short
+      collateralCustody.toBuffer(),
+      Buffer.from([sideByte]),
     ],
     JUPITER_PERPETUALS_PROGRAM_ID,
   );
@@ -113,6 +126,50 @@ export function deriveAta(owner: any, mint: any): any {
     ASSOCIATED_TOKEN_PROGRAM_ID,
   );
   return ata;
+}
+
+/**
+ * Hand-rolled SPL instructions for the LONG-side wSOL wrap/unwrap flow. Same
+ * rationale as `deriveAta`: keeping every PublicKey inside the single
+ * jup-anchor web3 copy means no spl-token import and no dual-web3 casting.
+ */
+
+/** ATA-program CreateIdempotent (discriminator byte 1): no-op if the ATA exists. */
+export function createAtaIdempotentIx(payer: any, ata: any, owner: any, mint: any): any {
+  return new anchor.web3.TransactionInstruction({
+    programId: ASSOCIATED_TOKEN_PROGRAM_ID,
+    keys: [
+      { pubkey: payer, isSigner: true, isWritable: true },
+      { pubkey: ata, isSigner: false, isWritable: true },
+      { pubkey: owner, isSigner: false, isWritable: false },
+      { pubkey: mint, isSigner: false, isWritable: false },
+      { pubkey: anchor.web3.SystemProgram.programId, isSigner: false, isWritable: false },
+      { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+    ],
+    data: Buffer.from([1]),
+  });
+}
+
+/** Token-program SyncNative (instruction 17): credit lamports sent to a wSOL ATA. */
+export function createSyncNativeIx(ata: any): any {
+  return new anchor.web3.TransactionInstruction({
+    programId: TOKEN_PROGRAM_ID,
+    keys: [{ pubkey: ata, isSigner: false, isWritable: true }],
+    data: Buffer.from([17]),
+  });
+}
+
+/** Token-program CloseAccount (instruction 9): unwraps a wSOL ATA back to native SOL. */
+export function createCloseAccountIx(account: any, destination: any, owner: any): any {
+  return new anchor.web3.TransactionInstruction({
+    programId: TOKEN_PROGRAM_ID,
+    keys: [
+      { pubkey: account, isSigner: false, isWritable: true },
+      { pubkey: destination, isSigner: false, isWritable: true },
+      { pubkey: owner, isSigner: true, isWritable: false },
+    ],
+    data: Buffer.from([9]),
+  });
 }
 
 export type RequestChange = 'increase' | 'decrease';

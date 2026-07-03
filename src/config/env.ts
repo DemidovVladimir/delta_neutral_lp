@@ -74,39 +74,47 @@ export interface BotConfig {
    */
   sendOptimizedEnabled: boolean;
 
-  // Drift hedge engine (ADR-014) — a SOL-PERP short on Drift that neutralises
-  // the LP's directional SOL exposure (net ΔSOL ≈ 0). The engine is gated by
-  // `driftHedgeEnabled`; when false the bot runs LP-only (current production
-  // behaviour) and none of the fields below have any effect. The remaining
-  // fields size and risk-bound the short; DriftEngine reads them via
-  // `getDriftConfig()`. Defaults mirror the "Risk parameters" block in CLAUDE.md.
-  /** Master switch for the hedge. False = LP-only, full directional exposure. */
-  driftHedgeEnabled: boolean;
-  /** Drift market index for SOL-PERP (typically 0). Env: DRIFT_MARKET_SOL_PERP */
-  driftMarketSolPerp: number;
-  /** Drift sub-account id used for the hedge (default 0). Env: DRIFT_SUBACCOUNT_ID */
-  driftSubAccountId: number;
-  /** Max net ΔSOL tolerated before a rebalance fires (band, ADR-002). Env: DELTA_THRESHOLD_SOL */
-  deltaThresholdSol: number;
-  /** Minimum collateral ratio (free collateral / short notional). Env: MIN_COLLATERAL_RATIO */
-  minCollateralRatio: number;
-  /** Hard ceiling on short notional in USD. Env: MAX_SHORT_NOTIONAL_USD */
-  maxShortNotionalUsd: number;
-  /** Funding-rate cap (bps) above which we refuse to add/keep the short. Env: FUNDING_RATE_CAP_BPS */
-  fundingRateCapBps: number;
-
-  // Jupiter Perps hedge controller (ADR-015). Defaults are production-safe and
-  // these are read by JupiterPerpsEngine.rebalanceHedge regardless of the Drift
-  // switch (the Jupiter engine is the active backend).
+  // Perps hedge controller (ADR-015/017, Jupiter Perps backend). The hedge
+  // steers net ΔSOL (LP long + perp long − perp short) toward
+  // `hedgeTargetDeltaSol` inside a band, one mutation per loop cycle.
+  /** Master switch. False = LP-only, full directional exposure. Env: HEDGE_ENABLED */
+  hedgeEnabled: boolean;
   /**
-   * Target collateral ratio (USDC collateral / short notional) the controller
-   * sizes collateral to on an increase. 1.0 = fully collateralized (~1x).
+   * When true (the default) the loop's hedge mutations are SIMULATED only —
+   * nothing is sent. Flip to false to trade for real. Env: HEDGE_DRY_RUN
+   */
+  hedgeDryRun: boolean;
+  /**
+   * The net ΔSOL the controller steers toward. 0 = delta-neutral. A positive
+   * value keeps a deliberate long tilt (can exceed LP exposure → perp long);
+   * negative = deliberate net short. Env: HEDGE_TARGET_DELTA_SOL
+   */
+  hedgeTargetDeltaSol: number;
+  /** Max |netΔ − target| tolerated before a rebalance fires (band, ADR-002). Env: DELTA_THRESHOLD_SOL */
+  deltaThresholdSol: number;
+  /** Minimum collateral ratio (collateral / notional) on the side being grown. Env: MIN_COLLATERAL_RATIO */
+  minCollateralRatio: number;
+  /**
+   * Hard ceiling on hedge notional (per side) in USD.
+   * Env: MAX_HEDGE_NOTIONAL_USD (legacy fallback: MAX_SHORT_NOTIONAL_USD).
+   */
+  maxHedgeNotionalUsd: number;
+  /**
+   * Minimum ms between LIVE hedge mutations. Jupiter fills requests via an
+   * async keeper TX seconds after ours; acting again before the fill lands
+   * would double-hedge off stale position state. Env: HEDGE_COOLDOWN_MS
+   */
+  hedgeCooldownMs: number;
+  /**
+   * Target collateral ratio (collateral / notional) the controller sizes
+   * collateral to on an increase. 1.0 = fully collateralized (~1x); ADR-016
+   * chose 0.33 (~3x) for capital efficiency — set it in .env.
    * Env: HEDGE_TARGET_COLLATERAL_RATIO. Must be >= minCollateralRatio.
    */
   hedgeTargetCollateralRatio: number;
   /**
-   * Annualised borrow-APR cap in bps. The controller refuses to INCREASE the
-   * short when Jupiter's carry exceeds this (decreases/closes always allowed).
+   * Annualised borrow-APR cap in bps. The controller refuses to INCREASE a
+   * side when its carry exceeds this (decreases/closes always allowed).
    * 0 = disabled. Env: HEDGE_CARRY_CAP_BPS.
    */
   hedgeCarryCapBps: number;
@@ -303,18 +311,22 @@ function loadConfigFromEnv(): BotConfig {
   // a few rebalance cycles look good, set SEND_OPTIMIZED=true permanently.
   const sendOptimizedEnabled = parseEnvBoolean('SEND_OPTIMIZED', false);
 
-  // Parse Drift hedge engine parameters (ADR-014). All optional with
-  // production-safe defaults; only validated when the hedge is enabled.
-  const driftHedgeEnabled = parseEnvBoolean('DRIFT_HEDGE_ENABLED', false);
-  const driftMarketSolPerp = parseEnvNumber('DRIFT_MARKET_SOL_PERP', 0);
-  const driftSubAccountId = parseEnvNumber('DRIFT_SUBACCOUNT_ID', 0);
+  // Parse hedge controller parameters (ADR-015/017). All optional with
+  // production-safe defaults; the risk bounds are validated only when the
+  // hedge is enabled so an LP-only operator is never blocked by them.
+  const hedgeEnabled = parseEnvBoolean('HEDGE_ENABLED', false);
+  const hedgeDryRun = parseEnvBoolean('HEDGE_DRY_RUN', true);
+  const hedgeTargetDeltaSol = parseEnvNumber('HEDGE_TARGET_DELTA_SOL', 0);
+  const hedgeCooldownMs = parseEnvNumber('HEDGE_COOLDOWN_MS', 120_000);
   const deltaThresholdSol = parseEnvNumber('DELTA_THRESHOLD_SOL', 2);
   const minCollateralRatio = parseEnvNumber('MIN_COLLATERAL_RATIO', 0.15);
-  const maxShortNotionalUsd = parseEnvNumber('MAX_SHORT_NOTIONAL_USD', 12000);
-  const fundingRateCapBps = parseEnvNumber('FUNDING_RATE_CAP_BPS', 80);
+  // Renamed from MAX_SHORT_NOTIONAL_USD when the hedge gained the long side;
+  // the legacy var still works so existing .env files don't silently lose it.
+  const maxHedgeNotionalUsd = parseEnvNumber(
+    'MAX_HEDGE_NOTIONAL_USD',
+    parseEnvNumber('MAX_SHORT_NOTIONAL_USD', 12000)
+  );
 
-  // Jupiter Perps hedge controller params. Safe defaults; validated unconditionally
-  // (cheap, and the active hedge backend reads them whether or not Drift is on).
   const hedgeTargetCollateralRatio = parseEnvNumber('HEDGE_TARGET_COLLATERAL_RATIO', 1.0);
   const hedgeCarryCapBps = parseEnvNumber('HEDGE_CARRY_CAP_BPS', 5000);
   if (!(hedgeTargetCollateralRatio > 0)) {
@@ -329,27 +341,21 @@ function loadConfigFromEnv(): BotConfig {
     throw new Error('HEDGE_CARRY_CAP_BPS must be >= 0');
   }
 
-  // Validate Drift parameters only when the hedge is actually engaged, so an
-  // LP-only operator is never blocked by hedge config they don't use. When it
-  // IS engaged these guards fail fast at boot rather than mid-rebalance.
-  if (driftHedgeEnabled) {
-    if (!Number.isInteger(driftMarketSolPerp) || driftMarketSolPerp < 0) {
-      throw new Error('DRIFT_MARKET_SOL_PERP must be a non-negative integer');
-    }
-    if (!Number.isInteger(driftSubAccountId) || driftSubAccountId < 0) {
-      throw new Error('DRIFT_SUBACCOUNT_ID must be a non-negative integer');
-    }
+  if (hedgeEnabled) {
     if (deltaThresholdSol <= 0) {
       throw new Error('DELTA_THRESHOLD_SOL must be positive');
     }
     if (minCollateralRatio <= 0 || minCollateralRatio >= 1) {
       throw new Error('MIN_COLLATERAL_RATIO must be between 0 and 1 (exclusive)');
     }
-    if (maxShortNotionalUsd <= 0) {
-      throw new Error('MAX_SHORT_NOTIONAL_USD must be positive');
+    if (maxHedgeNotionalUsd <= 0) {
+      throw new Error('MAX_HEDGE_NOTIONAL_USD must be positive');
     }
-    if (fundingRateCapBps < 0) {
-      throw new Error('FUNDING_RATE_CAP_BPS must be >= 0');
+    if (hedgeCooldownMs < 0) {
+      throw new Error('HEDGE_COOLDOWN_MS must be >= 0');
+    }
+    if (!Number.isFinite(hedgeTargetDeltaSol)) {
+      throw new Error('HEDGE_TARGET_DELTA_SOL must be a finite number');
     }
   }
 
@@ -405,13 +411,13 @@ function loadConfigFromEnv(): BotConfig {
     apiAllowedOrigins,
     apiRateLimitPerMin,
     sendOptimizedEnabled,
-    driftHedgeEnabled,
-    driftMarketSolPerp,
-    driftSubAccountId,
+    hedgeEnabled,
+    hedgeDryRun,
+    hedgeTargetDeltaSol,
+    hedgeCooldownMs,
     deltaThresholdSol,
     minCollateralRatio,
-    maxShortNotionalUsd,
-    fundingRateCapBps,
+    maxHedgeNotionalUsd,
     hedgeTargetCollateralRatio,
     hedgeCarryCapBps,
   };

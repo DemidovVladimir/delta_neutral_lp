@@ -1,35 +1,29 @@
 #!/usr/bin/env node
 /**
- * Jupiter Perps Hedge Mutations CLI (ADR-015 write side) — DRY-RUN by default.
+ * Jupiter Perps Hedge Mutations CLI (ADR-015/017 write side) — DRY-RUN by default.
  *
  * Builds and simulates the on-chain request transaction and sends NOTHING.
- * Pass --live to actually submit (real USDC collateral is escrowed and a
- * Jupiter keeper fills the short shortly after — TX2, asynchronous).
+ * Pass --live to actually submit (real collateral is escrowed and a Jupiter
+ * keeper fills the request shortly after — TX2, asynchronous).
  *
- * Open / increase a SHORT SOL position (collateral = USDC):
- *   pnpm hedge:open --size-usd=10 --collateral=5                 Dry-run: simulate the request
- *   pnpm hedge:open --size-usd=10 --collateral=5 --live          LIVE: submit the request
- *   pnpm hedge:open --size-usd=10 --collateral=5 --slippage-bps=80
- *   pnpm hedge:open --help
+ * Open / increase a SOL position on either side:
+ *   pnpm hedge:open --size-usd=10 --collateral=5                    SHORT (collateral = USDC)
+ *   pnpm hedge:open --side=long --size-usd=10 --collateral=0.1      LONG (collateral = SOL, wrapped)
+ *   pnpm hedge:open --size-usd=10 --collateral=5 --live             LIVE: submit the request
  *
- *   --size-usd       Short notional to ADD, in USD (required, > 0).
- *   --collateral     USDC collateral to post for this request (required, > 0).
- *   --slippage-bps   Keeper fill bound; short open uses a price floor
- *                    oracle*(1 - bps/1e4). Default 50.
+ * Decrease / close:
+ *   pnpm hedge:close                                Simulate a FULL close of the SHORT
+ *   pnpm hedge:close --side=long                    Simulate a FULL close of the LONG
+ *   pnpm hedge:close --size-usd=5 [--collateral=2]  Partial decrease (dry-run)
  *
- * Decrease / close a SHORT SOL position (collateral returned as USDC):
- *   pnpm hedge:close                                             Dry-run: simulate a FULL close
- *   pnpm hedge:close --live                                      LIVE: submit a full-close request
- *   pnpm hedge:close --size-usd=5 [--collateral=2]               Dry-run: partial decrease
- *   pnpm hedge:close --size-usd=5 --slippage-bps=80 --live       LIVE: partial decrease
- *
- *   --size-usd       Notional to REDUCE, USD. Omit for a full close (entirePosition).
- *   --collateral     USDC collateral to withdraw on a partial decrease (default 0).
- *   --slippage-bps   Partial fill bound; close uses a price ceiling
- *                    oracle*(1 + bps/1e4). Full close fills at any price. Default 50.
+ * Controller / emergency / wSOL:
+ *   pnpm hedge:rebalance --lp-sol=12.5              Run the target-delta controller (dry-run)
+ *   pnpm hedge:rebalance --lp-sol=0 --target-delta=5   Long-side branch (steer to +5 ΔSOL)
+ *   pnpm hedge:emergency                            Full close of ALL sides at any price (dry-run)
+ *   tsx src/cli/jupiter-hedge.ts --unwrap           Close the wSOL ATA back to native SOL (dry-run)
  */
 
-import { JupiterPerpsEngine } from '../modules/jupiterPerpsEngine.js';
+import { JupiterPerpsEngine, type PositionSide } from '../modules/jupiterPerpsEngine.js';
 import type { HedgeRebalanceResult, MutationResult } from '../modules/hedgeEngine.js';
 import { log } from '../utils/logger.js';
 
@@ -65,15 +59,17 @@ function reportRebalance(r: HedgeRebalanceResult): void {
     blockedReason: r.blockedReason,
     delta: {
       lpSolExposure: r.deltaBefore.lpSolExposure,
+      longSol: r.deltaBefore.longSol,
       shortSol: r.deltaBefore.shortSol,
       netDeltaSol: r.deltaBefore.netDeltaSol,
+      targetDeltaSol: r.deltaBefore.targetDeltaSol,
       outOfBand: r.deltaBefore.outOfBand,
     },
   });
   if (r.action === 'blocked') {
     log.errorBanner(`⛔ BLOCKED — ${r.blockedReason}`);
   } else if (r.action === 'none') {
-    log.info('✅ In band — no rebalance needed (nothing sent)');
+    log.info(`✅ No action — ${r.blockedReason ?? 'in band'} (nothing sent)`);
   }
   if (r.mutation) report(r.mutation);
 }
@@ -85,30 +81,39 @@ function parseNumberFlag(args: string[], name: string): number | undefined {
   return Number.isFinite(n) ? n : NaN;
 }
 
+function parseSideFlag(args: string[]): PositionSide | null {
+  const arg = args.find((a) => a.startsWith('--side='));
+  if (!arg) return 'short';
+  const v = arg.split('=')[1];
+  return v === 'long' || v === 'short' ? v : null;
+}
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   if (args.includes('--help') || args.includes('-h') || args.length === 0) {
     console.log(`
-Jupiter Perps Hedge Mutations CLI (ADR-015 write side) — DRY-RUN by default
+Jupiter Perps Hedge Mutations CLI (ADR-015/017 write side) — DRY-RUN by default
 
-  pnpm hedge:open --size-usd=10 --collateral=5            Simulate opening a SHORT (nothing sent)
-  pnpm hedge:open --size-usd=10 --collateral=5 --live     LIVE: submit the request (escrows USDC)
-  pnpm hedge:open  --size-usd=10 --collateral=5 --slippage-bps=80
-  pnpm hedge:close                                       Simulate a FULL close (nothing sent)
-  pnpm hedge:close --live                                LIVE: full-close request
-  pnpm hedge:close --size-usd=5 [--collateral=2]         Partial decrease (dry-run)
+  pnpm hedge:open --size-usd=10 --collateral=5              Simulate opening a SHORT (nothing sent)
+  pnpm hedge:open --side=long --size-usd=10 --collateral=0.1  Simulate opening a LONG (SOL collateral)
+  pnpm hedge:open --size-usd=10 --collateral=5 --live       LIVE: submit the request (escrows collateral)
+  pnpm hedge:close [--side=long]                            Simulate a FULL close (nothing sent)
+  pnpm hedge:close --size-usd=5 [--collateral=2]            Partial decrease (dry-run)
 
-  tsx src/cli/jupiter-hedge.ts --rebalance --lp-sol=12.5 Run the controller for 12.5 SOL LP exposure (dry-run)
-  tsx src/cli/jupiter-hedge.ts --emergency               Emergency unwind: full close at any price (dry-run)
-  tsx src/cli/jupiter-hedge.ts --emergency --live        LIVE: emergency full-close request
+  pnpm hedge:rebalance --lp-sol=12.5                        Run the target-delta controller (dry-run)
+  pnpm hedge:rebalance --lp-sol=0 --target-delta=5          Steer toward +5 ΔSOL (long branch)
+  pnpm hedge:emergency [--live]                             Emergency unwind: close ALL sides at any price
+  tsx src/cli/jupiter-hedge.ts --unwrap [--live]            Close the wSOL ATA back to native SOL
 
-  --open / --close / --rebalance / --emergency   Action to run.
-  --lp-sol           rebalance: current LP SOL exposure to hedge toward (required, >= 0).
-  --size-usd         open: short notional to ADD (required, > 0).
+  --open / --close / --rebalance / --emergency / --unwrap   Action to run.
+  --side             long | short (default short) for --open / --close.
+  --lp-sol           rebalance: current LP SOL exposure to hedge against (required, >= 0).
+  --target-delta     rebalance: override HEDGE_TARGET_DELTA_SOL for this run.
+  --size-usd         open: notional to ADD (required, > 0).
                      close: notional to REDUCE; omit for a full close.
-  --collateral       open: USDC collateral to post (required, > 0).
-                     close: USDC collateral to withdraw on a partial decrease (default 0).
-  --slippage-bps     Keeper fill bound (open = price floor, close = price ceiling). Default 50.
+  --collateral       open: collateral to post (required, > 0) — USDC for a short, SOL for a long.
+                     close: collateral (USD) to withdraw on a partial decrease (default 0).
+  --slippage-bps     Keeper fill bound. Default 50.
 
 Without --live, the request is built + simulated on-chain and NOTHING is sent.
 `);
@@ -121,13 +126,14 @@ Without --live, the request is built + simulated on-chain and NOTHING is sent.
   const doClose = args.includes('--close');
   const doRebalance = args.includes('--rebalance');
   const doEmergency = args.includes('--emergency');
+  const doUnwrap = args.includes('--unwrap');
 
-  if ([doOpen, doClose, doRebalance, doEmergency].filter(Boolean).length > 1) {
-    log.error('Pass only one of --open / --close / --rebalance / --emergency.');
+  if ([doOpen, doClose, doRebalance, doEmergency, doUnwrap].filter(Boolean).length > 1) {
+    log.error('Pass only one of --open / --close / --rebalance / --emergency / --unwrap.');
     process.exit(1);
   }
-  if (!doOpen && !doClose && !doRebalance && !doEmergency) {
-    log.error('Nothing to do. Use --open, --close, --rebalance, or --emergency. See --help.');
+  if (!doOpen && !doClose && !doRebalance && !doEmergency && !doUnwrap) {
+    log.error('Nothing to do. Use --open, --close, --rebalance, --emergency, or --unwrap. See --help.');
     process.exit(1);
   }
 
@@ -135,7 +141,13 @@ Without --live, the request is built + simulated on-chain and NOTHING is sent.
   const collateral = parseNumberFlag(args, 'collateral');
   const slippageBps = parseNumberFlag(args, 'slippage-bps');
   const lpSol = parseNumberFlag(args, 'lp-sol');
+  const targetDelta = parseNumberFlag(args, 'target-delta');
+  const side = parseSideFlag(args);
 
+  if (side === null) {
+    log.error('Invalid --side (must be long or short)');
+    process.exit(1);
+  }
   if (slippageBps !== undefined && !(slippageBps >= 0 && slippageBps < 10_000)) {
     log.error('Invalid --slippage-bps (must be in [0, 10000))');
     process.exit(1);
@@ -159,19 +171,25 @@ Without --live, the request is built + simulated on-chain and NOTHING is sent.
         log.error('Invalid or missing --collateral (must be a positive number)');
         process.exit(1);
       }
-      report(await hedge.openOrIncreaseShort({ sizeUsd, collateralUsdc: collateral, slippageBps, dryRun }));
+      report(await hedge.openOrIncrease({ side, sizeUsd, collateralTokens: collateral, slippageBps, dryRun }));
     } else if (doRebalance) {
       if (!(typeof lpSol === 'number' && lpSol >= 0)) {
         log.error('Invalid or missing --lp-sol (must be a number >= 0)');
         process.exit(1);
       }
+      if (targetDelta !== undefined && !Number.isFinite(targetDelta)) {
+        log.error('Invalid --target-delta (must be a finite number)');
+        process.exit(1);
+      }
       const result = await hedge.rebalanceHedge(
         { solAmount: lpSol, usdcAmount: 0, totalUsd: 0, claimableSol: 0, claimableUsdc: 0, positions: [] },
-        { dryRun, slippageBps }
+        { dryRun, slippageBps, targetDeltaSol: targetDelta, lastActionAtMs: null }
       );
       reportRebalance(result);
     } else if (doEmergency) {
       report(await hedge.emergencyUnwind({ dryRun }));
+    } else if (doUnwrap) {
+      report(await hedge.unwrapWsol({ dryRun }));
     } else {
       // --close: full close unless --size-usd is given (then a partial decrease).
       const entirePosition = sizeUsd === undefined;
@@ -180,7 +198,8 @@ Without --live, the request is built + simulated on-chain and NOTHING is sent.
         process.exit(1);
       }
       report(
-        await hedge.decreaseOrCloseShort({
+        await hedge.decreaseOrClose({
+          side,
           entirePosition,
           sizeUsd: entirePosition ? undefined : sizeUsd,
           collateralUsd: collateral,

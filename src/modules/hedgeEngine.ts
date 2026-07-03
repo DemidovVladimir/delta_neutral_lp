@@ -1,21 +1,38 @@
 /**
- * HedgeEngine — venue-agnostic contract for the perpetuals hedge (ADR-015).
+ * HedgeEngine — venue-agnostic contract for the perpetuals hedge (ADR-015/017).
  *
- * The bot holds long SOL exposure via the Meteora DLMM LP and needs a SHORT
- * SOL perp to bring net ΔSOL ≈ 0. Originally designed for Drift (ADR-014), but
+ * The bot holds long SOL exposure via the Meteora DLMM LP; the hedge holds a
+ * SOL perp (SHORT or LONG) sized so net ΔSOL ≈ HEDGE_TARGET_DELTA_SOL
+ * (default 0 = delta-neutral). Originally designed for Drift (ADR-014), but
  * Drift went down after an exploit, so the active backend is Jupiter Perps
  * (`JupiterPerpsEngine`). This interface keeps the controller/dashboard/read
- * side independent of the venue so a backend can be swapped (e.g. back to Drift
- * if/when it relaunches) without touching callers.
+ * side independent of the venue so a backend can be swapped without touching
+ * callers.
  */
 
 import type { LpExposure } from '../types/index.js';
+
+/** Per-side detail of the hedge (a venue may hold long and short PDAs). */
+export interface HedgeSideState {
+  /** Notional of this side in USD (absolute). */
+  notionalUsd: number;
+  /** Collateral posted on this side, USD. */
+  collateralUsd: number;
+  /** Estimated liquidation price for this side, USD. Null when unavailable. */
+  liquidationPrice: number | null;
+  /**
+   * Annualised carry rate of THIS side, bps. Positive = earns, negative =
+   * pays. On Jupiter this is the borrow fee of the side's COLLATERAL custody
+   * (USDC for shorts, SOL for longs) — always negative.
+   */
+  carryRateBps: number;
+}
 
 /** A point-in-time read of the hedge — the controller's primary input. */
 export interface HedgeState {
   /** Which venue produced this read (e.g. 'jupiter-perps', 'drift'). */
   venue: string;
-  /** Current perp base position in SOL. Negative = short. 0 = no position. */
+  /** Current NET perp base position in SOL (long − short). Negative = net short. */
   perpBaseSol: number;
   /** Notional of the perp position in USD (absolute). */
   perpNotionalUsd: number;
@@ -31,25 +48,37 @@ export interface HedgeState {
    * On Jupiter Perps this is always negative (borrow fee, a continuous cost).
    */
   carryRateBps: number;
-  /** Estimated liquidation price for the position, USD. Null when no position. */
+  /** Estimated liquidation price for the open side, USD. Null when no position. */
   liquidationPrice: number | null;
   /** Oracle mark price for SOL, USD. */
   oraclePriceUsd: number;
+  /** Per-side breakdown (both PDAs read). Optional for backends without it. */
+  sides?: { long: HedgeSideState | null; short: HedgeSideState | null };
 }
 
-/** Net-delta view combining LP exposure with the current short. */
+/** Net-delta view combining LP exposure with the current hedge. */
 export interface DeltaView {
   /** SOL held long via the LP position. */
   lpSolExposure: number;
   /** SOL shorted on the perp venue (positive magnitude; 0 if none). */
   shortSol: number;
-  /** Net ΔSOL = lpSolExposure + perpBaseSol (perp is negative for a short). Target ≈ 0. */
+  /** SOL held long on the perp venue (positive magnitude; 0 if none). */
+  longSol: number;
+  /** Net ΔSOL = lpSolExposure + perpBaseSol (perp nets long − short). */
   netDeltaSol: number;
-  /** True when |netDeltaSol| exceeds the rebalance band (DELTA_THRESHOLD_SOL). */
+  /** The delta the controller steers toward (HEDGE_TARGET_DELTA_SOL, default 0). */
+  targetDeltaSol: number;
+  /** True when |netDeltaSol − targetDeltaSol| exceeds the band (DELTA_THRESHOLD_SOL). */
   outOfBand: boolean;
 }
 
-export type HedgeAction = 'none' | 'increase_short' | 'decrease_short' | 'blocked';
+export type HedgeAction =
+  | 'none'
+  | 'increase_short'
+  | 'decrease_short'
+  | 'increase_long'
+  | 'decrease_long'
+  | 'blocked';
 
 /** Outcome of an on-chain simulation (dry-run): did the tx revert, and why. */
 export interface SimResult {
@@ -73,7 +102,10 @@ export interface MutationResult {
 /** Result of a rebalance attempt. */
 export interface HedgeRebalanceResult {
   action: HedgeAction;
-  /** SOL size adjusted (signed: negative = added to short). 0 if no-op/blocked. */
+  /**
+   * Signed change to the perp base position in SOL (negative = short grown or
+   * long reduced; positive = the mirror). 0 if no-op/blocked.
+   */
   adjustedSol: number;
   blockedReason?: string;
   signatures: string[];
