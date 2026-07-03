@@ -29,7 +29,9 @@ if [[ -z "${ENV_FILE}" ]]; then
 fi
 
 echo "→ Syncing source to ${HETZNER_USER}@${HETZNER_HOST}:${REMOTE_DIR}"
-remote "mkdir -p ${REMOTE_DIR}/data"
+# The container runs as the unprivileged `node` user (uid 1000); the
+# bind-mounted data dir must be writable by it or every state save EACCESes.
+remote "mkdir -p ${REMOTE_DIR}/data && chown -R 1000:1000 ${REMOTE_DIR}/data"
 rsync -az --delete \
   -e "ssh ${ssh_args[*]:-}" \
   --exclude node_modules \

@@ -18,7 +18,9 @@ HETZNER_USER="${HETZNER_USER:-root}"
 HETZNER_SSH_KEY="${HETZNER_SSH_KEY:-}"
 REMOTE_DIR="${REMOTE_DIR:-/opt/delta-bot}"
 
-ssh_args=()
+# accept-new: trust-on-first-use for a server we just provisioned; refuses
+# silently changed host keys afterwards.
+ssh_args=(-o StrictHostKeyChecking=accept-new)
 if [[ -n "${HETZNER_SSH_KEY}" ]]; then
   ssh_args+=(-i "${HETZNER_SSH_KEY}")
 fi

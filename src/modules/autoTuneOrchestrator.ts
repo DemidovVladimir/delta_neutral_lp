@@ -687,7 +687,10 @@ export class AutoTuneOrchestrator {
       });
 
       if (result.action === 'none') {
-        log.debug('Hedge: no action', {
+        // Sampled INFO (1-in-10) so production logs show a periodic heartbeat
+        // that the hedge is alive and in band — debug is invisible at the
+        // default server LOG_LEVEL, and a line every cycle would be noise.
+        log.infoSampled('Hedge: no action', {
           reason: result.blockedReason ?? 'in band',
           netDeltaSol: result.deltaBefore.netDeltaSol,
           targetDeltaSol: result.deltaBefore.targetDeltaSol,

@@ -28,7 +28,7 @@ if [[ -z "${HCLOUD_TOKEN}" ]] && ! hcloud context active >/dev/null 2>&1; then
 fi
 
 SERVER_NAME="${1:-delta-bot}"
-SERVER_TYPE="${SERVER_TYPE:-cx22}"     # 2 vCPU / 4 GB, ~€4/mo. Alternative: cpx11 (AMD).
+SERVER_TYPE="${SERVER_TYPE:-cax11}"    # 2 ARM vCPU / 4 GB, ~€3.3/mo (CX line is gone). x86 alt: cpx22.
 LOCATION="${LOCATION:-fsn1}"           # fsn1 Falkenstein, nbg1 Nuremberg, hel1 Helsinki
 IMAGE="${IMAGE:-ubuntu-24.04}"
 SSH_PUBKEY="${SSH_PUBKEY:-${HOME}/.ssh/id_ed25519.pub}"
@@ -65,13 +65,13 @@ runcmd:
 EOF
 )
 
-hcloud server create \
+echo "${USER_DATA}" | hcloud server create \
   --name "${SERVER_NAME}" \
   --type "${SERVER_TYPE}" \
   --location "${LOCATION}" \
   --image "${IMAGE}" \
   --ssh-key "${KEY_NAME}" \
-  --user-data "${USER_DATA}"
+  --user-data-from-file -
 
 IP=$(hcloud server ip "${SERVER_NAME}")
 echo
