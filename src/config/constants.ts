@@ -148,13 +148,6 @@ export const HEALTH_CHECK = {
   maxConsecutiveFailures: 5,
 } as const;
 
-// Known program IDs (for reference)
-export const PROGRAM_IDS = {
-  METEORA_DLMM: 'LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo',
-  DRIFT: 'dRiftyHA39MWEi3m9aunc5MzRF1JYuBsbn6VPcn33UH',
-  JUPITER_V6: 'JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4',
-} as const;
-
 // Meteora DLMM position limits
 export const METEORA_LIMITS = {
   MAX_POSITION_WIDTH_BINS: 70, // Maximum number of bins a position can span
