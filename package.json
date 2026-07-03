@@ -16,6 +16,8 @@
     "drift:read": "tsx src/cli/drift-read.ts",
     "dashboard": "tsx src/cli/dashboard.ts",
     "hedge": "tsx src/cli/drift-hedge.ts",
+    "hedge:open": "tsx src/cli/jupiter-hedge.ts --open",
+    "hedge:close": "tsx src/cli/jupiter-hedge.ts --close",
   "jupiter:read": "tsx src/cli/jupiter-read.ts",
     "pnl": "tsx src/cli/pnl.ts",
     "lint": "eslint src --ext .ts",

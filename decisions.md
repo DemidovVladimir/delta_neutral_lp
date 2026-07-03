@@ -1362,13 +1362,39 @@ single focused IDL dependency; venue-agnostic interface validated end-to-end
 - **2-transaction request/keeper execution model** for opens/closes (more async
   handling than a direct send).
 
-### Implementation status (2026-06-28)
+### Implementation status (updated 2026-06-29)
 
 - Done & validated (read-only, live mainnet): `HedgeEngine` interface,
   `JupiterPerpsEngine.getHedgeState`/`computeDelta`, `jupiterPerps.ts` (loader +
   borrow-rate math), vendored IDL, dashboard on Jupiter, `pnpm jupiter:read`.
-- Not started: write side (open/adjust/close short via `positionRequest`,
-  dry-run gated), `rebalanceHedge` controller, liquidation-price computation.
+- **Write side Steps 1–2 — DONE & dry-run-validated (2026-06-29):**
+  `JupiterPerpsEngine.openOrIncreaseShort` (`createIncreasePositionMarketRequest`)
+  and `decreaseOrCloseShort` (`createDecreasePositionMarketRequest` — full close
+  via `entirePosition:true` + a high price ceiling, or partial decrease with a
+  `oracle*(1+slip)` ceiling), plus the PDA/ATA/account-wiring helpers in
+  `jupiterPerps.ts` (`findPerpetualsPda`, `findEventAuthorityPda`,
+  `generatePositionRequestPda`, `deriveAta`) and the CLI
+  (`src/cli/jupiter-hedge.ts`, `pnpm hedge:open` / `pnpm hedge:close`), dry-run
+  by default / `--live` to send. Live-mainnet dry-runs: the open invoked the
+  program, built the request + escrow ATA, passed "Validate inputs", and stopped
+  only at the USDC collateral transfer (wallet holds 0 USDC); the close decoded
+  `CreateDecreasePositionMarketRequest` and stopped only on `position`
+  `AccountNotInitialized (3012)` — i.e. no open short yet. Both confirm the
+  instructions are structurally correct.
+- **Slippage sign convention:** short INCREASE = price FLOOR `oracle*(1−slip)`
+  (selling); short DECREASE/close = price CEILING `oracle*(1+slip)` (buying back;
+  full close uses a `$100k` ceiling = "fill at any price"). Verified against the
+  dry-runs + Jupiter reference repo.
+- **Write side Step 3 — `rebalanceHedge` controller — DONE & dry-run-validated
+  (2026-06-29):** band gate (`DELTA_THRESHOLD_SOL`); sizes the short toward
+  `lpExposure.solAmount`; increase guards = carry cap + max notional + min
+  collateral ratio, decreases/closes never blocked. Operator chose **1× fully
+  collateralized** (`HEDGE_TARGET_COLLATERAL_RATIO=1.0`, the collateral-sizing
+  target; safest for a hedge that must survive SOL pumps) and a **50% APR carry
+  cap** (`HEDGE_CARRY_CAP_BPS=5000`; Jupiter's borrow fee is a cost, not funding
+  income, so increases are refused only when carry is extreme — ~11.8% now).
+  Validated: in-band→none, $15k→blocked, 12.5 SOL→increase_short sized 1×.
+- Not started: liquidation-price computation, `emergencyUnwind`, loop wiring.
 - See `HANDOVER.md` for the full resume guide.
 
 ### References
@@ -1378,6 +1404,61 @@ single focused IDL dependency; venue-agnostic interface validated end-to-end
 - Reference repo: `julianfssen/jupiter-perps-anchor-idl-parsing`
 - `bugs.md` BUG-003 (Drift down), BUG-004 (Meteora pool 404)
 - `progress.md` 2026-06-28 session
+
+---
+
+## ADR-016: Hedge sizing/economics policy + pool analytics on-chain (BUG-004)
+
+**Date:** 2026-06-29
+**Status:** Accepted
+**Deciders:** Operator
+**Related:** ADR-015, BUG-003 (Drift down), BUG-004
+
+### Context
+
+After the Jupiter Perps controller landed with a 1× (fully-collateralized)
+default, the operator pushed back: 1× locks ~50% extra capital (e.g. ~€5k USDC on
+a €10k LP) and Jupiter carry is a pure cost (no funding income like Drift). Asked
+to re-check Drift and justify the hedge economically.
+
+**Drift re-check:** still down. The [2026-06-03 recovery update](https://www.drift.trade/updates/drift-recovery-update-june-3-2026)
++ news confirm relaunch as a **USDT** exchange on a **new program at a fresh
+address**, no date / no published address / no SDK; on-chain the old program
+still rejects writes. Not viable; revisiting it would also need a new SDK + a
+USDC→USDT collateral rework. **Do not wait for Drift.**
+
+**Economics (live, on-chain):** SOL/USDC DLMM fee APR ≫ hedge carry. Configured
+pool `5rCf1DM8LjKTw4YqhnoLcngyZYeNnQqztScTogYHAS6`: binStep 4, base fee 0.04%,
+~$3.3M TVL, ~$51M/24h vol → naive base-fee APR ~224%. Carry ≈ 12% APR on the
+SOL-half ≈ **~6% of LP/yr**. Carry is not what erodes returns.
+
+### Decision
+
+1. **Stay on Jupiter Perps** (carry is affordable given pool fees).
+2. **Leverage = 3×** (`HEDGE_TARGET_COLLATERAL_RATIO=0.33`): ~17% extra USDC,
+   liquidation ~SOL +33%. `MIN_COLLATERAL_RATIO` (0.15) stays the hard floor.
+3. **Carry cap = 50% APR** (`HEDGE_CARRY_CAP_BPS=5000`): refuse to *increase* the
+   short only in extreme utilization spikes; decreases/closes always allowed.
+4. **Pool analytics derived on-chain (BUG-004 fix):** the off-chain host
+   `dlmm-api.meteora.ag` is dead (404 everywhere); `getMeteoraPairInfo` now uses
+   the DLMM SDK for bin step / fee rates / price / reserves / TVL, with
+   GeckoTerminal best-effort for 24h volume/APR (degrades to 0, never throws).
+
+### Consequences
+
+- Capital footprint drops ~3× vs the 1× default; liquidation buffer is ~+33%
+  SOL, acceptable because the controller + band rebalance frequently. Operator
+  can raise the buffer (lower leverage) by editing one env value.
+- Naive pool APR overstates realized yield (ignores IL / time-in-range); still
+  far above carry. A realized-APR study is deferred (operator chose to proceed).
+- Analytics no longer depend on a dead host; bot logic was always on-chain.
+
+### References
+
+- `src/modules/jupiterPerpsEngine.ts` (`rebalanceHedge`), `src/config/env.ts`
+  (`HEDGE_TARGET_COLLATERAL_RATIO`, `HEDGE_CARRY_CAP_BPS`), `.env.example`
+- `src/utils/meteoraUtils.ts` (`getMeteoraPairInfo` on-chain)
+- `bugs.md` BUG-004 (fixed), `progress.md` 2026-06-29 Session 12
 
 ---
 
@@ -1398,12 +1479,13 @@ single focused IDL dependency; venue-agnostic interface validated end-to-end
 - ADR-013: Audit-Hardening Pass (May 2026)
 - ADR-014: Drift Hedge Engine via @drift-labs/sdk *(superseded as active venue by ADR-015 — Drift down post-exploit)*
 - ADR-015: Pivot Hedge Venue from Drift to Jupiter Perpetuals — new (Accepted)
+- ADR-016: Hedge sizing/economics policy (3× leverage, 50% carry cap) + pool analytics on-chain (Accepted)
 
 ---
 
 ## Decision Status
 
-- **Accepted:** 12 (incl. ADR-015 — Jupiter Perps pivot)
+- **Accepted:** 13 (incl. ADR-015 — Jupiter Perps pivot, ADR-016 — hedge economics/analytics)
 - **Superseded:** 3 (ADR-001 by direct web3.js, ADR-010 by removal of Jito, ADR-014 as active venue by ADR-015)
 - **Proposed:** 0
 - **Deprecated:** 0

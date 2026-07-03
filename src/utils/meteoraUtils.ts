@@ -7,7 +7,7 @@
  * - **getPriceFromBinId**: Convert bin ID to price using DLMM formula
  * - **getActiveBin**: Fetch current active bin and price from pool
  * - **calculateTokenPercentages**: Calculate token X/Y composition in price range
- * - **getMeteoraPairInfo**: Fetch pool analytics from Meteora API
+ * - **getMeteoraPairInfo**: Derive pool analytics on-chain (DLMM SDK) + indexer volume
  *
  * DLMM Bin Mechanics:
  * - Bins are discrete price ranges in a DLMM pool
@@ -20,10 +20,11 @@
  * - When price is in range: Mix of both tokens
  * - When price is above range: 0% token X, 100% token Y
  *
- * Meteora API:
- * - Provides real-time pool analytics (APR, APY, volume, fees, TVL)
- * - Endpoint: https://dlmm-api.meteora.ag/pair/{poolAddress}
- * - Returns comprehensive pool metadata including reserves, bin data, and fee stats
+ * Pool analytics source (BUG-004):
+ * - The old off-chain host `dlmm-api.meteora.ag` is dead (404 everywhere).
+ * - `getMeteoraPairInfo` now derives TVL, price, bin step, and fee rates ON-CHAIN
+ *   via the DLMM SDK; 24h volume/fees/APR (historical, not on-chain) come
+ *   best-effort from a live indexer (GeckoTerminal) and degrade to 0 if down.
  *
  * @example
  * ```typescript
@@ -47,10 +48,20 @@
  */
 
 import Decimal from 'decimal.js';
+import { PublicKey } from '@solana/web3.js';
 import { log } from './logger.js';
+import { getConnection } from './solana.js';
+import { DLMM } from './dlmm.js';
 import { MeteoraPairInfo } from '../types/index.js';
 
 const BASIS_POINT_MAX = 10000;
+
+/** Known mint → symbol (for pool naming). Unknown mints render as the full mint (never abbreviated). */
+const KNOWN_SYMBOLS: Record<string, string> = {
+  So11111111111111111111111111111111111111112: 'SOL',
+  EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v: 'USDC',
+};
+const symbolOf = (mint: string): string => KNOWN_SYMBOLS[mint] ?? mint;
 
 /**
  * Calculate price from bin ID using DLMM formula
@@ -141,66 +152,119 @@ export function calculateTokenPercentages(
 }
 
 /**
- * Fetch pool data from Meteora DLMM API
+ * Best-effort 24h volume + TVL from GeckoTerminal. These two metrics are
+ * historical (not derivable on-chain without an indexer), so we read them from
+ * a live public indexer. Returns null on any failure — callers degrade to
+ * on-chain TVL with volume/APR = 0 rather than throwing.
+ */
+async function fetchPoolVolumeUsd(
+  poolKey: string
+): Promise<{ tvlUsd: number; volume24hUsd: number; name?: string } | null> {
+  try {
+    const url = `https://api.geckoterminal.com/api/v2/networks/solana/pools/${poolKey}`;
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'delta-neutral-bot', Accept: 'application/json' },
+    });
+    if (!res.ok) return null;
+    const j = (await res.json()) as any;
+    const a = j?.data?.attributes;
+    if (!a) return null;
+    return {
+      tvlUsd: Number(a.reserve_in_usd) || 0,
+      volume24hUsd: Number(a.volume_usd?.h24) || 0,
+      name: typeof a.name === 'string' ? a.name : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Pool analytics for a Meteora DLMM pair.
  *
- * Provides rich analytics including:
- * - 24h volume and fees
- * - APR/APY metrics
- * - Reserve amounts
- * - Current price
+ * Derived primarily ON-CHAIN via the DLMM SDK (the old off-chain
+ * `dlmm-api.meteora.ag` host is dead — see BUG-004): bin step, base/max/protocol
+ * fee rates, active-bin price, reserves, and TVL (priced at the pool's own
+ * active price — no external oracle). The genuinely historical metrics — 24h
+ * volume, fees, APR/APY — are not on-chain, so they come best-effort from a live
+ * indexer (GeckoTerminal); if it's unavailable they degrade to 0 and the
+ * on-chain fields still return.
  */
 export async function getMeteoraPairInfo(poolKey: string): Promise<MeteoraPairInfo> {
   try {
-    const url = `https://dlmm-api.meteora.ag/pair/${poolKey}`;
-    log.debug('Fetching Meteora pair info', { poolKey, url });
+    const connection = getConnection();
+    const dlmm = await DLMM.create(connection, new PublicKey(poolKey));
+    const lb = dlmm.lbPair;
 
-    const response = await fetch(url);
+    const binStep = Number(lb.binStep);
+    const mintX = lb.tokenXMint.toBase58();
+    const mintY = lb.tokenYMint.toBase58();
+    const decX = dlmm.tokenX.mint.decimals;
+    const decY = dlmm.tokenY.mint.decimals;
+    const reserveXAmount = Number(dlmm.tokenX.amount.toString()) / Math.pow(10, decX);
+    const reserveYAmount = Number(dlmm.tokenY.amount.toString()) / Math.pow(10, decY);
 
-    if (!response.ok) {
-      throw new Error(`Meteora API returned ${response.status}`);
-    }
+    // Fee rates from the live pool (percent, e.g. 0.04 / 10).
+    const fi = dlmm.getFeeInfo();
+    const baseFeePct = Number(fi.baseFeeRatePercentage?.toString?.() ?? fi.baseFeeRatePercentage ?? 0);
+    const maxFeePct = Number(fi.maxFeeRatePercentage?.toString?.() ?? fi.maxFeeRatePercentage ?? 0);
+    const protocolFeePct = Number(fi.protocolFeePercentage?.toString?.() ?? fi.protocolFeePercentage ?? 0);
 
-    const data = await response.json() as any;
+    // Active-bin price = tokenY per tokenX (USDC per SOL). Also the SOL price we
+    // use to value the SOL reserve — keeps TVL fully self-contained on-chain.
+    const active = await getActiveBin(dlmm);
+    const currentPrice = active.pricePerToken;
+    const onChainTvlUsd = reserveYAmount + reserveXAmount * currentPrice;
+
+    // Historical metrics (best-effort, off-chain indexer).
+    const gt = await fetchPoolVolumeUsd(poolKey);
+    const liquidity = gt && gt.tvlUsd > 0 ? gt.tvlUsd : onChainTvlUsd;
+    const tradeVolume24h = gt?.volume24hUsd ?? 0;
+    const fees24h = tradeVolume24h * (baseFeePct / 100);
+    const apr = liquidity > 0 ? (fees24h / liquidity) * 365 * 100 : 0;
+    const apy = liquidity > 0 ? (Math.pow(1 + fees24h / liquidity, 365) - 1) * 100 : 0;
 
     const pairInfo: MeteoraPairInfo = {
-      address: data.address,
-      name: data.name,
-      mintX: data.mint_x,
-      mintY: data.mint_y,
-      reserveX: data.reserve_x,
-      reserveY: data.reserve_y,
-      reserveXAmount: data.reserve_x_amount,
-      reserveYAmount: data.reserve_y_amount,
-      binStep: data.bin_step,
-      baseFeePercentage: data.base_fee_percentage,
-      maxFeePercentage: data.max_fee_percentage,
-      protocolFeePercentage: data.protocol_fee_percentage,
-      liquidity: data.liquidity,
-      fees24h: data.fees_24h || 0,
-      todayFees: data.today_fees || 0,
-      tradeVolume24h: data.trade_volume_24h || 0,
-      cumulativeTradeVolume: data.cumulative_trade_volume || '0',
-      cumulativeFeeVolume: data.cumulative_fee_volume || '0',
-      currentPrice: data.current_price,
-      apr: data.apr || 0,
-      apy: data.apy || 0,
-      farmApr: data.farm_apr || 0,
-      farmApy: data.farm_apy || 0,
-      hide: data.hide || false,
+      address: poolKey,
+      name: gt?.name ?? `${symbolOf(mintX)}-${symbolOf(mintY)}`,
+      mintX,
+      mintY,
+      reserveX: dlmm.tokenX.reserve.toBase58(),
+      reserveY: dlmm.tokenY.reserve.toBase58(),
+      reserveXAmount,
+      reserveYAmount,
+      binStep,
+      baseFeePercentage: String(baseFeePct),
+      maxFeePercentage: String(maxFeePct),
+      protocolFeePercentage: String(protocolFeePct),
+      liquidity: String(liquidity),
+      fees24h,
+      todayFees: fees24h,
+      tradeVolume24h,
+      cumulativeTradeVolume: '0',
+      cumulativeFeeVolume: '0',
+      currentPrice,
+      apr,
+      apy,
+      farmApr: 0,
+      farmApy: 0,
+      hide: false,
     };
 
-    log.info('Fetched Meteora pair info', {
+    log.info('Derived Meteora pair info (on-chain SDK + indexer volume)', {
       pool: poolKey,
       name: pairInfo.name,
-      volume24h: pairInfo.tradeVolume24h,
-      fees24h: pairInfo.fees24h,
-      apr: pairInfo.apr,
-      apy: pairInfo.apy,
+      currentPrice,
+      tvlUsd: Number(liquidity.toFixed(0)),
+      volume24h: Number(tradeVolume24h.toFixed(0)),
+      baseFeePct,
+      apr: Number(apr.toFixed(1)),
+      volumeSource: gt ? 'geckoterminal' : 'unavailable(0)',
     });
 
     return pairInfo;
   } catch (error) {
-    log.error('Failed to fetch Meteora pair info', {
+    log.error('Failed to derive Meteora pair info', {
       error: error instanceof Error ? error.message : String(error),
       poolKey,
     });

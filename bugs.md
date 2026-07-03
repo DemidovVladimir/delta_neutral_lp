@@ -30,23 +30,58 @@ retained as a paused backend in case Drift relaunches.
 
 ---
 
-### BUG-004: Configured Meteora LP pool returns 404 / position not on-chain
-**Status:** Open
-**Severity:** High (the LP side we hedge currently reads 0)
+### BUG-004: Meteora off-chain API host dead → analytics broke (NOT a dead pool)
+**Status:** Fixed (analytics) — residual: no LP position created yet
+**Severity:** High → resolved for analytics
 **Reported:** 2026-06-28
-**Related:** Auto-tune, hedge
+**Updated:** 2026-06-29
+**Related:** Auto-tune, hedge, API server
 
-**Description:**
-`METEORA_POOL_ADDRESS=5rCf1DM8LjKTw4YqhnoLcngyZYeNnQqztScTogYHAS6` returns HTTP
-404 from `https://dlmm-api.meteora.ag/pair/{addr}`. The saved position mint
-`EUXx25SLaS3sbPvcirLw7QzaBQepkB9M4QJ7u4eXxhVs` (in `data/state.json`) is not
-found on-chain ("No positions found matching configured mints").
+**Root cause (corrected 2026-06-29):** The whole host `dlmm-api.meteora.ag` is
+dead — it returns HTTP 404 for **every** path (incl. root), from curl *and*
+WebFetch — not just our pool. The configured pool
+`5rCf1DM8LjKTw4YqhnoLcngyZYeNnQqztScTogYHAS6` is **alive and trading** (verified
+on-chain via the DLMM SDK and on GeckoTerminal: ~$3.3M TVL, ~$51M/24h volume,
+binStep 4, base fee 0.04%, price ~$75). So the earlier "pool returns 404" was an
+API-host failure, not a dead pool. The separate "position not on-chain"
+(`EUXx25SLaS3sbPvcirLw7QzaBQepkB9M4QJ7u4eXxhVs`) is simply that no LP position
+has been created yet — stale mint in `data/state.json` — not a code bug.
 
-**Impact:** LP exposure reads as 0 everywhere (dashboard, hedge delta). There is
-nothing to hedge until the LP side is restored.
+**Impact (before fix):** `getMeteoraPairInfo` threw on the 404, breaking
+`/api/pool/analytics`. Bot *logic* was unaffected (auto-tune reads composition
+on-chain; LP exposure is on-chain), so this was display/analytics only.
 
-**Fix (TODO):** Find a live SOL/USDC DLMM pool (`pnpm find-pools`), update
-`METEORA_POOL_ADDRESS`, clear/refresh stale state, recreate the position.
+**Fix (done 2026-06-29):** `getMeteoraPairInfo` (`src/utils/meteoraUtils.ts`)
+rewritten to derive analytics **on-chain via the DLMM SDK** (bin step,
+base/max/protocol fee rates, active-bin price, reserves, TVL priced at the
+pool's own active price — no external oracle). The genuinely historical metrics
+(24h volume/fees/APR) come best-effort from GeckoTerminal and degrade to 0 if
+that indexer is down — never throws. No dependency on `dlmm-api.meteora.ag`.
+Validated live against the configured pool.
+
+**Residual (not blocking the hedge build):** create an actual LP position
+(`AUTO_CREATE_POSITIONS=true` or via API) and clear the stale state mint, so LP
+exposure is non-zero before running a live delta-neutral loop.
+
+**Update 2026-06-30 (stale state cleared + auto-heal added):**
+- Verified on-chain (read-only, DLMM SDK `getPositionsByUserAndLbPair`): wallet
+  `F3YvPiLdniRPGpeKrbeGWR2zg2wPpzVuvqBA5BBJBQ5S` holds **0 positions** in pool
+  `5rCf1DM8LjKTw4YqhnoLcngyZYeNnQqztScTogYHAS6`; the state mint
+  `EUXx25SLaS3sbPvcirLw7QzaBQepkB9M4QJ7u4eXxhVs` is **not on-chain** (closed). Wallet
+  balance: **3.266365 SOL, 0 USDC**.
+- **Code gap found + fixed:** `ensurePositionsLoaded()` short-circuits when
+  `positionMints.length > 0`, so a phantom mint in `state.json` made the bot skip
+  on-chain discovery and trust a position it didn't have (never self-healing).
+  Added auto-heal in two on-chain-authoritative spots in `meteoraAdapter.ts`:
+  `discoverPositionsFromBlockchain()` and `getLpExposure()` now **prune the tracked
+  mints + persist `[]`** when the chain shows no match. Safe: position creation
+  re-checks the chain to avoid dupes, so a transient empty read self-corrects.
+- **State cleared:** `data/state.json` `createdPositionMints` set to `[]` (history
+  preserved). Validated: adapter now discovers 0 and `getLpExposure` returns clean
+  zeros without crashing.
+- **Still operator-gated (fund movement):** actually opening a live LP position.
+  Wallet is SOL-only (~$240 at SOL ≈ $73.43); a balanced position needs a SOL→USDC
+  swap and may scale down to fit. Not done unilaterally — awaiting operator go.
 
 ---
 

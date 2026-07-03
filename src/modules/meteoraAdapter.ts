@@ -149,6 +149,18 @@ export class MeteoraAdapter {
 
       if (!userPositions || userPositions.length === 0) {
         log.info('No positions found on blockchain');
+        // Auto-heal: if we were tracking mints (e.g. a phantom in state.json, or
+        // a position closed elsewhere) but the chain shows none, clear the stale
+        // mints + state so the bot stops trusting a position it doesn't have and
+        // re-discovers cleanly. Safe: position creation re-checks the chain to
+        // avoid duplicates, so a transient empty read self-corrects next cycle.
+        if (this.positionMints.length > 0) {
+          log.warn('Clearing stale tracked LP mints (none exist on-chain)', {
+            staleMints: this.positionMints,
+          });
+          this.positionMints = [];
+          saveCreatedPositionMints([]);
+        }
         return [];
       }
 
@@ -658,6 +670,17 @@ export class MeteoraAdapter {
         log.warn('No positions found matching configured mints', {
           expectedMints: this.positionMints,
         });
+        // On-chain truth says none of our tracked mints exist → prune the stale
+        // state here too (the chain query above is authoritative for this pool),
+        // so a phantom mint can't survive across cycles even if ensurePositionsLoaded
+        // short-circuited on it. Mirrors discoverPositionsFromBlockchain's auto-heal.
+        if (this.positionMints.length > 0) {
+          log.warn('Pruning stale tracked LP mints (no on-chain match)', {
+            staleMints: this.positionMints,
+          });
+          this.positionMints = [];
+          saveCreatedPositionMints([]);
+        }
         return {
           solAmount: 0,
           usdcAmount: 0,

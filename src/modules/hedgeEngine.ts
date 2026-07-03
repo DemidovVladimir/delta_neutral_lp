@@ -79,6 +79,8 @@ export interface HedgeRebalanceResult {
   signatures: string[];
   deltaBefore: DeltaView;
   deltaAfter?: DeltaView;
+  /** The underlying open/decrease mutation (sim result in dry-run, sigs when live). */
+  mutation?: MutationResult;
 }
 
 /** The contract every perp-hedge backend implements. */

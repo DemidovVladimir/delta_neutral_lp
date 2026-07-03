@@ -1,8 +1,8 @@
 # HANDOVER — Delta-Neutral Hedge (Drift → Jupiter Perps pivot)
 
-**Last updated:** 2026-06-28
+**Last updated:** 2026-06-30
 **Branch:** `feature/hedge-jupiter-perps-pivot`
-**Status:** Hedge read-side + observability DONE & validated on Jupiter Perps. Write-side NOT started.
+**Status:** Hedge read-side + observability DONE & validated on Jupiter Perps. Write-side: **open/increase + decrease/close + `rebalanceHedge` controller + `liquidationPrice` + `emergencyUnwind` built & dry-run-validated on live mainnet** (`pnpm hedge:open` / `hedge:close` / `--rebalance` / `--emergency`). Only **loop wiring** remains before a live end-to-end hedge.
 
 ---
 
@@ -25,6 +25,11 @@ The bot's planned hedge venue was **Drift** (ADR-014). During this session we di
 | Jupiter Perps loader/constants/PDA/borrow-math | `src/utils/jupiterPerps.ts`, `src/idl/jupiter-perps-idl.json` | live custody decode |
 | `JupiterPerpsEngine` read side (`getHedgeState`/`computeDelta`) | `src/modules/jupiterPerpsEngine.ts` | `pnpm jupiter:read` (live) |
 | Read-only dashboard (blessed-contrib) on Jupiter | `src/cli/dashboard.ts`, `src/modules/dashboardData.ts`, `src/utils/dashboardLib.ts` | `pnpm dashboard --json` (live), `--mock --json` (offline) |
+| **Write side Step 1 — open/increase short** (request+keeper TX1; PDAs, ATA, account wiring, dry-run/`--live`) | `src/utils/jupiterPerps.ts` (PDA/ATA helpers), `src/modules/jupiterPerpsEngine.ts` (`openOrIncreaseShort`), `src/cli/jupiter-hedge.ts` | `pnpm hedge:open` dry-run (live mainnet sim): program invoked, request+escrow built, Validate inputs passed; only blocker = 0 USDC collateral |
+| **Write side Step 2 — decrease/close short** (`createDecreasePositionMarketRequest`; full close + partial; ceiling slippage) | `src/modules/jupiterPerpsEngine.ts` (`decreaseOrCloseShort`), `src/cli/jupiter-hedge.ts` (`--close`) | `pnpm hedge:close` dry-run (live sim): instruction decoded, 16 metas + params accepted; only blocker = no open position (`AccountNotInitialized 3012`) |
+| **Write side Step 3 — `rebalanceHedge` controller** (band gate, increase/decrease sizing, carry/notional/collateral guards, 1× collateral) | `src/modules/jupiterPerpsEngine.ts` (`rebalanceHedge`), `src/config/env.ts` (`HEDGE_TARGET_COLLATERAL_RATIO`, `HEDGE_CARRY_CAP_BPS`), `src/cli/jupiter-hedge.ts` (`--rebalance --lp-sol=`) | dry-run: in-band→none, $15k→blocked(max notional), 12.5 SOL→increase_short sized $948 notional/$948 collateral |
+| **Write side Step 4 — `liquidationPrice`** (faithful Jupiter port; fees + maintenance margin) | `src/utils/jupiterPerps.ts` (`computeLiquidationPrice`), `src/modules/jupiterPerpsEngine.ts` (`getHedgeState`) | synthetic-position math pinned (2× short→$147.99, long mirror→$52.01, +$10 carry→$146.99, closed→null); live read clean |
+| **Write side Step 5 — `emergencyUnwind`** (full close at any price; `--emergency` CLI) | `src/modules/jupiterPerpsEngine.ts` (`emergencyUnwind`), `src/cli/jupiter-hedge.ts` (`--emergency`) | `--emergency` dry-run (live sim): full-close request built, only blocker = no open short (`AccountNotInitialized 3012`) |
 
 **Smoke commands (re-runnable, no funds):**
 ```bash
@@ -34,21 +39,38 @@ pnpm dashboard --json             # full snapshot as JSON (non-TTY)
 pnpm dashboard --mock --json      # offline deterministic snapshot
 pnpm dashboard                    # live TUI panel (needs a real terminal)
 pnpm dashboard --mock             # TUI with fake data (layout check)
+
+# Write side (DRY-RUN by default — builds + simulates, sends NOTHING):
+pnpm hedge:open --size-usd=10 --collateral=5            # simulate opening a SHORT
+pnpm hedge:open --size-usd=10 --collateral=5 --live     # LIVE: submit the request (escrows USDC; needs USDC in wallet)
+pnpm hedge:open --size-usd=10 --collateral=5 --slippage-bps=80
+pnpm hedge:close                                        # simulate a FULL close (needs an open short to actually fill)
+pnpm hedge:close --size-usd=5 --collateral=2            # simulate a PARTIAL decrease
+pnpm hedge:close --live                                 # LIVE: full-close request
+
+tsx src/cli/jupiter-hedge.ts --emergency                # simulate EMERGENCY UNWIND (full close, fill at any price)
+tsx src/cli/jupiter-hedge.ts --emergency --live         # LIVE: emergency full-close request
 ```
 
-Last live read (2026-06-28): venue `jupiter-perps`, `carryRateBps ≈ -1176` (≈ **-11.76% APR borrow cost**), no position open (clean start), SOL ≈ $70.
+Last live read (2026-06-30): venue `jupiter-perps`, `carryRateBps ≈ -1181` (≈ **-11.81% APR borrow cost**), no position open (clean start), SOL ≈ $73.43, `liquidationPrice` = `null` (no position — populates only with an open short).
 
 ---
 
-## What is NEXT (write side — not started)
+## What is NEXT (write side — open + close + controller + liq-price + emergency done; only loop wiring left)
 
-Implement Jupiter Perps mutations in `JupiterPerpsEngine` (currently `notImplemented`):
-1. **Open / increase short** — build a `positionRequest` (PDA seeds: `["position_request", positionPubkey, counter(le8), requestChange([1]increase/[2]decrease)]`), submit (TX1), keeper fills (TX2). Collateral = USDC. **Dry-run (simulate) by default**, `--live` to send.
-2. **Decrease / close short** — `requestChange = decrease [2]`.
-3. **`rebalanceHedge(lpExposure)`** — the controller: size the short to `lpExposure.solAmount`, respect band (`DELTA_THRESHOLD_SOL`) + risk guards (`MIN_COLLATERAL_RATIO`, `MAX_SHORT_NOTIONAL_USD`). Carry has no `FUNDING_RATE_CAP_BPS` equivalent yet — decide whether to add a carry-cap guard (e.g. refuse to hold short when borrow APR > threshold).
-4. **`liquidationPrice`** in `getHedgeState` — currently returns `null`; compute from the open position (Jupiter ref: `src/examples/get-liquidation-price.ts`).
-5. Add a hedge mutation CLI (mirror `src/cli/drift-hedge.ts`'s dry-run/`--live` pattern) → `pnpm hedge:open` / `hedge:close` or extend one CLI.
-6. Wire the controller into the auto-tune loop (or a dedicated hedge loop) once dry-run-validated.
+1. ✅ **Open / increase short** — DONE. `JupiterPerpsEngine.openOrIncreaseShort` builds `createIncreasePositionMarketRequest` (request PDA seeds `["position_request", positionPubkey, counter(le8), [1]increase]`), submits TX1; keeper fills TX2. Collateral = USDC. Dry-run by default, `--live` to send. Validated dry-run on mainnet (only blocker = 0 USDC in wallet).
+2. ✅ **Decrease / close short** — DONE. `decreaseOrCloseShort` builds `createDecreasePositionMarketRequest` (`requestChange = decrease [2]`; `receivingAccount`/`desiredMint` = USDC; full close = zero deltas + `entirePosition:true` + `$100k` ceiling; partial = real ceiling `oracle*(1+slip)`). Validated dry-run (only blocker = no open position).
+3. ✅ **`rebalanceHedge(lpExposure)` controller** — DONE. Band gate, increase/decrease sizing toward `lpExposure.solAmount`, guards (carry `HEDGE_CARRY_CAP_BPS=5000`/50% APR on increases, `MAX_SHORT_NOTIONAL_USD`, `MIN_COLLATERAL_RATIO`), collateral sized to `HEDGE_TARGET_COLLATERAL_RATIO=1.0` (1×). Returns `HedgeRebalanceResult` (now carries `mutation?`). Dry-run validated (none/blocked/increase paths).
+4. ✅ **Hedge mutation CLI** — DONE. `pnpm hedge:open` / `hedge:close` / `--rebalance --lp-sol=`.
+5. ✅ **`liquidationPrice`** in `getHedgeState` — DONE. `computeLiquidationPrice()` in `src/utils/jupiterPerps.ts` is a line-by-line port of Jupiter's `get-liquidation-price.ts` (close fee + price-impact fee + accrued borrow fee vs. maintenance margin `sizeUsd/maxLeverage`; short healthy → liq above entry). `getHedgeState` fetches the collateral (USDC) custody and fills the field (was `null`). Math pinned with synthetic positions (2× short @ $100/$500 → liq $147.99; long mirror $52.01; +$10 carry → $146.99; closed → null). Dashboard "Liq price" row now populates automatically.
+6. ✅ **`emergencyUnwind`** — DONE. `JupiterPerpsEngine.emergencyUnwind({ dryRun })` delegates to `decreaseOrCloseShort({ entirePosition: true })` (the `$100k` "fill at any price" ceiling → guaranteed keeper fill), tags the result `emergency_unwind`, loud `errorBanner`. CLI: `--emergency` (dry-run) / `--emergency --live`. Dry-run validated live (full-close request built, only blocker = no open short → `AccountNotInitialized 3012`).
+7. 🔜 Wire the controller into the auto-tune loop **(operator decision 2026-06-30: wire INTO the existing `AutoTuneOrchestrator` — call `rebalanceHedge` after each LP composition check, single process, not a separate loop)**, once dry-run-validated. **This is the last remaining write-side step.** Also still blocking a real end-to-end delta: BUG-004 (no LP position created yet — the long side reads 0).
+
+**Hedge controller config (operator-chosen 2026-06-29):** `HEDGE_TARGET_COLLATERAL_RATIO=1.0` (1× fully collateralized — safest), `HEDGE_CARRY_CAP_BPS=5000` (block increases when borrow APR > 50%). Both in `.env.example`; defaults live in `env.ts`.
+
+**To take the open LIVE:** the wallet needs USDC collateral (currently 0). That's a deliberate fund movement — fund the USDC ATA, then `pnpm hedge:open --size-usd=.. --collateral=.. --live`.
+
+**Slippage convention (verified against the dry-run + Jupiter ref):** for a SHORT, `priceSlippage` on an **increase** is a price FLOOR `oracle*(1 - bps/1e4)` (selling — refuse if entry too low); on a **decrease/close** it's a price CEILING (buying back — refuse if too high; ref hardcodes `100_000_000_000` = "fill at any price"). `DEFAULT_PERP_SLIPPAGE_BPS = 50` in the engine, overridable via `--slippage-bps`.
 
 **Reference repo for write instructions** (Jupiter has no official TS SDK): `julianfssen/jupiter-perps-anchor-idl-parsing` — see `src/examples/create-market-trade-request.ts` and `close-position-request.ts`.
 
@@ -79,7 +101,7 @@ Position PDA seeds: `["position", wallet, JLP_pool, custody, collateralCustody, 
 
 ## Open issues / caveats
 
-1. **Configured Meteora LP pool is broken.** `METEORA_POOL_ADDRESS=5rCf1DM8LjKTw4YqhnoLcngyZYeNnQqztScTogYHAS6` returns **404** on the Meteora API; the saved position mint `EUXx25SLaS3sbPvcirLw7QzaBQepkB9M4QJ7u4eXxhVs` is **not on-chain**. The LP side (the thing we're hedging) currently reads 0. **Must fix before any live hedge** — find a live SOL/USDC DLMM pool, update config. See BUG-004.
+1. **BUG-004 reframed + analytics fixed (2026-06-29).** The pool `5rCf1DM8LjKTw4YqhnoLcngyZYeNnQqztScTogYHAS6` is **alive** (verified on-chain + GeckoTerminal: ~$3.3M TVL, ~$51M/24h, binStep 4, base fee 0.04%). The 404 was the whole **off-chain API host `dlmm-api.meteora.ag` being dead**, not the pool. `getMeteoraPairInfo` now derives analytics **on-chain (DLMM SDK)** + GeckoTerminal for 24h volume — no dead-host dependency. **Residual:** no LP position created yet (the "LP reads 0" half) — create one (`AUTO_CREATE_POSITIONS=true`) + clear the stale state mint before a live end-to-end delta.
 2. **`.gitignore` has `*.json`** which excludes `src/idl/jupiter-perps-idl.json` — it was force-added (`git add -f`). If you re-vendor it, force-add again, or add a `!src/idl/*.json` negation.
 3. **`jup-anchor` alias** = `@coral-xyz/anchor@0.29.0` (npm alias) — required because Jupiter's IDL is the old (0.29) format and the project's top-level anchor `0.32` can't parse it. Loaded only in `src/utils/jupiterPerps.ts`.
 4. **Drift code is dead but kept.** `src/modules/driftEngine.ts`, `src/utils/drift.ts`, `src/cli/drift-read.ts`, `src/cli/drift-hedge.ts`, `@drift-labs/sdk` — retained as a paused backend (Drift may relaunch). Not on the `HedgeEngine` interface yet. Decide later: migrate or remove.

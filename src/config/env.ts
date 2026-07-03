@@ -94,6 +94,22 @@ export interface BotConfig {
   maxShortNotionalUsd: number;
   /** Funding-rate cap (bps) above which we refuse to add/keep the short. Env: FUNDING_RATE_CAP_BPS */
   fundingRateCapBps: number;
+
+  // Jupiter Perps hedge controller (ADR-015). Defaults are production-safe and
+  // these are read by JupiterPerpsEngine.rebalanceHedge regardless of the Drift
+  // switch (the Jupiter engine is the active backend).
+  /**
+   * Target collateral ratio (USDC collateral / short notional) the controller
+   * sizes collateral to on an increase. 1.0 = fully collateralized (~1x).
+   * Env: HEDGE_TARGET_COLLATERAL_RATIO. Must be >= minCollateralRatio.
+   */
+  hedgeTargetCollateralRatio: number;
+  /**
+   * Annualised borrow-APR cap in bps. The controller refuses to INCREASE the
+   * short when Jupiter's carry exceeds this (decreases/closes always allowed).
+   * 0 = disabled. Env: HEDGE_CARRY_CAP_BPS.
+   */
+  hedgeCarryCapBps: number;
 }
 
 function parseEnvString(key: string, required: true): string;
@@ -297,6 +313,22 @@ function loadConfigFromEnv(): BotConfig {
   const maxShortNotionalUsd = parseEnvNumber('MAX_SHORT_NOTIONAL_USD', 12000);
   const fundingRateCapBps = parseEnvNumber('FUNDING_RATE_CAP_BPS', 80);
 
+  // Jupiter Perps hedge controller params. Safe defaults; validated unconditionally
+  // (cheap, and the active hedge backend reads them whether or not Drift is on).
+  const hedgeTargetCollateralRatio = parseEnvNumber('HEDGE_TARGET_COLLATERAL_RATIO', 1.0);
+  const hedgeCarryCapBps = parseEnvNumber('HEDGE_CARRY_CAP_BPS', 5000);
+  if (!(hedgeTargetCollateralRatio > 0)) {
+    throw new Error('HEDGE_TARGET_COLLATERAL_RATIO must be positive');
+  }
+  if (hedgeTargetCollateralRatio < minCollateralRatio) {
+    throw new Error(
+      `HEDGE_TARGET_COLLATERAL_RATIO (${hedgeTargetCollateralRatio}) must be >= MIN_COLLATERAL_RATIO (${minCollateralRatio})`
+    );
+  }
+  if (hedgeCarryCapBps < 0) {
+    throw new Error('HEDGE_CARRY_CAP_BPS must be >= 0');
+  }
+
   // Validate Drift parameters only when the hedge is actually engaged, so an
   // LP-only operator is never blocked by hedge config they don't use. When it
   // IS engaged these guards fail fast at boot rather than mid-rebalance.
@@ -380,6 +412,8 @@ function loadConfigFromEnv(): BotConfig {
     minCollateralRatio,
     maxShortNotionalUsd,
     fundingRateCapBps,
+    hedgeTargetCollateralRatio,
+    hedgeCarryCapBps,
   };
 }
 
