@@ -61,6 +61,7 @@ import { getConfig } from '../config/env.js';
 import { log } from '../utils/logger.js';
 import { getConnection, getWalletKeypair } from '../utils/solana.js';
 import { closeEmptyTokenAccounts } from './walletJanitor.js';
+import { computeLpMidpointSol } from './hedgeController.js';
 import { DLMM } from '../utils/dlmm.js';
 import { DECIMALS } from '../config/constants.js';
 import { getSolPrice } from '../core/priceOracle.js';
@@ -726,7 +727,30 @@ export class AutoTuneOrchestrator {
 
     const dryRun = this.config.hedgeDryRun;
     try {
-      const result = await this.hedgeEngine.rebalanceHedge(exposure, {
+      // ADR-019: in 'midpoint' mode the controller sees the SOL half of the
+      // LP's value (~constant per position) instead of the live composition,
+      // so bin wiggle and LP recenters stop generating hedge churn. Price
+      // read is cached; on failure we fall back to the live reading rather
+      // than skip the cycle.
+      let hedgeExposure = exposure;
+      if (this.config.hedgeLpInput === 'midpoint') {
+        try {
+          const price = (await getSolPrice()).usd;
+          const midpointSol = computeLpMidpointSol(exposure.solAmount, exposure.usdcAmount, price);
+          hedgeExposure = { ...exposure, solAmount: midpointSol };
+          log.debug('Hedge input: LP midpoint', {
+            liveSol: exposure.solAmount,
+            midpointSol,
+            price,
+          });
+        } catch (priceError) {
+          log.warn('Hedge midpoint price read failed — using live LP exposure this cycle', {
+            error: priceError instanceof Error ? priceError.message : String(priceError),
+          });
+        }
+      }
+
+      const result = await this.hedgeEngine.rebalanceHedge(hedgeExposure, {
         dryRun,
         lastActionAtMs: this.state.hedge?.lastActionAt ?? null,
       });

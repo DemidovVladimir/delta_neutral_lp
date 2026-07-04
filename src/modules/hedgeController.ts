@@ -203,3 +203,20 @@ function guardIncrease(
 
   return { action: 'increase_short', sizeUsd, collateralTokens: collateralUsd, adjustSol: -adjustSol };
 }
+
+/**
+ * ADR-019: the hedge input in 'midpoint' mode — the SOL-denominated HALF of
+ * the LP's total value. For a freshly centered position this equals the SOL
+ * deposit and stays ~constant across the position's range lifetime, so LP
+ * recenters stop forcing hedge corrections and bin-composition wiggle never
+ * reaches the controller. Empty exposure (no position) still yields 0 → a
+ * leftover perp unwinds exactly as in 'live' mode.
+ */
+export function computeLpMidpointSol(
+  lpSolAmount: number,
+  lpUsdcAmount: number,
+  solPriceUsd: number
+): number {
+  if (!(solPriceUsd > 0)) return lpSolAmount; // defensive: fall back to live
+  return (lpSolAmount + lpUsdcAmount / solPriceUsd) / 2;
+}

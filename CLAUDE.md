@@ -81,6 +81,7 @@ Hedge (ADR-017):
 - `HEDGE_ENABLED` (default false) and `HEDGE_DRY_RUN` (**default true** — the loop simulates mutations until you flip it)
 - `HEDGE_TARGET_DELTA_SOL` (0 = delta-neutral; positive = deliberate long tilt, can exceed LP exposure → perp long)
 - `DELTA_THRESHOLD_SOL` (band; size to ≥3–4 bins' worth of LP delta ≈ maxLpSol/binCount × 3..4 — a smaller band trades on per-bin composition noise, ADR-018)
+- `HEDGE_LP_INPUT` (`live`|`midpoint`; ADR-019 — `midpoint` feeds the controller the SOL half of LP value, ~constant per position, so LP recenters stop forcing hedge corrections; production runs `midpoint`)
 - `MAX_HEDGE_NOTIONAL_USD` (per-side blast-radius cap; legacy `MAX_SHORT_NOTIONAL_USD` still parses)
 - `HEDGE_TARGET_COLLATERAL_RATIO` (1.0 = 1×; ADR-016 runs 0.33 ≈ 3×), `MIN_COLLATERAL_RATIO` (hard floor)
 - `HEDGE_CARRY_CAP_BPS` (refuse increases above this borrow APR), `HEDGE_COOLDOWN_MS` (keeper-fill guard)

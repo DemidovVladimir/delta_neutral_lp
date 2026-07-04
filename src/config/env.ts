@@ -95,6 +95,15 @@ export interface BotConfig {
    */
   walletJanitorEnabled: boolean;
   /**
+   * What LP figure the hedge controller sees (ADR-019). 'live' = the actual
+   * current LP SOL amount (hedge chases bin-composition swings and every LP
+   * recenter). 'midpoint' = the SOL-denominated half of LP total value
+   * (~constant per position → near-zero hedge churn; intra-range delta up to
+   * ± half the position rides unhedged until the next LP recenter).
+   * Env: HEDGE_LP_INPUT (default 'live')
+   */
+  hedgeLpInput: 'live' | 'midpoint';
+  /**
    * Target collateral ratio (collateral / notional) the controller sizes
    * collateral to on an increase. 1.0 = fully collateralized (~1x); ADR-016
    * chose 0.33 (~3x) for capital efficiency — set it in .env.
@@ -296,6 +305,11 @@ function loadConfigFromEnv(): BotConfig {
   // as the hedge-churn throttle (ADR-018).
   const hedgeCooldownMs = parseEnvNumber('HEDGE_COOLDOWN_MS', 600_000);
   const walletJanitorEnabled = parseEnvBoolean('WALLET_JANITOR_ENABLED', true);
+  const hedgeLpInputRaw = parseEnvString('HEDGE_LP_INPUT', false, 'live');
+  if (hedgeLpInputRaw !== 'live' && hedgeLpInputRaw !== 'midpoint') {
+    throw new Error(`HEDGE_LP_INPUT must be 'live' or 'midpoint', got '${hedgeLpInputRaw}'`);
+  }
+  const hedgeLpInput = hedgeLpInputRaw as 'live' | 'midpoint';
   const deltaThresholdSol = parseEnvNumber('DELTA_THRESHOLD_SOL', 2);
   const minCollateralRatio = parseEnvNumber('MIN_COLLATERAL_RATIO', 0.15);
   // Renamed from MAX_SHORT_NOTIONAL_USD when the hedge gained the long side;
@@ -391,6 +405,7 @@ function loadConfigFromEnv(): BotConfig {
     hedgeTargetDeltaSol,
     hedgeCooldownMs,
     walletJanitorEnabled,
+    hedgeLpInput,
     deltaThresholdSol,
     minCollateralRatio,
     maxHedgeNotionalUsd,

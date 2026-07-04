@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { decideHedgeAction, type HedgeDecisionInput } from './hedgeController.js';
+import { computeLpMidpointSol, decideHedgeAction, type HedgeDecisionInput } from './hedgeController.js';
 
 /**
  * Table-driven tests over the pure hedge decision core (ADR-017).
@@ -223,5 +223,28 @@ describe('decideHedgeAction — anomaly: both sides open', () => {
       baseInput({ longSol: 2, shortSol: 1, longNotionalUsd: 200, shortNotionalUsd: 100 })
     );
     expect(d.action).toBe('decrease_long');
+  });
+});
+
+describe('computeLpMidpointSol (ADR-019)', () => {
+  it('freshly centered position → midpoint equals the SOL deposit', () => {
+    // 0.61 SOL + 50.03 USDC at $82 ≈ 0.61 both sides
+    expect(computeLpMidpointSol(0.61, 50.02, 82)).toBeCloseTo(0.61, 2);
+  });
+
+  it('stays ~constant as composition swings across the range', () => {
+    const atBottom = computeLpMidpointSol(1.22, 0, 82); // all SOL
+    const atTop = computeLpMidpointSol(0, 100.04, 82); // all USDC
+    expect(atBottom).toBeCloseTo(0.61, 2);
+    expect(atTop).toBeCloseTo(0.61, 2);
+  });
+
+  it('empty exposure → 0 (leftover perp unwinds like in live mode)', () => {
+    expect(computeLpMidpointSol(0, 0, 82)).toBe(0);
+  });
+
+  it('non-positive price falls back to the live SOL amount', () => {
+    expect(computeLpMidpointSol(0.7, 50, 0)).toBe(0.7);
+    expect(computeLpMidpointSol(0.7, 50, NaN)).toBe(0.7);
   });
 });

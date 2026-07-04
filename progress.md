@@ -43,6 +43,14 @@
 
 **Operator decisions (approved):** (1) baseline adjusted for the top-up: solSideAmount 2.237812341 → 3.110748709, totalUsd $297.78 → $369.80143962251805 (note field documents the tx + ~$0.8 valuation imprecision); local + server copies updated; post-adjust `pnpm hodl`: equity $367.47, −$2.33, HODL-as-is edge +$0.52, beats-sol-only. (2) Deploy BUG-010 + close the 17 empty ATAs.
 
+### Session 16c — срез #2 (skills), второй артефакт baseline, ADR-019 midpoint-хедж
+
+**Срез #2 (~16:30Z, via hodl-check → strategy-analyzer chain):** raw verdict beats-both was an artifact — the janitor's rent unlock (+0.0350436 SOL) was never in the baseline. Baseline adjusted a second time → **$372.69253481882396** (solSide 3.145792309; note documents both adjustments). Honest verdict: **loses-to-both marginally** — equity $371.31, −$1.38; vs HODL-SOL −$0.20, vs HODL-as-is −$0.56. Decomposition: ≈ −$1.0 outage (6.2h unhedged while SOL fell) − $1.28 total churn fees − ~$0.5 gamma flap + ~$2.2 LP fees → post-fix regime ≈ flat; the deficit is the morning's legacy.
+
+**Analyzer findings (wide-band regime 10:45→16:30Z):** liveness green (Up 5h, RestartCount 0, BUG-010 fee columns populating live, zero swaps, network ~$0.06/day); RED: churn fees 42% of LP fees (line: 25%), LP recenters 37/day (line: 40). Key mechanism from data: **exactly 2.0 hedge trades per LP recenter** (18 trades / 9 recenters) — the recenter step, not noise, drives residual churn; no band value fixes it.
+
+**ADR-019 (operator approved):** `HEDGE_LP_INPUT=midpoint` — controller sees `(lpSol + lpUsdc/price)/2` (~constant per position) instead of live composition. Expected mutations ~75/day → ~0–2/day; rollback = `live` + redeploy. `computeLpMidpointSol` in hedgeController (4 new tests, 82 total green); `hedge_actions.lp_sol` now records the midpoint the controller acted on.
+
 **Wallet janitor (operator: «закрытие аккаунтов должно происходить автоматом»):** new `src/modules/walletJanitor.ts` — at startup and every 6h the loop closes zero-balance token accounts and reclaims rent (~0.0355 SOL pending from 17 legacy dust ATAs that PREDATE the bot — it never created them, hence never closed them). Protected mints never touched: wSOL (must outlive keeper fills) and USDC. Pure filter unit-tested (6 tests, 78 total); `WALLET_JANITOR_ENABLED` (default true); fail-safe — janitor errors can't hurt the loop.
 
 ---

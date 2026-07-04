@@ -1590,6 +1590,56 @@ Network fees are irrelevant by comparison (avg 5,664 lamports/tx wallet-paid,
 
 ---
 
+## ADR-019: Hedge targets the LP range midpoint, not the live composition
+
+**Date:** 2026-07-04
+**Status:** Accepted (operator-approved via strategy-analyzer proposal)
+
+### Context
+
+ADR-018 (band 0.25, cooldown 600s) cut hedge churn ~2.5× but the first 5.75h
+of wide-band data (10:45→16:30Z, 18 mutations / $492 churn) exposed the
+residual driver: **exactly 2.0 hedge trades per LP recenter**. The 20-bin
+range recenters ~37×/day; every recenter yanks live LP SOL back to ~0.61
+while the short sits wherever the previous range edge left it → the
+controller must correct ~$25–40, twice per range lifetime. Churn fees were
+still 42% of LP fee income (red line: 25%). No band value fixes this: the
+trigger is the recenter step itself, not intra-range noise.
+
+### Decision
+
+New `HEDGE_LP_INPUT` mode (`env.ts`, default `live`; production set to
+`midpoint`): the controller receives `computeLpMidpointSol(sol, usdc, price)
+= (lpSol + lpUsdc/price)/2` — the SOL half of LP value. Properties:
+
+- Freshly centered position: midpoint = SOL deposit (≈0.61) — and it stays
+  ~there across the whole range lifetime AND across recenters → the
+  controller sees a constant, trades ~never (only when capital/compounding
+  drifts the midpoint out of the 0.25 band).
+- Empty exposure still yields 0 → leftover perp unwinds exactly as before.
+- Chain-derived (no persisted state), works after restarts, price-read
+  failure falls back to live for that cycle.
+
+### Consequences
+
+- Expected: hedge mutations ~75/day → ~0–2/day; saves ~$1.2/day Jupiter fees
+  + the systematic negative-gamma realization of trading every recenter.
+- Cost: intra-range delta up to ± half the position (~0.5 SOL ≈ $40) rides
+  unhedged until the next recenter (bounded: composition hits the 92%
+  rebalance trigger at the extremes). In a sustained trend this loses
+  ~$0.10–0.15 per traversed range vs live hedging; in chop it wins ~$2+/day.
+- Rollback: `HEDGE_LP_INPUT=live` + redeploy.
+- The `hedge_actions.lp_sol` column now records the MIDPOINT the controller
+  acted on, not the live composition — remember when analyzing.
+
+### References
+
+- Data: pnl.db hedge_actions 2026-07-04T10:45→16:30Z; ADR-018; progress.md
+  Session 16c. Implementation: `computeLpMidpointSol` (hedgeController.ts, 4
+  tests), orchestrator `maybeRebalanceHedge` transform, `HEDGE_LP_INPUT`.
+
+---
+
 ## Decision Index
 
 - ADR-001: Use solana-agent-kit for Transaction Execution *(superseded — direct @solana/web3.js)*
@@ -1610,12 +1660,13 @@ Network fees are irrelevant by comparison (avg 5,664 lamports/tx wallet-paid,
 - ADR-016: Hedge sizing/economics policy (3× leverage, 50% carry cap) + pool analytics on-chain (Accepted)
 - ADR-017: Simplification + both-sides target-delta hedge + Hetzner deploy (Accepted)
 - ADR-018: Hedge band sized to LP bin granularity + cooldown as churn throttle (Accepted)
+- ADR-019: Hedge targets the LP range midpoint, not the live composition (Accepted)
 
 ---
 
 ## Decision Status
 
-- **Accepted:** 15 (incl. ADR-018 — band ≥3–4 bins, cooldown 600s)
+- **Accepted:** 16 (incl. ADR-019 — hedge targets the LP range midpoint)
 - **Superseded:** 3 (ADR-001 by direct web3.js, ADR-010 by removal of Jito, ADR-014 as active venue by ADR-015)
 - **Proposed:** 0
 - **Deprecated:** 0
