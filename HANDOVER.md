@@ -1,16 +1,16 @@
 # HANDOVER — Delta-Neutral Bot (LP + Jupiter Perps hedge, both sides)
 
-**Last updated:** 2026-07-04 (Session 16)
+**Last updated:** 2026-07-04 (end of Session 16b)
 **Branch:** `feature/hedge-jupiter-perps-pivot` (NOT pushed to a remote — local only)
-**Status:** ⚠️ **BOT DOWN SINCE 2026-07-04T04:33Z — FIX COMMITTED (87e71d1) BUT NOT DEPLOYED.** The
-container on Hetzner `167.233.105.131` is restart-brick-looping (BUG-008: stale persisted
-`running: true`). On-chain right now: LP `HJPZ5EczJ1QMWWCP2PMmrgonh17xXfVJoEfES4a9seAJ` is 100% SOL
-(1.22 SOL, out of range, earning nothing), short 0.531 SOL — net ΔSOL ≈ **+0.69 unhedged**.
-**FIRST ACTION: `pnpm deploy:hetzner`** (auto-mode classifier blocks it; the operator must run/approve
-it). After deploy expect: one LP rebalance (swap ~0.6 SOL→USDC + recenter), then hedge likely in the
-new ±0.25 band. Verify with `pnpm logs:hetzner` that cycles tick and the container stays Up >5 min.
-Session 16 also shipped ADR-018 (band 0.06→0.25, cooldown 120s→600s) — hedge churn was eating ~all
-LP income (see `progress.md` Session 16).
+**Status:** **LIVE AND HEALTHY.** Deployed 2026-07-04 ~11:14Z at `5a56b6f`. The BUG-008 brick-loop
+(bot silently down 04:33→10:45Z) is fixed and verified live; ADR-018 band 0.25 / cooldown 600s
+active (banner-confirmed); LP `93Ze55Pao1jDHbbE5VBBBWoe84ATXA1nHMKs5BeUgrRD` in range; hedge short
+0.531 SOL, netΔ in band with ZERO hedge trades since 04:32 (band absorbs bin noise as designed).
+Wallet janitor closed all 17 legacy dust ATAs on first run (+0.0350436 SOL rent reclaimed).
+**Campaign 2 baseline was ADJUSTED to $369.80143962251805** (operator top-up +0.872936368 SOL at
+10:47:15Z folded into the SOL side — see the baseline note field); verdict still Tuesday Jul 7.
+Watch-fors: `transactions.fee_sol` should populate on the next LP rebalance (BUG-010 fix, deployed
+but not yet exercised); janitor re-runs every 6h (should find 0).
 
 ---
 
