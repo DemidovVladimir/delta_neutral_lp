@@ -1,7 +1,7 @@
 # HANDOVER — Delta-Neutral Bot (LP + Jupiter Perps hedge, both sides)
 
 **Last updated:** 2026-07-04 (end of Session 16b)
-**Branch:** `feature/hedge-jupiter-perps-pivot` (NOT pushed to a remote — local only)
+**Branch:** `feature/hedge-jupiter-perps-pivot` — pushed to `origin` (github.com:DemidovVladimir/delta_neutral_lp) at `3e109b0`, 2026-07-04
 **Status:** **LIVE AND HEALTHY.** Deployed 2026-07-04 ~11:14Z at `5a56b6f`. The BUG-008 brick-loop
 (bot silently down 04:33→10:45Z) is fixed and verified live; ADR-018 band 0.25 / cooldown 600s
 active (banner-confirmed); LP `93Ze55Pao1jDHbbE5VBBBWoe84ATXA1nHMKs5BeUgrRD` in range; hedge short
