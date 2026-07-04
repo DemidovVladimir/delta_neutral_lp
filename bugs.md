@@ -6,6 +6,58 @@
 
 ## Active Bugs
 
+### BUG-008: Stale persisted `running: true` bricked every container restart
+**Status:** Fixed (2026-07-04)
+**Severity:** Critical (bot silently down ~6h with live funds; net Δ drifted to +0.69 SOL unhedged)
+**Reported:** 2026-07-04
+**Related:** BUG-009, ADR-018
+
+**Description:**
+`AutoTuneOrchestrator` persists its whole state to `data/auto-tune-state.json`,
+including the runtime flag `running`. A process that dies without `stop()`
+leaves `running: true` on disk. On the next boot `start()` saw the stale flag,
+logged `Auto-tune loop already running`, and returned WITHOUT scheduling the
+interval. The CLI's keep-alive (`await new Promise(() => {})`) holds no event
+loop handle, so with no interval the process drained its sockets and exited
+cleanly (code 0) ~60s later. Docker (`restart: unless-stopped`) restarted it,
+and the cycle repeated forever — 345 "restarts" between 2026-07-04T04:33Z and
+~10:40Z, each logging "✅ Auto-tune loop started successfully" while doing
+nothing. Meanwhile the LP drifted to 100% SOL (out of range, earning nothing)
+against a 0.531 SOL short.
+
+**Fix:**
+1. Constructor resets `savedState.running = false` on load (a runtime flag can
+   never be validly true at boot).
+2. `start()` now guards on `this.intervalHandle` (a real double-start within
+   this process), not the persisted flag.
+
+**Lesson:** exit code 0 + "started successfully" in logs is not liveness. The
+DB/log silence (last pnl.db row 03:41Z, WAL only) was the actual signal.
+
+---
+
+### BUG-009: No re-entrancy guard on `runCheckCycle` — overlapping cycles race
+**Status:** Fixed (guard added 2026-07-04); original crash cause still unknown
+**Severity:** Medium (races observed live; suspected contributor to the 04:33Z death)
+**Reported:** 2026-07-04
+**Related:** BUG-008
+
+**Description:**
+`setInterval` fires every `AUTO_TUNE_CHECK_INTERVAL_MS` (15s) regardless of
+whether the previous cycle is still awaiting — an LP rebalance takes 10–26s,
+so a new cycle regularly started mid-rebalance. Observed live at
+2026-07-04T04:32:46–04:33:06Z: cycle 4141 started while cycle 4140's rebalance
+was in flight; the overlapped discovery saw "No positions found on blockchain"
+one second after the position was created, cleared the tracked mints, then
+re-discovered. Within ~15s of that interleaving the process died silently
+(no error logged; no OOM in dmesg; exit code unrecoverable), which armed
+BUG-008. Fixed with a `cycleInFlight` boolean + try/finally skip-tick guard.
+The root cause of the original silent death remains unconfirmed — if it
+recurs, the restart now self-heals (BUG-008 fix) and the skipped-tick log
+line will make overlap visible.
+
+---
+
 ### BUG-003: Drift protocol down post-exploit — write instructions rejected on-chain
 **Status:** Won't Fix (external) — pivoted away
 **Severity:** Critical (blocked the hedge)

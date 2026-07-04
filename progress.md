@@ -5,6 +5,30 @@
 
 ---
 
+## 2026-07-04
+
+### Session 16 — Срез #1 + fee audit → found the bot bricked 6h (BUG-008), hedge churn eating LP income (ADR-018)
+
+**Goal (operator):** run the Campaign 2 срез, then audit where fees leak (hedge? pools?) and optimize.
+
+**Срез #1 (12:09 local, 13.7h window, aprMeaningful=false):** verdict **beats-sol-only** — strategy $296.35 (−$1.43 vs baseline $297.78), SOL $82.50→$81.73; vs HODL-SOL **+$1.35**, vs HODL-as-is **+$0.29** (fees − IL − carry − costs already positive), vs HODL-USDC −$1.43.
+
+**Fee audit (Hetzner pnl.db + on-chain sample, 2026-07-03T20:26Z→04:33Z):**
+- **Hedge churn = the dominant cost.** 141 live mutations in 7.25h (71 increase_short / 70 decrease_short, avg ~$10, $1,438 notional churned ≈ 26× avg hedge size). At Jupiter ~6bps/mutation ≈ $0.86 ≈ $2.9/day — vs $1.43 LP fees earned (≈$4.2/day gross). Root cause: `DELTA_THRESHOLD_SOL=0.06` ≈ exactly 1 bin of LP delta (20 bins × 4bps pool → 0.061 SOL/bin) → traded on every bin tick, cooldown 120s the only brake.
+- LP rebalances: 13 in 7h (~30min range lifetime at 0.8% width) but cheap (~$0.01–0.07 each; rent refundable; only 2 swaps, impact 0.02–0.03%).
+- Network fees negligible: wallet-paid avg 5,664 lamports/tx, ~0.001 SOL total. 673 signatures touched the wallet, 323 failed — all keeper-paid, zero cost to us.
+- Pool params confirmed: bin step 4, base fee 0.04%, protocol fee 10%.
+
+**Incident found mid-audit:** pnl.db silent after 03:41Z → container `delta-neutral-bot` in a restart brick-loop since 04:33Z (345 restarts, exit 0, "started successfully" every minute, doing nothing). **BUG-008:** persisted `running: true` + stale-flag guard in `start()` + CLI keep-alive promise holding no event-loop handle. **BUG-009:** no re-entrancy guard on `runCheckCycle` — cycle 4141 overlapped 4140's 16s rebalance right before the silent death (cause unconfirmed, no OOM). While bricked: LP drifted to 100% SOL out of range, netΔ +0.69 SOL unhedged vs short 0.531 SOL.
+
+**Fixes (code):** constructor resets stale `running` flag; `start()` guards on `intervalHandle`; `cycleInFlight` try/finally guard skips overlapping ticks; `HEDGE_COOLDOWN_MS` code default 120s→600s.
+
+**Fixes (config, ADR-018):** `DELTA_THRESHOLD_SOL` 0.06 → **0.25** (≈4 bins ≈16bps — band must be ≥3–4 bins of LP delta, the old "~10% of exposure" guidance trades on bin noise); `HEDGE_COOLDOWN_MS` 120s → **600s** (fill safety needs 2 min; the rest is churn throttle, ≤6 trades/h). Expected: turnover ↓8–10×, ~$2+/day saved; residual ±0.25 SOL unhedged is EV≈0 variance (~±$0.3/day noise).
+
+**Gotchas for next time:** copy `pnl.db-wal` together with `pnl.db` (better-sqlite3 WAL held 03:41→04:33 rows; the bare .db looked silent); container name is `delta-neutral-bot` not `delta-bot`; prod `.env` dumps over ssh are permission-blocked — local `.env` is the deploy source of truth anyway.
+
+---
+
 ## 2026-07-03
 
 ### Session 15b — Campaign 2: resize to ~$100 working capital + experiment instrumentation

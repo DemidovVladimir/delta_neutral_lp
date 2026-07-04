@@ -286,7 +286,9 @@ function loadConfigFromEnv(): BotConfig {
   const hedgeEnabled = parseEnvBoolean('HEDGE_ENABLED', false);
   const hedgeDryRun = parseEnvBoolean('HEDGE_DRY_RUN', true);
   const hedgeTargetDeltaSol = parseEnvNumber('HEDGE_TARGET_DELTA_SOL', 0);
-  const hedgeCooldownMs = parseEnvNumber('HEDGE_COOLDOWN_MS', 120_000);
+  // Default 10 min: fill safety needs only ~2 min, but the cooldown doubles
+  // as the hedge-churn throttle (ADR-018).
+  const hedgeCooldownMs = parseEnvNumber('HEDGE_COOLDOWN_MS', 600_000);
   const deltaThresholdSol = parseEnvNumber('DELTA_THRESHOLD_SOL', 2);
   const minCollateralRatio = parseEnvNumber('MIN_COLLATERAL_RATIO', 0.15);
   // Renamed from MAX_SHORT_NOTIONAL_USD when the hedge gained the long side;

@@ -1534,6 +1534,62 @@ Meteora LPing with flexible perps shorts **or** longs, and a Hetzner launch.
 
 ---
 
+## ADR-018: Hedge band sized to LP bin granularity + cooldown as churn throttle
+
+**Date:** 2026-07-04
+**Status:** Accepted
+
+### Context
+
+Campaign 2's first ~7 live hours (2026-07-03T20:26Z → 04:33Z) exposed the cost
+structure of a tight hedge band on a narrow DLMM range. The LP pool
+(`5rCf1DM8LjKTw4YqhnoLcngyZYeNnQqztScTogYHAS6`, bin step 4 = 0.04%/bin, base
+fee 0.04%) with `AUTO_TUNE_BIN_COUNT=20` gives a total range of ~0.8%. LP SOL
+exposure therefore moves ~1/20 of the position — ~0.061 SOL on ~$100 — on
+EVERY 1-bin (4bps) price tick, oscillating 0.33↔1.1 SOL within minutes.
+
+With `DELTA_THRESHOLD_SOL=0.06` (≈ exactly one bin) and
+`HEDGE_COOLDOWN_MS=120000`, the controller traded nearly every cooldown
+window: **141 live mutations in 7.25h** (71 increase_short / 70
+decrease_short, avg ~$10), churning **$1,438 notional** — ~26× the average
+hedge size. At Jupiter's ~6bps increase/decrease fee that is ~**$0.86 paid to
+churn** (≈ $2.9/day) vs ~$1.43 LP fees earned in the same window (≈ $4.2/day
+gross). The churn also systematically realizes bin-composition noise
+(increase short after price falls, decrease after it reverts = sell low / buy
+back high), locking in mean-reverting IL that would otherwise revert.
+Network fees are irrelevant by comparison (avg 5,664 lamports/tx wallet-paid,
+~0.001 SOL total).
+
+### Decision
+
+1. **Band must be ≥3–4 bins' worth of LP delta**, not "~10% of LP exposure"
+   (the old guidance — which on a 20-bin range equals ~1.6 bins and trades on
+   noise). Campaign 2: `DELTA_THRESHOLD_SOL` 0.06 → **0.25** (≈4 bins ≈16bps).
+2. **`HEDGE_COOLDOWN_MS` 120s → 600s** (code default likewise): keeper-fill
+   safety needs only ~2 min; the other 8 min are a deliberate churn cap
+   (≤6 mutations/h even when the band is crossed repeatedly).
+
+### Consequences
+
+- Expected hedge turnover cut ~8–10×, saving ~$2+/day on $100 working capital
+  — roughly the entire prior gap between gross LP fees and net edge.
+- Residual unhedged delta can now reach ±0.25 SOL (~$20). That is variance,
+  not drift: EV ≈ 0, daily PnL noise ~±$0.3 at 3% SOL vol. Acceptable for the
+  experiment; revisit proportionally when capital scales.
+- Follow-up idea (not implemented): hedge the RANGE MIDPOINT (constant per
+  position, = deposit SOL) and readjust only on LP recenters — eliminates
+  intra-range churn entirely at the cost of carrying the LP's full gamma
+  between recenters. Same trade-off, different point on the curve.
+
+### References
+
+- Data: Hetzner `pnl.db` `hedge_actions`/`rebalances`/`swaps`
+  2026-07-03T20:26Z→04:33Z; on-chain fee sample (673 sigs, 135 sampled)
+- `bugs.md` BUG-008/BUG-009 (found during the same audit), `progress.md`
+  2026-07-04
+
+---
+
 ## Decision Index
 
 - ADR-001: Use solana-agent-kit for Transaction Execution *(superseded — direct @solana/web3.js)*
@@ -1553,12 +1609,13 @@ Meteora LPing with flexible perps shorts **or** longs, and a Hetzner launch.
 - ADR-015: Pivot Hedge Venue from Drift to Jupiter Perpetuals — new (Accepted)
 - ADR-016: Hedge sizing/economics policy (3× leverage, 50% carry cap) + pool analytics on-chain (Accepted)
 - ADR-017: Simplification + both-sides target-delta hedge + Hetzner deploy (Accepted)
+- ADR-018: Hedge band sized to LP bin granularity + cooldown as churn throttle (Accepted)
 
 ---
 
 ## Decision Status
 
-- **Accepted:** 14 (incl. ADR-017 — simplification, both-sides hedge, Hetzner)
+- **Accepted:** 15 (incl. ADR-018 — band ≥3–4 bins, cooldown 600s)
 - **Superseded:** 3 (ADR-001 by direct web3.js, ADR-010 by removal of Jito, ADR-014 as active venue by ADR-015)
 - **Proposed:** 0
 - **Deprecated:** 0

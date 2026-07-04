@@ -120,6 +120,12 @@ export class AutoTuneOrchestrator {
 
     // Load saved state or initialize new state
     const savedState = loadAutoTuneState();
+    if (savedState) {
+      // `running` is a runtime flag. A process that died without stop() leaves
+      // it persisted as true, which made start() bail on every subsequent boot
+      // (BUG-008: container restart-looped for hours doing nothing).
+      savedState.running = false;
+    }
     this.state = savedState || {
       iteration: 0,
       running: false,
@@ -163,7 +169,9 @@ export class AutoTuneOrchestrator {
       throw new Error('Auto-tune is not enabled. Set AUTO_TUNE_ENABLED=true in .env');
     }
 
-    if (this.state.running) {
+    // Guard on the actual interval handle, not the persisted flag: only a
+    // second start() within THIS process is a real double-start (BUG-008).
+    if (this.intervalHandle) {
       log.warn('Auto-tune loop already running');
       return;
     }
@@ -309,9 +317,27 @@ export class AutoTuneOrchestrator {
   }
 
   /**
-   * Run a single check cycle
+   * Run a single check cycle. Guarded against overlap: setInterval keeps
+   * firing while a long rebalance is still awaiting, and overlapping cycles
+   * race on position discovery and shared state (BUG-009, seen live at
+   * 2026-07-04T04:33Z). A tick that arrives mid-cycle is skipped.
    */
+  private cycleInFlight = false;
+
   private async runCheckCycle(): Promise<void> {
+    if (this.cycleInFlight) {
+      log.info('⏭️  Skipping check cycle — previous cycle still in flight');
+      return;
+    }
+    this.cycleInFlight = true;
+    try {
+      await this.runCheckCycleInner();
+    } finally {
+      this.cycleInFlight = false;
+    }
+  }
+
+  private async runCheckCycleInner(): Promise<void> {
     const startTime = Date.now();
     this.state.iteration++;
     this.state.lastCheck = startTime;
