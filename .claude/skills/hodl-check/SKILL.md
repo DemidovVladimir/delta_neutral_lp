@@ -65,3 +65,12 @@ there is no baseline:
   subtracted from equity; don't double-count them as a future cost.
 - Answer the user in Russian; keep report numbers in USD/SOL as printed.
   Always show wallet addresses and identifiers in full, never abbreviated.
+
+## After every срез: run the strategy analyzer
+
+Once the срез is reported, invoke the `strategy-analyzer` project skill
+(operator standing order, 2026-07-04): it re-verifies liveness, the fee
+ledger, and parameter invariants against fresh pnl.db + on-chain data, and
+either confirms the current strategy or proposes a change for the operator
+to approve/reject. Skip only if the operator explicitly asked for the срез
+number alone.

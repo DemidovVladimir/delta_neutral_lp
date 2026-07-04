@@ -1,0 +1,100 @@
+---
+name: strategy-analyzer
+description: Audit the live delta-neutral strategy after every срез (hodl-check run) — verify liveness, fee economics, and parameter sanity against fresh pnl.db + on-chain data, then keep-or-propose a strategy change. Never applies changes without explicit operator approval. Use right after hodl-check, or when the user asks "проверь стратегию", "что оптимизировать", whether current parameters are still right, or where fees are leaking.
+---
+
+# Strategy Analyzer — is the CURRENT strategy still the right one?
+
+Runs after every срез. hodl-check answers "are we beating HODL"; this skill
+answers "is the machine converting LP fees into net edge efficiently, and
+should any lever move?" Output: a keep/change verdict with numbers. Any
+change requires explicit operator approval (AskUserQuestion) — «если захотим
+заапрувим, а нет так нет».
+
+## Step 1 — Gather (all read-only)
+
+```bash
+pnpm hodl --json                     # срез (usually just ran via hodl-check)
+pnpm dashboard --json                # net delta, band, carry, collateral, liq price
+# Server pnl.db — ALWAYS copy the WAL too, hours of rows can live only there:
+bash -c 'source deploy/hetzner/lib.sh; scp "${ssh_args[@]}" \
+  "${HETZNER_USER}@${HETZNER_HOST}:/opt/delta-bot/data/pnl.db" \
+  "${HETZNER_USER}@${HETZNER_HOST}:/opt/delta-bot/data/pnl.db-wal" <scratchpad>/'
+# Campaign history (filter rows by baselineCapturedAt):
+bash -c 'source deploy/hetzner/lib.sh; remote "cat /opt/delta-bot/data/hodl-history.jsonl"'
+# LIVE params — trust the container banner, not the local .env:
+bash -c 'source deploy/hetzner/lib.sh; remote "docker logs delta-neutral-bot 2>&1 | grep -m1 -A8 \"HEDGE IS LIVE\""'
+```
+
+Pool constants for the current pool `5rCf1DM8LjKTw4YqhnoLcngyZYeNnQqztScTogYHAS6`:
+bin step 4 (0.04%/bin), base fee 0.04%, protocol fee 10%. Re-fetch via the
+DLMM SDK (`pool.getFeeInfo()`, `pool.lbPair.binStep`) if the pool ever changes.
+
+## Step 2 — Liveness (BUG-008 lesson: logs lie, data doesn't)
+
+- Container `delta-neutral-bot` Up, RestartCount not climbing.
+- `hedge_actions`/`position_snapshots` MAX(taken_at) is recent; `pnl.db`
+  advancing. Silence with a "✅ started successfully" log is the brick-loop
+  signature.
+- `data/hodl-cron.err` on the server holds only the benign bigint warning;
+  history rows appear daily (00:17 UTC).
+
+## Step 3 — Fee & flow ledger since the last review (normalize to $/day)
+
+From pnl.db (window = since previous analyzer run or campaign baseline):
+
+| Metric | Source | Red line |
+|---|---|---|
+| LP fees earned | `rebalances.claimed_fees_*` + state `totalClaimedFees` | — |
+| Hedge churn | `hedge_actions`: count, Σ`size_usd`; fee ≈ Σ×6bps | churn fees > 25% of LP fees |
+| Hedge flapping | alternating increase/decrease pairs share | > 30% of actions |
+| LP rebalances/day | `rebalances` count | outside 2–40 |
+| Swap cost | `swaps`: Σ input × (impact + ~5bps Ultra) | > 10% of LP fees |
+| Network fees | `transactions.fee_sol` (populated since BUG-010 fix) | > $0.5/day |
+| Carry | dashboard `carryRateBps` × notional | APR beyond `HEDGE_CARRY_CAP_BPS` |
+| **External flows** | on-chain SOL/USDC deltas from txs whose fee payer is NOT the wallet or the known operator wallet `F7p3dFrjRTbtRp8FRF6qHLomXbKRBzpvBLjtQcfcgmNe` — and operator top-ups too | ANY unexplained transfer |
+
+External flows found → flag baseline distortion loudly (см. «Baseline
+adjustments» ниже) — a deposit shows up as fake strategy profit.
+
+## Step 4 — Parameter invariants (ADR-018 and friends)
+
+- `DELTA_THRESHOLD_SOL ≥ 3 × (maxLpSol / binCount)` — smaller trades on
+  per-bin composition noise (sell low / buy back high, systematically).
+- `HEDGE_COOLDOWN_MS ≥ 600000` — the cooldown is the churn throttle.
+- netΔ within band in ≥95% of hodl-history / snapshot samples.
+- Projected collateral ratio ≥ `MIN_COLLATERAL_RATIO` + 0.1; liquidation
+  price ≥ 1.3 × spot.
+- LP range width (binCount × binStep) vs realized rebalance cadence: <2
+  rebalances/day → range wastefully wide; >40/day → too narrow.
+
+## Step 5 — Verdict and proposal
+
+1. **Все инварианты в норме** → «стратегия подтверждена, менять нечего» +
+   the $/day ledger. Done.
+2. **Что-то красное** → draft ONE concrete proposal (the dominant lever
+   first): current value → proposed value, expected $/day impact (from the
+   measured ledger, not vibes), risk, rollback. Candidate levers, in usual
+   order of dominance: hedge band / cooldown → pool choice (bin step & base
+   fee via `pnpm find-pools`) → `AUTO_TUNE_BIN_COUNT` / imbalance threshold →
+   collateral ratio → deposit size.
+3. Present via AskUserQuestion (approve / reject / modify). **NEVER edit
+   .env, redeploy, or touch the baseline without the approval.** Deploy needs
+   the operator anyway (auto-mode blocks `pnpm deploy:hetzner`).
+4. After an approved change: deploy, verify the new banner values +
+   container Up ≥5 min + first cycles in band, then log one line in
+   `progress.md` (date, verdict, what changed / what was rejected).
+
+## Baseline adjustments (external flows)
+
+If the operator deposited/withdrew mid-campaign, offer (do not auto-pick):
+- adjust the baseline side amounts by exactly the flow (keeps history rows
+  comparable; note it in the baseline's `note`),
+- or re-init the baseline (kills cross-campaign comparability),
+- or ignore (verdict stays polluted by the flow amount — say by how much).
+
+## Reporting
+
+Russian, numbers verbatim, addresses/signatures ALWAYS in full. Lead with
+the verdict («стратегия ок» / «предлагаю изменение X»), then the ledger
+table, then details. APRs from windows <3 days are noise — say so.

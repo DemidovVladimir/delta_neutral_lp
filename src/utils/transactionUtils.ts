@@ -149,6 +149,27 @@ export async function getBatchTransactionFees(
 }
 
 /**
+ * Map a tracker operation label to a pnl.db transactions.kind. Only matters
+ * on the rare insert-first race — normally the orchestrator has already
+ * inserted the row with the right kind and recordTransaction just updates
+ * the fee columns.
+ */
+function operationToTxKind(
+  operation: string
+): 'create_position' | 'withdraw_claim_close' | 'swap' | 'claim_fees' | 'other' {
+  switch (operation) {
+    case 'createPosition':
+      return 'create_position';
+    case 'withdrawClaimClose':
+      return 'withdraw_claim_close';
+    case 'swap':
+      return 'swap';
+    default:
+      return 'other';
+  }
+}
+
+/**
  * Track transaction fee and save to state
  * This is a convenience wrapper that fetches fees and saves to persistence layer
  *
@@ -179,6 +200,18 @@ export async function trackTransactionFee(
 
     // Save to state
     addTransactionFee(signature, feeDetails.feeSol, feeUsd, operation);
+
+    // Also backfill pnl.db (BUG-010): the orchestrator inserts the
+    // transactions row before the fee is known; recordTransaction is
+    // idempotent on signature and COALESCE-updates the fee fields.
+    const { recordTransaction } = await import('../modules/pnlDb.js');
+    recordTransaction({
+      signature,
+      kind: operationToTxKind(operation),
+      feeLamports: feeDetails.feeLamports,
+      feeSol: feeDetails.feeSol,
+      feeUsd,
+    });
 
     // Log the fee
     log.info(`💰 ${operation} fee tracked`, {
@@ -223,11 +256,20 @@ export async function trackBatchTransactionFees(
 
     // Import persistence module dynamically to avoid circular dependencies
     const { addTransactionFee } = await import('../modules/persistence.js');
+    const { recordTransaction } = await import('../modules/pnlDb.js');
 
     // Save to state (aggregate multiple signatures under one operation)
     for (const detail of batchFees.breakdown) {
       const feeUsd = detail.feeSol * solPrice;
       addTransactionFee(detail.signature, detail.feeSol, feeUsd, operation);
+      // Backfill pnl.db fee columns too (BUG-010, see trackTransactionFee)
+      recordTransaction({
+        signature: detail.signature,
+        kind: operationToTxKind(operation),
+        feeLamports: detail.feeLamports,
+        feeSol: detail.feeSol,
+        feeUsd,
+      });
     }
 
     // Log summary

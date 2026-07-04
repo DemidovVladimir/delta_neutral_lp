@@ -6,6 +6,27 @@
 
 ## Active Bugs
 
+### BUG-010: Network fees never persisted to pnl.db — `pnpm pnl` reported $0 network costs
+**Status:** Fixed (2026-07-04)
+**Severity:** Low (reporting only; ~$0.10 understated so far, no funds lost)
+**Reported:** 2026-07-04
+
+**Description:**
+`trackTransactionFee` / `trackBatchTransactionFees` fetched the real fee from
+chain and saved it to `state.json` (`addTransactionFee`), but never into
+`pnl.db`. The orchestrator inserts `transactions` rows BEFORE the fee is
+known, so `fee_lamports/fee_sol/fee_usd` stayed NULL forever and every
+`SUM(fee_sol)` in the PnL report returned 0. `recordTransaction` even had an
+idempotent COALESCE-update path built for exactly this backfill ("may
+complete after the orchestrator has already inserted the row") — it was just
+never called from the tracker.
+
+**Fix:** the trackers now also call `recordTransaction` with the fetched fee
+(signature-idempotent update; `operationToTxKind` maps the label on the rare
+insert-first race). Historical rows stay NULL — only ~34 rows / ~$0.10.
+
+---
+
 ### BUG-008: Stale persisted `running: true` bricked every container restart
 **Status:** Fixed (2026-07-04)
 **Severity:** Critical (bot silently down ~6h with live funds; net Δ drifted to +0.69 SOL unhedged)

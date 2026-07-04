@@ -27,6 +27,20 @@
 
 **Gotchas for next time:** copy `pnl.db-wal` together with `pnl.db` (better-sqlite3 WAL held 03:41→04:33 rows; the bare .db looked silent); container name is `delta-neutral-bot` not `delta-bot`; prod `.env` dumps over ssh are permission-blocked — local `.env` is the deploy source of truth anyway.
 
+### Session 16b — deploy + full-precision re-audit + strategy-analyzer skill
+
+**Deployed** (operator: «задеплой сам»): fix live at 10:44:52Z, `STRATEGY_VERSION=f60bfc4`. First cycle closed the stranded 100%-SOL position `HJPZ5EczJ1QMWWCP2PMmrgonh17xXfVJoEfES4a9seAJ` (claimed 0.0019 SOL + $0.14) and created `93Ze55Pao1jDHbbE5VBBBWoe84ATXA1nHMKs5BeUgrRD` ($81.21–$81.83) with NO swap (free wallet USDC covered it). Banner confirms bandSol 0.25 live; netΔ then swung +0.14 → −0.056 → +0.01 with ZERO hedge trades — the new band absorbs bin noise exactly as intended.
+
+**Re-audit results (WAL-complete data):** campaign hedge churn final tally 159 mutations / $1,627 (through 04:32); pnl.db integrity confirmed (all positions incl. the WAL-only HJPZ row); crontab + hodl-history healthy; RestartCount=0; no OOM. On-chain balance trace reconciles to the lamport: Jupiter position-request rent (0.0051 SOL/TX1) refunded by keeper every time, LP position rent (0.0577) refunded on close — **no rent leaks; true cost per hedge mutation = 5,000 lamports + 6bps Jupiter fee**.
+
+**Found & fixed BUG-010:** network fees were saved to state.json but never into pnl.db (`fee_sol` NULL on all 34 rows → `pnpm pnl` showed $0 network costs). Trackers now backfill via `recordTransaction`'s idempotent update path.
+
+**Wallet hygiene:** no stray wSOL; **17 empty legacy token ATAs hold ~0.0355 SOL (~$2.90) reclaimable rent** — `close-empty-atas.tmp.ts` ready at repo root, needs operator to run (auto-mode blocks wallet mutations).
+
+**⚠️ Baseline distortion:** operator top-up **+0.872936368 SOL** at 10:47:15Z from own hot wallet `F7p3dFrjRTbtRp8FRF6qHLomXbKRBzpvBLjtQcfcgmNe`, tx `U77gZk9seBLzxn221Enun5gDL41tyZxdfpaBEs5aokGctbC2A8wchJAXsDytBWMSnikR7DbReoSSs2tV7Db7tfx` — inflates equity vs the $297.78 baseline by ~$71; must be adjusted before the Tuesday verdict (options given to operator).
+
+**New skill:** `.claude/skills/strategy-analyzer` — runs after every срез: liveness (data-based, not log-based), $/day fee ledger with red lines, ADR-018 invariants, external-flow detection; proposes parameter changes ONLY via operator approve/reject. `hodl-check` SKILL.md now chains into it.
+
 ---
 
 ## 2026-07-03
