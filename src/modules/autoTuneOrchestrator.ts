@@ -60,6 +60,7 @@ import { planSwapForDeposit, type SwapPlan } from './swapPlanner.js';
 import { getConfig } from '../config/env.js';
 import { log } from '../utils/logger.js';
 import { getConnection, getWalletKeypair } from '../utils/solana.js';
+import { closeEmptyTokenAccounts } from './walletJanitor.js';
 import { DLMM } from '../utils/dlmm.js';
 import { DECIMALS } from '../config/constants.js';
 import { getSolPrice } from '../core/priceOracle.js';
@@ -332,9 +333,27 @@ export class AutoTuneOrchestrator {
     this.cycleInFlight = true;
     try {
       await this.runCheckCycleInner();
+      await this.maybeRunJanitor();
     } finally {
       this.cycleInFlight = false;
     }
+  }
+
+  /**
+   * Wallet hygiene (operator standing order 2026-07-04): reclaim rent from
+   * empty legacy token accounts — at startup and every 6h after. Protected
+   * mints (wSOL/USDC) are excluded inside the janitor; failures never touch
+   * the trading loop.
+   */
+  private lastJanitorRunMs = 0;
+  private static readonly JANITOR_INTERVAL_MS = 6 * 60 * 60 * 1000;
+
+  private async maybeRunJanitor(): Promise<void> {
+    if (!this.config.walletJanitorEnabled) return;
+    const now = Date.now();
+    if (now - this.lastJanitorRunMs < AutoTuneOrchestrator.JANITOR_INTERVAL_MS) return;
+    this.lastJanitorRunMs = now;
+    await closeEmptyTokenAccounts(getConnection(), getWalletKeypair(), false);
   }
 
   private async runCheckCycleInner(): Promise<void> {

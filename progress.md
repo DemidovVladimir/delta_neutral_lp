@@ -41,6 +41,10 @@
 
 **New skill:** `.claude/skills/strategy-analyzer` — runs after every срез: liveness (data-based, not log-based), $/day fee ledger with red lines, ADR-018 invariants, external-flow detection; proposes parameter changes ONLY via operator approve/reject. `hodl-check` SKILL.md now chains into it.
 
+**Operator decisions (approved):** (1) baseline adjusted for the top-up: solSideAmount 2.237812341 → 3.110748709, totalUsd $297.78 → $369.80143962251805 (note field documents the tx + ~$0.8 valuation imprecision); local + server copies updated; post-adjust `pnpm hodl`: equity $367.47, −$2.33, HODL-as-is edge +$0.52, beats-sol-only. (2) Deploy BUG-010 + close the 17 empty ATAs.
+
+**Wallet janitor (operator: «закрытие аккаунтов должно происходить автоматом»):** new `src/modules/walletJanitor.ts` — at startup and every 6h the loop closes zero-balance token accounts and reclaims rent (~0.0355 SOL pending from 17 legacy dust ATAs that PREDATE the bot — it never created them, hence never closed them). Protected mints never touched: wSOL (must outlive keeper fills) and USDC. Pure filter unit-tested (6 tests, 78 total); `WALLET_JANITOR_ENABLED` (default true); fail-safe — janitor errors can't hurt the loop.
+
 ---
 
 ## 2026-07-03
