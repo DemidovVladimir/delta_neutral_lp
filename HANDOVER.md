@@ -1,8 +1,16 @@
 # HANDOVER — Delta-Neutral Bot (LP + Jupiter Perps hedge, both sides)
 
-**Last updated:** 2026-07-03 (end of Session 14, session closing)
-**Branch:** `feature/hedge-jupiter-perps-pivot` (12 commits ahead of the last pre-session commit; NOT pushed to a remote — local only)
-**Status:** **LIVE IN PRODUCTION.** The bot is running delta-neutral with real funds (~$30) on Hetzner `167.233.105.131` — real Meteora LP position + real Jupiter Perps short, net ΔSOL in band. Next session starts at "Next-session checklist" below.
+**Last updated:** 2026-07-04 (Session 16)
+**Branch:** `feature/hedge-jupiter-perps-pivot` (NOT pushed to a remote — local only)
+**Status:** ⚠️ **BOT DOWN SINCE 2026-07-04T04:33Z — FIX COMMITTED (87e71d1) BUT NOT DEPLOYED.** The
+container on Hetzner `167.233.105.131` is restart-brick-looping (BUG-008: stale persisted
+`running: true`). On-chain right now: LP `HJPZ5EczJ1QMWWCP2PMmrgonh17xXfVJoEfES4a9seAJ` is 100% SOL
+(1.22 SOL, out of range, earning nothing), short 0.531 SOL — net ΔSOL ≈ **+0.69 unhedged**.
+**FIRST ACTION: `pnpm deploy:hetzner`** (auto-mode classifier blocks it; the operator must run/approve
+it). After deploy expect: one LP rebalance (swap ~0.6 SOL→USDC + recenter), then hedge likely in the
+new ±0.25 band. Verify with `pnpm logs:hetzner` that cycles tick and the container stays Up >5 min.
+Session 16 also shipped ADR-018 (band 0.06→0.25, cooldown 120s→600s) — hedge churn was eating ~all
+LP income (see `progress.md` Session 16).
 
 ---
 
