@@ -7,6 +7,19 @@
 
 ## 2026-07-05
 
+### Session 17d — срез #4 + first live validation of the range-geometry tool (found & fixed a skill-engine bug)
+
+**Срез #4 (~13:57Z):** beats-sol-only — equity 369.11 USD (−3.58), vs HODL-SOL +2.55, vs HODL-as-is +0.69. Interpretation note recorded: the as-is edge breathes ±0.5 USD per 30¢ SOL move because ~1.29 idle wallet SOL is unhedged BY DESIGN (hedge covers LP only) — short-horizon edge wiggles are the idle-wallet delta, not strategy performance; judge the strategy by the decomposition.
+
+**Tool validation (operator asked "насколько правильно он работает"):**
+1. Deployed `pnpm pnl` runs server-side against the live db — buckets print correctly (16/42/17).
+2. Independent SQL cross-check (strftime-based, different query form) reproduced the `<15min` bucket exactly: n=16, fees 0.34 USD, IL −0.82 USD.
+3. Scaling-law sanity holds on fresh data: avg IL/closed position −0.0805 USD (n=54) vs V×w/8 = 0.10 USD theoretical.
+4. **BUG found by the test itself:** `$<digit>` in SKILL.md is a positional-arg placeholder for the skill engine — every dollar amount in the analyzer skill was silently replaced by invocation words at render time («−$1.16» → «−прогон.16»); earlier renders were also corrupted («> декомпозиция.5/day») and went unnoticed. Fixed: all money rewritten as `N USD`; `rg '\$[0-9]'` clean; hodl-check skill unaffected. **Lesson: never put `$<digit>` literals in SKILL.md files.**
+5. Known limitation (documented, not fixed): the CLI bucket section is all-time (74 positions incl. pre-campaign era); `getPositionLifetimeBuckets(sinceIso)` supports windows but `pnpm pnl` has no `--since` flag yet. Pattern is robust across both windows (campaign-only: 9/29/15 with same ratio shape).
+
+**Analyzer ledger (1h since last review):** hedge 0 actions, 2 recenters, +0.14 USD fees, liveness green. Strategy confirmed, no proposals.
+
 ### Session 17c — range-geometry check formalized as an analyzer tool
 
 Operator asked whether to keep the narrow 20-bin spot or go wider with curve/bidask. Analysis (scaling laws + live data): fees/day ∝ 1/width; IL(gamma)/day is width-independent (avg IL per closed position −$0.081 ≈ theoretical V×w/8 = $0.10 ✓) → 2× widening = −$1.16/day fees for +$0.27/day savings ≈ −$0.94/day, rejected. Curve = narrower-spot emulation with dead tails (more recenters); BidAsk = thinnest liquidity exactly at our recenter point — both anti-fit for the auto-recenter + midpoint-hedge loop. **Formalized as the "Range-geometry check" tool in strategy-analyzer** + `getPositionLifetimeBuckets()` in pnlDb + "POSITION LIFETIME BUCKETS" section in `pnpm pnl`. All-time buckets: <15min fees/|IL| 0.42 (net −$0.48, the trend tax), 15-45min 1.02, >45min 0.99 — dampener remains the post-verdict candidate.
