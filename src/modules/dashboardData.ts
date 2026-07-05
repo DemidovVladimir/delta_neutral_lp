@@ -16,7 +16,7 @@ import { Connection, PublicKey } from '@solana/web3.js';
 import { getAssociatedTokenAddress } from '@solana/spl-token';
 import { getSolPrice } from '../core/priceOracle.js';
 import { getConfig } from '../config/env.js';
-import { computeLpMidpointSol } from './hedgeController.js';
+import { computeLpHedgeDelta } from './hedgeController.js';
 import type { MeteoraAdapter } from './meteoraAdapter.js';
 import type { JupiterPerpsEngine } from './jupiterPerpsEngine.js';
 
@@ -180,11 +180,18 @@ export async function collectSnapshot(sources: SnapshotSources): Promise<Dashboa
   // controller is perfectly in band. `lpSolLive` is kept alongside so the
   // operator still sees the raw composition.
   const lpSolLive = lp.available ? lp.solAmount : 0;
+  // One-shot snapshot has no sticky regime — the fresh-entry thresholds are
+  // close enough for display; the orchestrator's log line is authoritative
+  // during a storm clamp.
   const lpSolForDelta =
     config.hedgeLpInput === 'midpoint' && lp.available
-      ? computeLpMidpointSol(lp.solAmount, lp.usdcAmount, solUsd)
+      ? computeLpHedgeDelta(lp.solAmount, lp.usdcAmount, solUsd).deltaSol
       : lpSolLive;
-  const netDeltaSol = lpSolForDelta + hedge.perpBaseSol;
+  // ADR-021: idle wallet SOL joins the hedge target when enabled.
+  const idleWalletSol = config.hedgeIncludeWalletSol
+    ? Math.max(0, walletSol - (config.minimumWalletBalanceSol + config.rentReserveSol))
+    : 0;
+  const netDeltaSol = lpSolForDelta + idleWalletSol + hedge.perpBaseSol;
   const shortSol = Math.max(0, -hedge.perpBaseSol);
 
   return {
@@ -194,7 +201,7 @@ export async function collectSnapshot(sources: SnapshotSources): Promise<Dashboa
     lp,
     hedge,
     delta: {
-      lpSol: lpSolForDelta,
+      lpSol: lpSolForDelta + idleWalletSol,
       lpSolLive,
       hedgeLpInput: config.hedgeLpInput,
       shortSol,

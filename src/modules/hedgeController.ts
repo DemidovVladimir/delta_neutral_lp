@@ -220,3 +220,57 @@ export function computeLpMidpointSol(
   if (!(solPriceUsd > 0)) return lpSolAmount; // defensive: fall back to live
   return (lpSolAmount + lpUsdcAmount / solPriceUsd) / 2;
 }
+
+/**
+ * ADR-021 (HOLE-2 fix + storm mode): the TRUE SOL delta of the LP for
+ * hedging. In range → the midpoint approximation (ADR-019). Out of range
+ * BELOW (composition ≈ pure SOL) → the FULL SOL amount: the position has
+ * stopped converting and is a spot SOL bag; hedging half of it leaves real
+ * downside exposure exactly while price falls. Fully shorting the bag is a
+ * synthetic exit to USDC — cheaper than spot-swapping out (6bps perp fee vs
+ * swap spread × 2) and instantly reversible. Out of range ABOVE (pure USDC)
+ * → zero delta.
+ *
+ * Hysteresis: enter the clamp at 98%/2% composition, leave it at 90%/10%
+ * (pass the previous regime via `sticky`) — otherwise price chopping around
+ * a range edge would flip the hedge target by ±half the position every
+ * cooldown window. Enter thresholds sit past the auto-tune trigger (0.92),
+ * so with recentering active the clamp rarely engages; it matters when
+ * rebalancing is paused (storm mode) or failing.
+ */
+export type LpHedgeRegime = 'below' | 'in' | 'above';
+
+export function computeLpHedgeDelta(
+  lpSolAmount: number,
+  lpUsdcAmount: number,
+  solPriceUsd: number,
+  sticky: LpHedgeRegime = 'in'
+): { deltaSol: number; regime: LpHedgeRegime } {
+  if (!(solPriceUsd > 0)) return { deltaSol: lpSolAmount, regime: sticky }; // defensive
+  const solValueUsd = lpSolAmount * solPriceUsd;
+  const totalUsd = solValueUsd + lpUsdcAmount;
+  if (totalUsd <= 0) return { deltaSol: 0, regime: 'in' };
+  const solShare = solValueUsd / totalUsd;
+
+  const enterBelow = 0.98;
+  const exitBelow = 0.9;
+  const enterAbove = 0.02;
+  const exitAbove = 0.1;
+
+  let regime: LpHedgeRegime;
+  if (sticky === 'below') {
+    regime = solShare >= exitBelow ? 'below' : solShare <= enterAbove ? 'above' : 'in';
+  } else if (sticky === 'above') {
+    regime = solShare <= exitAbove ? 'above' : solShare >= enterBelow ? 'below' : 'in';
+  } else {
+    regime = solShare >= enterBelow ? 'below' : solShare <= enterAbove ? 'above' : 'in';
+  }
+
+  const deltaSol =
+    regime === 'below'
+      ? lpSolAmount
+      : regime === 'above'
+        ? 0
+        : computeLpMidpointSol(lpSolAmount, lpUsdcAmount, solPriceUsd);
+  return { deltaSol, regime };
+}

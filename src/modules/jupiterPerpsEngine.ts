@@ -677,7 +677,14 @@ export class JupiterPerpsEngine implements HedgeEngine {
     const longSol = sides.long && price > 0 ? sides.long.notionalUsd / price : 0;
     const shortSol = sides.short && price > 0 ? sides.short.notionalUsd / price : 0;
 
-    const lpSolExposure = lpExposure.solAmount;
+    // ADR-021 full-portfolio neutrality: idle wallet SOL above reserves
+    // joins the hedge target so a drawdown cannot make HODL-USDC beat the
+    // strategy. readSides() already fetched the balance — no extra RPC.
+    // wSOL is deliberately excluded (transient keeper-fill lifecycle).
+    const idleWalletSol = cfg.hedgeIncludeWalletSol
+      ? Math.max(0, sides.walletSol - (cfg.minimumWalletBalanceSol + cfg.rentReserveSol))
+      : 0;
+    const lpSolExposure = lpExposure.solAmount + idleWalletSol;
     const netDeltaSol = lpSolExposure + longSol - shortSol;
     const deltaBefore: DeltaView = {
       lpSolExposure,

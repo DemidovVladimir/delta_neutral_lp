@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeLpMidpointSol, decideHedgeAction, type HedgeDecisionInput } from './hedgeController.js';
+import { computeLpHedgeDelta, computeLpMidpointSol, decideHedgeAction, type HedgeDecisionInput } from './hedgeController.js';
 
 /**
  * Table-driven tests over the pure hedge decision core (ADR-017).
@@ -246,5 +246,39 @@ describe('computeLpMidpointSol (ADR-019)', () => {
   it('non-positive price falls back to the live SOL amount', () => {
     expect(computeLpMidpointSol(0.7, 50, 0)).toBe(0.7);
     expect(computeLpMidpointSol(0.7, 50, NaN)).toBe(0.7);
+  });
+});
+
+describe('computeLpHedgeDelta (ADR-021, HOLE-2 + storm mode)', () => {
+  it('in range → midpoint approximation', () => {
+    const r = computeLpHedgeDelta(0.61, 50.02, 82);
+    expect(r.regime).toBe('in');
+    expect(r.deltaSol).toBeCloseTo(0.61, 2);
+  });
+
+  it('out of range below (pure SOL bag) → FULL SOL amount', () => {
+    const r = computeLpHedgeDelta(1.22, 0, 82);
+    expect(r.regime).toBe('below');
+    expect(r.deltaSol).toBeCloseTo(1.22, 9);
+  });
+
+  it('out of range above (pure USDC) → zero delta', () => {
+    const r = computeLpHedgeDelta(0, 100.04, 82);
+    expect(r.regime).toBe('above');
+    expect(r.deltaSol).toBe(0);
+  });
+
+  it('hysteresis: stays clamped below until composition falls under 90%', () => {
+    // 94% SOL: not enough to ENTER the clamp fresh...
+    expect(computeLpHedgeDelta(1.15, 6, 82, 'in').regime).toBe('in');
+    // ...but keeps an existing clamp (exit threshold is 90%)
+    expect(computeLpHedgeDelta(1.15, 6, 82, 'below').regime).toBe('below');
+    // 85% SOL releases it
+    expect(computeLpHedgeDelta(1.0, 14.5, 82, 'below').regime).toBe('in');
+  });
+
+  it('empty exposure → 0; bad price falls back to live amount', () => {
+    expect(computeLpHedgeDelta(0, 0, 82).deltaSol).toBe(0);
+    expect(computeLpHedgeDelta(0.7, 50, 0).deltaSol).toBe(0.7);
   });
 });

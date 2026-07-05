@@ -85,6 +85,7 @@ Hedge (ADR-017):
 - `MAX_HEDGE_NOTIONAL_USD` (per-side blast-radius cap; legacy `MAX_SHORT_NOTIONAL_USD` still parses)
 - `HEDGE_TARGET_COLLATERAL_RATIO` (1.0 = 1×; ADR-016 runs 0.33 ≈ 3×), `MIN_COLLATERAL_RATIO` (hard floor)
 - `HEDGE_CARRY_CAP_BPS` (refuse increases above this borrow APR), `HEDGE_COOLDOWN_MS` (keeper-fill guard)
+- `HEDGE_INCLUDE_WALLET_SOL` (ADR-021: idle wallet SOL joins the hedge target — full-portfolio neutrality), `LP_VOL_PAUSE_PCT_5M` (ADR-021 storm mode: pause recenters + short the full bag when |5-min move| exceeds it; `pnpm derisk` is the manual red button)
 
 ## Key facts & addresses (verbatim — never abbreviate)
 

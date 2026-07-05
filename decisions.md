@@ -1694,6 +1694,72 @@ be worth testing after the Jul 7 verdict.
 
 ---
 
+## ADR-021: Crash-protection package — full-portfolio neutrality, storm mode, red button
+
+**Date:** 2026-07-05
+**Status:** Accepted (operator approved all three mechanisms + BUG-011 fix deploy)
+
+### Context
+
+Operator drawdown review ("не хочу попасть в просак при просадке SOL").
+Findings: (1) BUG-011 — a failed LP re-creation mid-crash would fully unwind
+the protective short (fixed separately, grace window); (2) HOLE-2 — an
+out-of-range-below position is a pure SOL bag (delta = full lpSol) while the
+midpoint hedge covers only half; (3) the only structural loser vs HODL-USDC
+in a drawdown is idle wallet SOL, not the LP+hedge slice; (4) the operator's
+own instinct — "при падении пул уходит в SOL: надо всё зашортить вместо
+открытия новой позиции" — is exactly right, and shorting the bag is a
+SYNTHETIC exit to USDC: ~6bps perp fee vs swap spread ×2, instantly
+reversible, no market-timing of a spot exit.
+
+An automatic "swap everything to USDC on a sharp drop" was analyzed and
+REJECTED: it is a momentum stop-loss (sell low, re-buy after "stabilization")
+with whipsaw losses on every V-bottom, and untuneable without a backtester.
+
+### Decision — three mechanisms
+
+1. **Full-portfolio neutrality** (`HEDGE_INCLUDE_WALLET_SOL`, default false,
+   prod true): idle wallet SOL above reserves joins the hedge target inside
+   the engine (zero extra RPC — readSides already fetches the balance).
+   `MAX_HEDGE_NOTIONAL_USD` raised 100 → 200. Carry cost of the extra short
+   ≈ 5.6% APR on the idle notional (cents/day). Trade-off: the portfolio
+   also stops gaining when SOL pumps — full neutrality is the point.
+2. **Storm mode** (`LP_VOL_PAUSE_PCT_5M`, default 0, prod 2): rolling 6-min
+   price window in the orchestrator; |5-min move| > threshold pauses LP
+   recentering (no fresh positions into a falling knife — the measured
+   trend tax is −0.22 USD/day even in CALM markets). The hedge keeps
+   running and `computeLpHedgeDelta` (HOLE-2 fix, hysteresis 98/90% and
+   2/10%) clamps the input to the FULL SOL amount when the position exits
+   range downward → controller shorts the whole bag. Storm ends below half
+   the threshold; recentering resumes; clamp releases; hedge returns to the
+   midpoint. Net effect: exactly the operator's "всё зашортить вместо новой
+   позиции", automatically and reversibly.
+3. **Red button** (`pnpm derisk [--live] [--no-gate] [--keep-hedge]`): one
+   command = close all LP → emergency-unwind all perp sides (guaranteed-fill
+   bounds) → unwrap wSOL → swap SOL above reserves to USDC. DRY-RUN by
+   default; human-triggered only. Big warning: stop the server loop first
+   or it re-enters.
+
+### Consequences
+
+- A SOL crash of any depth: LP pauses one-sided, fully shorted (≈ flat vs
+  USDC minus carry); no liquidation risk on the way down (short liquidates
+  upward, 120+ USD); recovery is automatic when volatility calms.
+- `hedge_actions.lp_sol` now records LP-delta + idle wallet SOL (the full
+  hedge input).
+- Costs: ~2 extra hedge trades per storm episode (~12bps of the clamped
+  amount round-trip) + carry on the idle-SOL notional.
+- Rollback: HEDGE_INCLUDE_WALLET_SOL=false, LP_VOL_PAUSE_PCT_5M=0 + redeploy.
+
+### References
+
+`computeLpHedgeDelta` + hysteresis tests (hedgeController, 92 total green),
+engine idle-SOL inclusion, orchestrator storm machinery + BUG-011 grace,
+`src/cli/derisk.ts`, dashboardData alignment. bugs.md BUG-011; progress.md
+Session 17e/f.
+
+---
+
 ## Decision Index
 
 - ADR-001: Use solana-agent-kit for Transaction Execution *(superseded — direct @solana/web3.js)*
@@ -1716,12 +1782,13 @@ be worth testing after the Jul 7 verdict.
 - ADR-018: Hedge band sized to LP bin granularity + cooldown as churn throttle (Accepted)
 - ADR-019: Hedge targets the LP range midpoint, not the live composition (Accepted)
 - ADR-020: Kamino-inspired oracle gate for swaps + per-rebalance net-return decomposition (Accepted)
+- ADR-021: Crash-protection package — full-portfolio neutrality, storm mode, red button (Accepted)
 
 ---
 
 ## Decision Status
 
-- **Accepted:** 17 (incl. ADR-020 — oracle-gated swaps + net-return decomposition)
+- **Accepted:** 18 (incl. ADR-021 — crash-protection package)
 - **Superseded:** 3 (ADR-001 by direct web3.js, ADR-010 by removal of Jito, ADR-014 as active venue by ADR-015)
 - **Proposed:** 0
 - **Deprecated:** 0

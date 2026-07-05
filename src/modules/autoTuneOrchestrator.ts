@@ -61,7 +61,7 @@ import { getConfig } from '../config/env.js';
 import { log } from '../utils/logger.js';
 import { getConnection, getWalletKeypair } from '../utils/solana.js';
 import { closeEmptyTokenAccounts } from './walletJanitor.js';
-import { computeLpMidpointSol } from './hedgeController.js';
+import { computeLpHedgeDelta, type LpHedgeRegime } from './hedgeController.js';
 import { DLMM } from '../utils/dlmm.js';
 import { DECIMALS } from '../config/constants.js';
 import { getSolPrice } from '../core/priceOracle.js';
@@ -337,6 +337,56 @@ export class AutoTuneOrchestrator {
   private consecutiveNoLpCycles = 0;
   private static readonly NO_LP_HEDGE_GRACE_CYCLES = 20; // ≈5 min at 15s cycles
 
+  /**
+   * ADR-021 storm mode: rolling ~6-minute window of oracle prices (one
+   * sample per cycle). When the |5-minute move| exceeds LP_VOL_PAUSE_PCT_5M
+   * the LP recenter pauses (no fresh positions into a falling knife) while
+   * the hedge, via the out-of-range clamp, shorts the position's full SOL
+   * bag — a reversible synthetic exit to USDC. Hysteresis: the storm ends
+   * only when the move drops below half the threshold.
+   */
+  private priceSamples: { t: number; p: number }[] = [];
+  private lastMove5mPct = 0;
+  private volStormActive = false;
+  /** Sticky out-of-range clamp regime for the hedge input (ADR-021). */
+  private lpHedgeRegime: LpHedgeRegime = 'in';
+
+  private recordPriceSample(price: number): void {
+    const now = Date.now();
+    if (price > 0) this.priceSamples.push({ t: now, p: price });
+    const cutoff = now - 6 * 60 * 1000;
+    while (this.priceSamples.length > 0 && this.priceSamples[0].t < cutoff) {
+      this.priceSamples.shift();
+    }
+    const threshold = this.config.lpVolPausePct5m;
+    if (!threshold) {
+      this.volStormActive = false;
+      return;
+    }
+    const ref = this.priceSamples.find((sample) => now - sample.t >= 4 * 60 * 1000);
+    if (!ref || !(ref.p > 0)) {
+      this.lastMove5mPct = 0;
+      return; // not enough history — keep current storm state
+    }
+    this.lastMove5mPct = Math.abs(price / ref.p - 1) * 100;
+    if (this.volStormActive) {
+      if (this.lastMove5mPct < threshold / 2) {
+        this.volStormActive = false;
+        log.info('🌤  Storm over — LP recentering resumes', { move5mPct: this.lastMove5mPct });
+      }
+    } else if (this.lastMove5mPct > threshold) {
+      this.volStormActive = true;
+      log.warn('🌩  Volatility storm detected — LP recentering paused', {
+        move5mPct: this.lastMove5mPct,
+        thresholdPct: threshold,
+      });
+    }
+  }
+
+  private isVolStormActive(_currentPrice: number): boolean {
+    return this.volStormActive;
+  }
+
   private async runCheckCycle(): Promise<void> {
     if (this.cycleInFlight) {
       log.info('⏭️  Skipping check cycle — previous cycle still in flight');
@@ -384,6 +434,7 @@ export class AutoTuneOrchestrator {
       // Fetch price once for entire check cycle (shared across rebalance + fee tracking)
       const solPriceData = await getSolPrice();
       const currentPrice = solPriceData.usd;
+      this.recordPriceSample(currentPrice);
       log.debug('Using SOL price for check cycle', { price: currentPrice, source: solPriceData.source });
 
       // 1. Check position balance (also yields the LpExposure the hedge needs)
@@ -484,8 +535,21 @@ export class AutoTuneOrchestrator {
         });
       }
 
-      // 2. Trigger rebalance if imbalanced
-      if (balance.isImbalanced) {
+      // 2. Trigger rebalance if imbalanced — unless a storm is raging
+      // (ADR-021). Recentering into a fast one-way move recreates the
+      // position straight into the falling knife and realizes a fresh
+      // traversal's IL every few minutes (the measured trend tax); during a
+      // storm we hold the one-sided position instead, and the hedge's
+      // out-of-range clamp shorts the full SOL bag — a reversible synthetic
+      // exit to USDC. Recentering resumes when the 5-minute move calms.
+      if (balance.isImbalanced && this.isVolStormActive(currentPrice)) {
+        log.warn('🌩  Storm mode: LP recenter PAUSED, hedge clamps to full position delta', {
+          move5mPct: this.lastMove5mPct,
+          thresholdPct: this.config.lpVolPausePct5m,
+          solPercent: balance.solPercent,
+          usdcPercent: balance.usdcPercent,
+        });
+      } else if (balance.isImbalanced) {
         if (!this.watchMode) {
           log.warn('⚠️  Position imbalanced - triggering rebalance', {
             reason: balance.reason,
@@ -770,15 +834,30 @@ export class AutoTuneOrchestrator {
       if (this.config.hedgeLpInput === 'midpoint') {
         try {
           const price = (await getSolPrice()).usd;
-          const midpointSol = computeLpMidpointSol(exposure.solAmount, exposure.usdcAmount, price);
-          hedgeExposure = { ...exposure, solAmount: midpointSol };
-          log.debug('Hedge input: LP midpoint', {
+          const clamp = computeLpHedgeDelta(
+            exposure.solAmount,
+            exposure.usdcAmount,
+            price,
+            this.lpHedgeRegime,
+          );
+          if (clamp.regime !== this.lpHedgeRegime) {
+            log.warn('Hedge input regime changed (ADR-021 out-of-range clamp)', {
+              from: this.lpHedgeRegime,
+              to: clamp.regime,
+              deltaSol: clamp.deltaSol,
+              liveSol: exposure.solAmount,
+            });
+            this.lpHedgeRegime = clamp.regime;
+          }
+          hedgeExposure = { ...exposure, solAmount: clamp.deltaSol };
+          log.debug('Hedge input: LP delta', {
             liveSol: exposure.solAmount,
-            midpointSol,
+            hedgeSol: clamp.deltaSol,
+            regime: clamp.regime,
             price,
           });
         } catch (priceError) {
-          log.warn('Hedge midpoint price read failed — using live LP exposure this cycle', {
+          log.warn('Hedge delta price read failed — using live LP exposure this cycle', {
             error: priceError instanceof Error ? priceError.message : String(priceError),
           });
         }

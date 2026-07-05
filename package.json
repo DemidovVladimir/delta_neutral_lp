@@ -16,6 +16,7 @@
     "hedge:close": "tsx src/cli/jupiter-hedge.ts --close",
     "hedge:rebalance": "tsx src/cli/jupiter-hedge.ts --rebalance",
     "hedge:emergency": "tsx src/cli/jupiter-hedge.ts --emergency",
+    "derisk": "tsx src/cli/derisk.ts",
     "pnl": "tsx src/cli/pnl.ts",
     "hodl": "tsx src/cli/hodl-compare.ts",
     "lint": "eslint src --ext .ts",

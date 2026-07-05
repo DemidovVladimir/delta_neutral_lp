@@ -7,6 +7,10 @@
 
 ## 2026-07-05
 
+### Session 17f — ADR-021 crash-protection package (operator approved all three)
+
+Operator's own read confirmed by data: «при падении пул уходит в SOL — надо всё зашортить вместо открытия новой позиции» = shorting the bag is a synthetic USDC exit (6bps, reversible) and recentering into a knife is the measured trend tax. Built: (1) HEDGE_INCLUDE_WALLET_SOL — idle wallet SOL joins the hedge target inside the engine (no extra RPC), MAX_HEDGE_NOTIONAL 100→200; (2) storm mode LP_VOL_PAUSE_PCT_5M=2 — 6-min price window, recenter pause with hysteresis, computeLpHedgeDelta clamp (98/90, 2/10) shorts the full out-of-range bag (HOLE-2 closed); (3) pnpm derisk red button (close LP → emergency perp unwind → unwrap → swap to USDC; dry-run default, --no-gate, --keep-hedge). Auto swap-to-USDC circuit breaker REJECTED (whipsaw momentum stop-loss). 92/92 tests. Dry-run derisk verified on live state. Note: the wallet-alignment swap had already moved ~0.98 idle SOL → USDC, so enabling full-neutral changes the short only ~+0.02 SOL today — gentle rollout.
+
 ### Session 17e — drawdown review: BUG-011 found & fixed (grace window for no-LP hedge unwind)
 
 Operator asked to re-verify the hedge for SOL-crash scenarios. Traced the paths: downside liquidation impossible (short liqs UPWARD at 120.21 USD = +48%; USDC collateral), rallies self-correct (midpoint = V/2/P falls -> decrease fires), carry cap blocks only increases, full-close uses guaranteed-fill bounds. **Found BUG-011:** Phase-1-closed + failed re-creation -> exposure 0 -> controller fully unwinds the short mid-crash while the LP's SOL sits in the wallet (oracle gate makes failed swaps MORE likely in fast moves). Fixed with a 20-cycle (~5 min) no-LP grace window before any hedge decision in the no-position branch. Also documented HOLE-2 (out-of-range-below position has true delta = full lpSol vs midpoint's half — matters only if recenters stall during a crash; folded into the post-verdict crash-mode design).

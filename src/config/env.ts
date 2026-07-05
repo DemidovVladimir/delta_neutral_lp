@@ -110,6 +110,22 @@ export interface BotConfig {
    */
   hedgeLpInput: 'live' | 'midpoint';
   /**
+   * ADR-021 full-portfolio neutrality: add idle wallet SOL (native balance
+   * above MINIMUM_WALLET_BALANCE_SOL + RENT_RESERVE_SOL) to the hedge
+   * target, so a SOL drawdown cannot make HODL-USDC beat the strategy.
+   * wSOL is excluded (transient keeper-fill lifecycle, auto-unwrapped).
+   * Env: HEDGE_INCLUDE_WALLET_SOL (default false)
+   */
+  hedgeIncludeWalletSol: boolean;
+  /**
+   * ADR-021 storm mode: when |5-minute price move| exceeds this percentage,
+   * LP recentering PAUSES (no new positions into a falling knife) while the
+   * hedge keeps running — with the out-of-range clamp the position's full
+   * SOL bag gets shorted (synthetic USDC exit, reversible). 0 = disabled.
+   * Env: LP_VOL_PAUSE_PCT_5M (default 0)
+   */
+  lpVolPausePct5m: number;
+  /**
    * Target collateral ratio (collateral / notional) the controller sizes
    * collateral to on an increase. 1.0 = fully collateralized (~1x); ADR-016
    * chose 0.33 (~3x) for capital efficiency — set it in .env.
@@ -320,6 +336,11 @@ function loadConfigFromEnv(): BotConfig {
     throw new Error(`HEDGE_LP_INPUT must be 'live' or 'midpoint', got '${hedgeLpInputRaw}'`);
   }
   const hedgeLpInput = hedgeLpInputRaw as 'live' | 'midpoint';
+  const hedgeIncludeWalletSol = parseEnvBoolean('HEDGE_INCLUDE_WALLET_SOL', false);
+  const lpVolPausePct5m = parseEnvNumber('LP_VOL_PAUSE_PCT_5M', 0);
+  if (lpVolPausePct5m < 0) {
+    throw new Error('LP_VOL_PAUSE_PCT_5M must be >= 0 (0 disables storm mode)');
+  }
   const deltaThresholdSol = parseEnvNumber('DELTA_THRESHOLD_SOL', 2);
   const minCollateralRatio = parseEnvNumber('MIN_COLLATERAL_RATIO', 0.15);
   // Renamed from MAX_SHORT_NOTIONAL_USD when the hedge gained the long side;
@@ -417,6 +438,8 @@ function loadConfigFromEnv(): BotConfig {
     hedgeCooldownMs,
     walletJanitorEnabled,
     hedgeLpInput,
+    hedgeIncludeWalletSol,
+    lpVolPausePct5m,
     deltaThresholdSol,
     minCollateralRatio,
     maxHedgeNotionalUsd,
