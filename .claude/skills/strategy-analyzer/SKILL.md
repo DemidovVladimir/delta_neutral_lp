@@ -115,6 +115,71 @@ one-way traversals, recenters > 40/day, `<15min` bucket dominating) — then
 consider a dampener FIRST, then moderate widening (e.g. 30 bins), never
 curve/bidask for this loop.
 
+## Tool: Hedge-economics & idle-capital check («правильная траектория» с хеджем, стейл-суммой и свопами)
+
+Run on every срез (cheap — reuses data already gathered) and whenever the
+operator worries the hedge "loses money", the wallet balance looks off, or
+swaps seem excessive. Codified 2026-07-05 after the operator's drawdown
+review. Core mental model to re-verify each time, WITH numbers:
+
+**The machine's equation: profit = LP fees − gamma(IL) − costs.** Direction
+of SOL is absent by construction. The hedge is a MIRROR, not insurance that
+can "не сработать": every dollar the short loses, the SOL side gained (and
+vice versa). A negative short uPnL is NEVER a loss by itself — always show
+it next to the offsetting side. The only real hedge costs, recompute per
+срез and normalize to USD/day:
+
+1. Carry: |carryRateBps|/10000 × perpNotionalUsd / 365 (dashboard).
+2. Trade fees: 6bps × Σ|size_usd| of the window's hedge_actions.
+3. Locked-collateral opportunity: collateral / LP value × (LP fees per day).
+
+Red line: (1)+(2)+(3) > 30% of LP fees/day → hedge is too expensive for the
+income; look at churn first, then collateral ratio.
+
+**Mirror check (did neutrality actually hold?):** over the window, portfolio
+vs HODL-as-is should move ≈ (fees − IL − costs), NOT with the SOL price.
+If the edge visibly breathes with price → un-hedged delta somewhere: check
+netΔ in band %, the out-of-range clamp regime, idle-SOL inclusion flag, and
+whether a top-up arrived (external flows step).
+
+**Collateral proportionality:** collateral ≈ 0.5 × notional ≈ 1:4 of working
+capital — NOT 1:1 of the pool sum (operator worried about this; the deposit
+is a returnable margin, not a wager). Check `collateralRatio` ≥ min + 0.1
+and liq price ≥ 1.3 × spot. If collateral drifts toward 1:1 of working
+capital, something is wrong — flag it.
+
+**Idle wallet SOL policy (стейл-сумма):** current policy B = always hedged
+(`HEDGE_INCLUDE_WALLET_SOL=true`), full-portfolio neutrality. Verify:
+- idle = walletSol − reserves; the hedge input includes it; the combined
+  input is INVARIANT to recenter-phase wallet↔LP transfers (they cancel) —
+  only real swaps move it. If hedge trades correlate with recenters again,
+  that invariant broke — investigate.
+- A sudden idle jump = probably an operator top-up → run the external-flows
+  check and the baseline adjustment BEFORE the next срез verdict.
+- Directional SOL treasury belongs on the operator's hot wallet
+  (`F7p3dFrjRTbtRp8FRF6qHLomXbKRBzpvBLjtQcfcgmNe`), not on the bot — remind
+  when idle stays large for days.
+- Policy C (hedge idle only on a drawdown trigger) was analyzed and REJECTED
+  without a backtest: it is a stop-loss — every false alarm (dip that
+  recovers) permanently locks the trigger-depth loss; crypto dips vastly
+  outnumber crashes. Revisit only with the simulator and a trigger no
+  tighter than −15%.
+
+**Exit-trap reminder (вся соль):** never "close the pool and hold as-is" —
+a one-sided exit is a bag of the depreciating asset (the 6h outage cost
+−1.01 USD IL, the single worst row in the decomposition). Every exit path
+must end in one of: re-enter (recenter), hedge the bag (out-of-range clamp /
+storm mode), or full USDC exit (`pnpm derisk`). If a review finds any state
+where funds can sit one-sided AND unhedged AND unpaused — that is a bug
+(cf. BUG-011), file it.
+
+**Swap-trajectory check:** swaps should exist ONLY as real conversions
+(recenter shortfalls, alignment) — each one legitimately moves the hedge
+target the opposite way. Verify per window: swap count and volume vs
+rebalance count (ratio ≪ 1 is healthy — the wallet buffer absorbs most
+recenters), avg price impact < 0.1%, oracle-gate refusals investigated
+(repeated refusals in calm markets = stale oracle, not manipulation).
+
 ## Step 5 — Verdict and proposal
 
 1. **Все инварианты в норме** → «стратегия подтверждена, менять нечего» +
