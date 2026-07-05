@@ -7,6 +7,14 @@
 
 ## 2026-07-05
 
+### Session 17h — срез #5 with the new tools + full doc/skill sync
+
+**Срез #5 (15:18Z, 1.79d):** vs as-is +0.38 USD, vs USDC −3.49, vs SOL +2.06 (beats-sol-only). Edge trend −0.56 → +1.39 → +0.69 → +0.38: positive but breathing with price on pre-ADR-021 windows (idle was unhedged); breathing should stop from 14:47Z — mirror-check target for Tuesday.
+
+**Hedge-economics tool first run:** carry 0.010 USD/d + trade fees 0 (zero hedge actions in 22.6h!) + locked-collateral opportunity ~0.72 USD/d = ~0.73 vs LP fees 2.37 USD/d = **31% — just above the 30% red line**; lever if Tuesday confirms: HEDGE_TARGET_COLLATERAL_RATIO 0.5→0.33 (ADR-016 allows 3×). Collateral 1:4.3 ✓ liq 1.48× ✓. ADR-021 input verified live: midpoint 0.610 + idle 0.431 = 1.041, netΔ +0.239 (band-edge — expected one-time ~19 USD catch-up trade when it drifts). Swaps 7 vs 33 recenters (0.21 ✓), impact 0.025% ✓, 0 gate refusals. Liveness: RestartCount 0, 0 storm events, 1 transient expired-blockhash on a close (self-healed by retry — the exact path BUG-011 now guards).
+
+**Doc sync (operator order):** README.md rewritten (was 3 ADR-generations stale — still said "Drift planned, Hono API"); CLAUDE.md hedge description now names the real input (midpoint→clamp→+idle), + pnpm derisk, + skills-$ and WAL gotchas; hodl-check breathing rule updated for ADR-021; strategy-analyzer Step 1 now printenvs the ADR-019/021 flags and Step 4 got storm/clamp/reserves-jump invariants.
+
 ### Session 17g — hedge-economics & idle-capital check added to strategy-analyzer
 
 Operator consolidated the mental model (exit-trap, hedge-as-mirror, collateral 1:4 not 1:1) and ordered it codified. New analyzer tool re-verifies per срез: the machine equation (profit = fees − gamma − costs, direction absent), the three real hedge costs normalized to USD/day with a 30%-of-fees red line, the mirror check (as-is edge must NOT breathe with price), collateral proportionality, idle-SOL policy B invariants (recenter-invariance of the combined hedge input; policy C = stop-loss, rejected without backtest, trigger ≥ −15% if ever), the exit-trap rule (one-sided + unhedged + unpaused = bug), and the swap-trajectory sanity (swaps ≪ recenters, impact < 0.1%, gate refusals investigated). Everything as-is until the Tuesday Jul 7 verdict.

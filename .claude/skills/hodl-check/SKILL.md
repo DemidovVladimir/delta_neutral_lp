@@ -88,9 +88,11 @@ Interpretation rules for the block:
 - «Бот выгоден?» отвечает ТОЛЬКО строка vs HODL-as-is и её ТРЕНД между
   срезами — fees + hedge PnL − IL − все косты относительно полного
   бездействия. Один срез — точка; тренд — ответ.
-- vs HODL-USDC (= PnL к baseline) дышит вместе с ценой SOL, потому что
-  часть портфеля (idle-кошелёк) держит SOL нехеджированным by design; не
-  подавать его как успех/провал бота.
+- vs HODL-USDC (= PnL к baseline): ДО 2026-07-05T14:47Z дышал с ценой SOL
+  (idle-кошелёк был нехеджирован); с ADR-021 (HEDGE_INCLUDE_WALLET_SOL) idle
+  SOL входит в хедж-цель и дыхание должно прекратиться. Если этот edge
+  ЗАМЕТНО дышит с ценой на пост-ADR-021 окне — это сигнал утечки
+  нейтральности, гони hedge-economics mirror-check в strategy-analyzer.
 - Never write a dollar sign followed by a digit in this file (skill-engine
   arg substitution) — use `N USD`.
 

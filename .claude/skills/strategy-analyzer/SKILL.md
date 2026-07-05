@@ -24,6 +24,8 @@ bash -c 'source deploy/hetzner/lib.sh; scp "${ssh_args[@]}" \
 bash -c 'source deploy/hetzner/lib.sh; remote "cat /opt/delta-bot/data/hodl-history.jsonl"'
 # LIVE params — trust the container banner, not the local .env:
 bash -c 'source deploy/hetzner/lib.sh; remote "docker logs delta-neutral-bot 2>&1 | grep -m1 -A8 \"HEDGE IS LIVE\""'
+# ADR-019/021 flags are NOT in the banner — read them from the container env:
+bash -c 'source deploy/hetzner/lib.sh; remote "docker exec delta-neutral-bot printenv STRATEGY_VERSION HEDGE_LP_INPUT HEDGE_INCLUDE_WALLET_SOL LP_VOL_PAUSE_PCT_5M MAX_HEDGE_NOTIONAL_USD"'
 ```
 
 Pool constants for the current pool `5rCf1DM8LjKTw4YqhnoLcngyZYeNnQqztScTogYHAS6`:
@@ -68,6 +70,13 @@ adjustments» ниже) — a deposit shows up as fake strategy profit.
   price ≥ 1.3 × spot.
 - LP range width (binCount × binStep) vs realized rebalance cadence: <2
   rebalances/day → range wastefully wide; >40/day → too narrow.
+- ADR-021 protections armed: `LP_VOL_PAUSE_PCT_5M` > 0 (storm mode),
+  `HEDGE_INCLUDE_WALLET_SOL=true` (idle hedged), `HEDGE_LP_INPUT=midpoint`;
+  storm/clamp log lines (🌩 / "regime changed") reviewed for the window.
+- Combined hedge input can jump up to ~reserves (0.3 SOL) around the
+  reserves floor and the above-range clamp — the band must stay ≥ that
+  (0.25 is at the edge; a persistent netΔ near the band boundary right
+  after recenters is this effect, not a leak).
 
 ## Tool: Range-geometry check (width & shape — spot/curve/bidask)
 

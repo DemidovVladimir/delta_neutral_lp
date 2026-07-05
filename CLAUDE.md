@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 A delta-neutral liquidity provision bot for Solana, running as a **single process**:
 
 - **LP side:** provides SOL/USDC liquidity on **Meteora DLMM**, auto-creates positions, and auto-tunes (rebalances) them when the composition drifts past a threshold.
-- **Hedge side (ADR-015/017):** holds a **Jupiter Perps** SOL position — SHORT **or** LONG — steering net ΔSOL = (LP SOL + perp long − perp short) toward `HEDGE_TARGET_DELTA_SOL` (default 0 = delta-neutral) inside a band. Shorts post USDC collateral; longs post SOL (auto-wrapped to wSOL). Mutations use Jupiter's request + keeper-fill flow (our TX1, keeper's TX2 seconds later) and are **dry-run by default** everywhere.
+- **Hedge side (ADR-015/017/019/021):** holds a **Jupiter Perps** SOL position — SHORT **or** LONG — steering net ΔSOL toward `HEDGE_TARGET_DELTA_SOL` (default 0 = delta-neutral) inside a band. The hedge INPUT is not raw LP composition: it is the LP range midpoint (ADR-019), clamped to the position's true delta when out of range (ADR-021 storm clamp, hysteresis 98/90 + 2/10), plus idle wallet SOL above reserves (ADR-021 full-portfolio neutrality). Shorts post USDC collateral; longs post SOL (auto-wrapped to wSOL). Mutations use Jupiter's request + keeper-fill flow (our TX1, keeper's TX2 seconds later) and are **dry-run by default** everywhere.
 - Drift was the original hedge venue (ADR-014) but died in the April 2026 exploit; all Drift code has been removed. `HedgeEngine` (`src/modules/hedgeEngine.ts`) keeps the venue abstraction.
 
 Deployment target is a small **Hetzner** VM under Docker Compose (`deploy/hetzner/`). GCP/Pulumi and the Hono API server were removed in ADR-017.
@@ -34,6 +34,7 @@ pnpm hedge:open --side=long --size-usd=10 --collateral=0.1  # long (SOL collater
 pnpm hedge:close [--side=long] [--size-usd=5]
 pnpm hedge:rebalance --lp-sol=12.5 [--target-delta=0]     # run the controller once
 pnpm hedge:emergency                                      # full close of ALL sides at any price
+pnpm derisk [--live] [--no-gate] [--keep-hedge]           # RED BUTTON: LP + perps + all SOL → USDC (stop the server loop first!)
 tsx src/cli/jupiter-hedge.ts --unwrap                     # fold idle wSOL back to native SOL
 
 # Dev
@@ -103,6 +104,8 @@ Hedge (ADR-017):
 - Carry sign convention: `carryRateBps` negative = the hedge PAYS (always, on Jupiter — borrow fee, not funding income). Break-even ≈ LP fee APR > carry APR / 2.
 - Jupiter fills are asynchronous (TX2). Never act on position state within `HEDGE_COOLDOWN_MS` of a live mutation.
 - Meteora SDK + Jupiter APIs handle priority fees internally; `SEND_OPTIMIZED=true` opts LP sends into simulated CU limits + Helius fee estimates.
+- NEVER write `$<digit>` literals in `.claude/skills/*/SKILL.md` — the skill engine substitutes them with invocation args (write `N USD`); check with `rg '\$[0-9]' .claude/skills/`.
+- When pulling `data/pnl.db` for analysis, ALWAYS copy `pnl.db-wal` too (hours of rows live only in the WAL).
 
 ## Documentation duties
 
