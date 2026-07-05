@@ -1062,6 +1062,77 @@ export function getRecentSwaps(limit = 10): RecentSwapView[] {
     .all(limit) as RecentSwapView[];
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// Per-rebalance net-return decomposition (ADR-020, Kamino-style): for each
+// closed position, split the lifetime result into fees earned, realized IL
+// (composition drift vs holding the deposit, valued at exit price), the
+// closing rebalance's swap cost, and its network fees. `net = fees + il −
+// swapCost − networkFee` — the same "net return = fees − rebalance costs −
+// IL" definition Kamino's docs use, computed from data we already record.
+// Swaps are attached by time window (swap_signature was never populated on
+// rebalances rows); network fees rely on the BUG-010 fee backfill, so rows
+// that predate it undercount network costs by ~$0.001 each.
+// ────────────────────────────────────────────────────────────────────────────
+
+export interface RebalanceDecompositionRow {
+  positionId: number;
+  positionMint: string;
+  openedAt: string;
+  closedAt: string;
+  lifetimeMinutes: number | null;
+  exitPriceSolUsd: number;
+  feesUsd: number;
+  ilUsd: number;
+  swapCostUsd: number;
+  networkFeeUsd: number;
+  netUsd: number;
+}
+
+export function getRebalanceDecomposition(limit = 15): RebalanceDecompositionRow[] {
+  return (
+    safe(() => {
+      const db = openDb();
+      const rows = db
+        .prepare(
+          `SELECT p.id AS positionId,
+                  p.position_mint AS positionMint,
+                  p.opened_at AS openedAt,
+                  p.closed_at AS closedAt,
+                  ROUND((julianday(p.closed_at) - julianday(p.opened_at)) * 1440, 1) AS lifetimeMinutes,
+                  p.exit_price_sol_usd AS exitPriceSolUsd,
+                  COALESCE(p.claimed_fees_sol, 0) * p.exit_price_sol_usd
+                    + COALESCE(p.claimed_fees_usdc, 0) AS feesUsd,
+                  (COALESCE(p.exit_sol, 0) - p.deposit_sol) * p.exit_price_sol_usd
+                    + (COALESCE(p.exit_usdc, 0) - p.deposit_usdc) AS ilUsd,
+                  COALESCE((SELECT SUM(CASE WHEN s.direction = 'USDC_TO_SOL'
+                                THEN s.input_amount - s.actual_output * s.price_sol_usd
+                                ELSE s.input_amount * s.price_sol_usd - s.actual_output END)
+                            FROM swaps s
+                            WHERE s.success = 1
+                              AND s.actual_output IS NOT NULL
+                              AND s.price_sol_usd IS NOT NULL
+                              AND s.timestamp >= r.triggered_at
+                              AND s.timestamp <= COALESCE(r.completed_at, r.triggered_at)), 0) AS swapCostUsd,
+                  COALESCE((SELECT SUM(t.fee_usd) FROM transactions t
+                            WHERE t.signature IN (r.withdraw_signature, r.create_signature)
+                               OR (t.kind = 'swap'
+                                   AND t.timestamp >= r.triggered_at
+                                   AND t.timestamp <= COALESCE(r.completed_at, r.triggered_at))), 0) AS networkFeeUsd
+           FROM positions p
+           LEFT JOIN rebalances r ON r.old_position_id = p.id AND r.success = 1
+           WHERE p.closed_at IS NOT NULL AND p.exit_price_sol_usd IS NOT NULL
+           ORDER BY p.closed_at DESC
+           LIMIT ?`,
+        )
+        .all(limit) as Omit<RebalanceDecompositionRow, 'netUsd'>[];
+      return rows.map((row) => ({
+        ...row,
+        netUsd: row.feesUsd + row.ilUsd - row.swapCostUsd - row.networkFeeUsd,
+      }));
+    }, 'getRebalanceDecomposition') ?? []
+  );
+}
+
 export interface LatestSnapshotForPosition {
   positionId: number;
   takenAt: string;

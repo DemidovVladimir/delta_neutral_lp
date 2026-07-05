@@ -5,6 +5,19 @@
 
 ---
 
+## 2026-07-05
+
+### Session 17 — Kamino research applied: oracle-gated swaps + net-return decomposition (ADR-020)
+
+**Research (Jul 4, deep-research run wf_ce2f2699-2a8, 102 agents):** Kamino (ex-Hubble) = range-exit recentering + auto-compound — structurally our own strategy, but wrapped in fees (per-vault deposit/withdrawal/performance; performance charged on GROSS compounded fees without IL netting or high-water-mark). Glow (Blueprint Finance) turned out to be a margin/lending protocol (rebuilt Jet), not a CLMM manager — nothing to borrow for LP; its fee code shipped a Critical Halborn finding pre-launch. Borrowed the two best Kamino practices (operator approved):
+
+1. **Oracle gate for swaps** (`SWAP_ORACLE_GATE_BPS=50`): `executeSwap` now refuses a Jupiter Ultra quote whose implied SOL price deviates >50bps from the Pyth+Jupiter oracle — before signing; the rebalance retry re-plans next cycle. Pure `checkSwapOracleGate` + 5 tests.
+2. **Per-rebalance net-return decomposition** (`pnpm pnl`, `getRebalanceDecomposition`): per closed position fees / realized IL / closing-rebalance swap cost / network fees / net. First run on prod data (15 positions): fees $1.40, IL −$1.79, swap $0.27 → net −$0.68; the outage position alone carries IL −$1.01. New observation: sub-10-minute positions are consistently net-negative — candidate re-trigger dampener to evaluate after the Jul 7 verdict.
+
+87/87 tests green. Deployed with the same commit; strategy-analyzer skill can now read the decomposition instead of reconstructing costs by hand.
+
+---
+
 ## 2026-07-04
 
 ### Session 16 — Срез #1 + fee audit → found the bot bricked 6h (BUG-008), hedge churn eating LP income (ADR-018)

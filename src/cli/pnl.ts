@@ -19,6 +19,7 @@ import {
   getRecentRebalances,
   getRecentSwaps,
   getLatestSnapshotForPosition,
+  getRebalanceDecomposition,
 } from '../modules/pnlDb.js';
 import { getStrategyVersion } from '../utils/strategyVersion.js';
 
@@ -111,6 +112,37 @@ function main() {
         console.log('    (no snapshots yet)');
       }
     }
+  }
+
+  // ─────────────────── NET-RETURN DECOMPOSITION (ADR-020) ────────────────
+  // Kamino-style split per closed position: net = fees + IL − swap − network.
+  const decomp = getRebalanceDecomposition(15);
+  header(`NET RETURN PER CLOSED POSITION (last ${decomp.length}; net = fees + IL − swap − network)`);
+  if (decomp.length === 0) {
+    console.log('  (none)');
+  } else {
+    console.log(
+      '  ' + 'closed at'.padEnd(21) + 'life'.padStart(7) + 'fees'.padStart(9) +
+      'IL'.padStart(9) + 'swap'.padStart(8) + 'netwk'.padStart(8) + 'NET'.padStart(9),
+    );
+    let tFees = 0, tIl = 0, tSwap = 0, tNet = 0, tNetwork = 0;
+    for (const d of decomp) {
+      tFees += d.feesUsd; tIl += d.ilUsd; tSwap += d.swapCostUsd;
+      tNetwork += d.networkFeeUsd; tNet += d.netUsd;
+      const life = d.lifetimeMinutes !== null ? `${d.lifetimeMinutes}m` : '—';
+      console.log(
+        '  ' + d.closedAt.slice(0, 19).padEnd(21) + life.padStart(7) +
+        fmtUsd(d.feesUsd).padStart(9) + fmtUsd(d.ilUsd).padStart(9) +
+        fmtUsd(d.swapCostUsd).padStart(8) + fmtUsd(d.networkFeeUsd).padStart(8) +
+        fmtUsd(d.netUsd).padStart(9),
+      );
+    }
+    hr();
+    console.log(
+      '  ' + 'TOTAL'.padEnd(28) +
+      fmtUsd(tFees).padStart(9) + fmtUsd(tIl).padStart(9) +
+      fmtUsd(tSwap).padStart(8) + fmtUsd(tNetwork).padStart(8) + fmtUsd(tNet).padStart(9),
+    );
   }
 
   // ───────────────────────────── RECENT REBALANCES ───────────────────────

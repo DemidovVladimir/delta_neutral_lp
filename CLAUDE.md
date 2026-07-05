@@ -106,3 +106,19 @@ Hedge (ADR-017):
 ## Documentation duties
 
 **Always update** `progress.md` after every session, add bug reports to `bugs.md`, and document architectural decisions in `decisions.md` (ADR index at the bottom). `HANDOVER.md` carries the resume-here state for the next session.
+
+<!-- chaos-substrate:start -->
+## Chaos Substrate
+
+Use Chaos Substrate before non-trivial architecture, security, feature, or refactor work.
+
+- Prefer `chaos update "$PWD"` after code changes or before deep investigation.
+- Use `chaos context "$PWD" "<task>"` before implementation work.
+- Use `chaos explain "$PWD" "<feature>"` to generate a focused static feature page.
+- If MCP tools are available, use `chaos_analyze` to index and `chaos_query` for focused questions.
+- Treat source code as higher priority than docs if they disagree.
+- Read generated feature manifests in `docs/features_memory/*.html`; do not scan the whole docs tree.
+- Feature-map story steps must use explicit `node_ids` and optional `edge_ids`, not graph expansion.
+
+This section is intentionally portable. It assumes `chaos` is on PATH.
+<!-- chaos-substrate:end -->

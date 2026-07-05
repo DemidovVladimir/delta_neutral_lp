@@ -49,6 +49,7 @@
 import { VersionedTransaction } from '@solana/web3.js';
 import { getConnection, getWalletKeypair } from '../utils/solana.js';
 import { log } from '../utils/logger.js';
+import { checkSwapOracleGate } from './swapPlanner.js';
 import { getConfig } from '../config/env.js';
 import { TransactionError } from '../types/index.js';
 import { fetch } from 'undici';
@@ -353,6 +354,55 @@ export class JupiterSwapper {
 
       // Step 1: Get order
       const order = await this.getOrder(params);
+
+      // Step 1.5: Oracle gate (ADR-020, Kamino-style). Execute only when the
+      // quote's implied price agrees with the cross-validated oracle fair
+      // price — a deviant quote (stale route, thin/manipulated liquidity)
+      // is refused and the caller's retry loop re-plans on a later cycle.
+      // Skipped with a warning when the order lacks amounts to evaluate:
+      // bricking a mid-rebalance swap on an API shape change is worse than
+      // missing one opportunistic check.
+      const gateBps = this.config.swapOracleGateBps;
+      if (gateBps > 0) {
+        if (order.inAmount && order.outAmount) {
+          const { getSolPrice } = await import('../core/priceOracle.js');
+          const oraclePriceUsd = (await getSolPrice()).usd;
+          const gateDirection =
+            params.inputMint === SOL_MINT && params.outputMint === USDC_MINT
+              ? ('SOL_TO_USDC' as const)
+              : ('USDC_TO_SOL' as const);
+          const gate = checkSwapOracleGate({
+            direction: gateDirection,
+            inputAmount: this.fromRawAmount(order.inAmount, params.inputMint),
+            outputAmount: this.fromRawAmount(order.outAmount, params.outputMint),
+            oraclePriceUsd,
+            toleranceBps: gateBps,
+          });
+          if (!gate.ok) {
+            log.warn('🛑 Oracle gate refused the swap quote (ADR-020)', {
+              direction: gateDirection,
+              impliedPriceUsd: gate.impliedPriceUsd,
+              oraclePriceUsd,
+              deviationBps: gate.deviationBps,
+              toleranceBps: gateBps,
+            });
+            throw new Error(
+              `oracle gate: quote implies $${gate.impliedPriceUsd.toFixed(4)}/SOL, ` +
+                `oracle says $${oraclePriceUsd.toFixed(4)} — deviation ` +
+                `${gate.deviationBps.toFixed(1)}bps > ${gateBps}bps tolerance`
+            );
+          }
+          log.debug('Oracle gate passed', {
+            impliedPriceUsd: gate.impliedPriceUsd,
+            oraclePriceUsd,
+            deviationBps: gate.deviationBps,
+          });
+        } else {
+          log.warn('Oracle gate skipped: order lacks in/out amounts to evaluate', {
+            requestId: order.requestId,
+          });
+        }
+      }
 
       // Step 2: Sign transaction
       const wallet = getWalletKeypair();

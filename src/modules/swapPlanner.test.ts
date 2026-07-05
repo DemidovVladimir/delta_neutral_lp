@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { planSwapForDeposit, type SwapPlanInput } from './swapPlanner.js';
+import { checkSwapOracleGate, planSwapForDeposit, type SwapPlanInput } from './swapPlanner.js';
 
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
 const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
@@ -551,5 +551,79 @@ describe('planSwapForDeposit', () => {
         })
       )
     ).toThrow(/Wallet does not have enough total value for rebalance/);
+  });
+});
+
+describe('checkSwapOracleGate (ADR-020)', () => {
+  it('passes a quote at oracle price', () => {
+    // sell 1 SOL for 82 USDC at oracle $82 → 0 bps deviation
+    const r = checkSwapOracleGate({
+      direction: 'SOL_TO_USDC',
+      inputAmount: 1,
+      outputAmount: 82,
+      oraclePriceUsd: 82,
+      toleranceBps: 50,
+    });
+    expect(r.ok).toBe(true);
+    expect(r.deviationBps).toBeCloseTo(0, 5);
+  });
+
+  it('passes normal spread inside tolerance (USDC_TO_SOL)', () => {
+    // pay 82.2 USDC for 1 SOL at oracle $82 → ~24 bps
+    const r = checkSwapOracleGate({
+      direction: 'USDC_TO_SOL',
+      inputAmount: 82.2,
+      outputAmount: 1,
+      oraclePriceUsd: 82,
+      toleranceBps: 50,
+    });
+    expect(r.ok).toBe(true);
+    expect(r.deviationBps).toBeGreaterThan(20);
+    expect(r.deviationBps).toBeLessThan(30);
+  });
+
+  it('blocks a quote worse than tolerance', () => {
+    // sell 1 SOL for 81 USDC at oracle $82 → ~122 bps
+    const r = checkSwapOracleGate({
+      direction: 'SOL_TO_USDC',
+      inputAmount: 1,
+      outputAmount: 81,
+      oraclePriceUsd: 82,
+      toleranceBps: 50,
+    });
+    expect(r.ok).toBe(false);
+    expect(r.deviationBps).toBeGreaterThan(100);
+  });
+
+  it('blocks a too-good quote symmetrically (suspicious either way)', () => {
+    const r = checkSwapOracleGate({
+      direction: 'SOL_TO_USDC',
+      inputAmount: 1,
+      outputAmount: 83.5,
+      oraclePriceUsd: 82,
+      toleranceBps: 50,
+    });
+    expect(r.ok).toBe(false);
+  });
+
+  it('non-evaluable inputs fail closed', () => {
+    expect(
+      checkSwapOracleGate({
+        direction: 'SOL_TO_USDC',
+        inputAmount: 1,
+        outputAmount: 0,
+        oraclePriceUsd: 82,
+        toleranceBps: 50,
+      }).ok
+    ).toBe(false);
+    expect(
+      checkSwapOracleGate({
+        direction: 'USDC_TO_SOL',
+        inputAmount: 82,
+        outputAmount: 1,
+        oraclePriceUsd: 0,
+        toleranceBps: 50,
+      }).ok
+    ).toBe(false);
   });
 });

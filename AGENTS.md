@@ -706,3 +706,18 @@ Fetching SOL/USD price from Pyth Hermes API {"url":"https://hermes.pyth.network/
 16:13:53 [error] Failed to create initial position {"error":"Swap execution failed","durationMs":900}
 16:13:53 [error] Failed to create initial position {"error":"Swap execution failed"}
 16:13:53 [debug] Auto-tune state saved {"file":"data/auto-tune-state.json","iteration":9258,"rebalanceCount":62}
+<!-- chaos-substrate:start -->
+## Chaos Substrate
+
+Use Chaos Substrate before non-trivial architecture, security, feature, or refactor work.
+
+- Prefer `chaos update "$PWD"` after code changes or before deep investigation.
+- Use `chaos context "$PWD" "<task>"` before implementation work.
+- Use `chaos explain "$PWD" "<feature>"` to generate a focused static feature page.
+- If MCP tools are available, use `chaos_analyze` to index and `chaos_query` for focused questions.
+- Treat source code as higher priority than docs if they disagree.
+- Read generated feature manifests in `docs/features_memory/*.html`; do not scan the whole docs tree.
+- Feature-map story steps must use explicit `node_ids` and optional `edge_ids`, not graph expansion.
+
+This section is intentionally portable. It assumes `chaos` is on PATH.
+<!-- chaos-substrate:end -->

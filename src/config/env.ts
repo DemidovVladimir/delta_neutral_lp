@@ -37,6 +37,12 @@ export interface BotConfig {
   swapSlippageBps: number;
   swapSlippageBufferPct: number;
   /**
+   * Oracle gate for swaps (ADR-020): refuse to execute when the quote's
+   * implied price deviates from the cross-validated oracle by more than this
+   * many bps. 0 disables the gate. Env: SWAP_ORACLE_GATE_BPS (default 50)
+   */
+  swapOracleGateBps: number;
+  /**
    * Threshold (percentage points, e.g. 1 for 1%) above which the orchestrator
    * emits a loud warning when Jupiter reports the actual price impact of a
    * swap. Helps the operator notice when the buffer is being eaten by
@@ -278,6 +284,10 @@ function loadConfigFromEnv(): BotConfig {
   // rebalance and not lost. Operators can lower this when they have a clear
   // picture of the pool's typical impact profile.
   const swapSlippageBufferPct = parseEnvNumber('SWAP_SLIPPAGE_BUFFER_PCT', 3);
+  const swapOracleGateBps = parseEnvNumber('SWAP_ORACLE_GATE_BPS', 50);
+  if (swapOracleGateBps < 0) {
+    throw new Error('SWAP_ORACLE_GATE_BPS must be >= 0 (0 disables the gate)');
+  }
   // Threshold above which a high-impact warning fires. Defaults to 1% — high
   // enough that normal SOL/USDC trades won't trip it, low enough that anything
   // approaching the 3% buffer ceiling gets surfaced.
@@ -396,6 +406,7 @@ function loadConfigFromEnv(): BotConfig {
     swapEnabled,
     swapSlippageBps,
     swapSlippageBufferPct,
+    swapOracleGateBps,
     swapHighImpactWarningPct,
     rentReserveSol,
     minimumWalletBalanceSol,

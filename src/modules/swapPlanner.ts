@@ -237,3 +237,46 @@ function formatTunableHint(autoTuneDepositAmount: number | undefined, missing: s
   }
   return `Reduce AUTO_TUNE_DEPOSIT_AMOUNT (currently ${autoTuneDepositAmount}) or deposit more ${missing}.`;
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// Oracle gate (ADR-020, borrowed from Kamino's creator-vault rebalancing):
+// a rebalance swap executes ONLY when the quoted execution price agrees with
+// the cross-validated oracle fair price. A quote outside the tolerance —
+// stale route, thin liquidity, or a manipulated pool — is refused; the
+// rebalance retries on a later cycle instead of eating the bad price.
+// ────────────────────────────────────────────────────────────────────────────
+
+export interface SwapOracleGateInput {
+  direction: 'SOL_TO_USDC' | 'USDC_TO_SOL';
+  /** Human-unit input amount (SOL for SOL_TO_USDC, USDC for USDC_TO_SOL). */
+  inputAmount: number;
+  /** Human-unit quoted output amount from the order. */
+  outputAmount: number;
+  /** Fair SOL/USD price from the cross-validated oracle. */
+  oraclePriceUsd: number;
+  /** Max |implied − oracle| deviation in bps; the quote's implied price
+   * already includes DEX fees + impact, so leave room for normal spread. */
+  toleranceBps: number;
+}
+
+export interface SwapOracleGateResult {
+  ok: boolean;
+  /** SOL/USD price implied by the quote. */
+  impliedPriceUsd: number;
+  /** Absolute deviation from oracle, in bps. */
+  deviationBps: number;
+}
+
+export function checkSwapOracleGate(input: SwapOracleGateInput): SwapOracleGateResult {
+  const { direction, inputAmount, outputAmount, oraclePriceUsd, toleranceBps } = input;
+  if (!(inputAmount > 0) || !(outputAmount > 0) || !(oraclePriceUsd > 0)) {
+    // Not evaluable — treat as failing so callers never trade on garbage.
+    return { ok: false, impliedPriceUsd: NaN, deviationBps: Infinity };
+  }
+  const impliedPriceUsd =
+    direction === 'SOL_TO_USDC'
+      ? outputAmount / inputAmount // USDC received per SOL sold
+      : inputAmount / outputAmount; // USDC paid per SOL bought
+  const deviationBps = (Math.abs(impliedPriceUsd - oraclePriceUsd) / oraclePriceUsd) * 10_000;
+  return { ok: deviationBps <= toleranceBps, impliedPriceUsd, deviationBps };
+}

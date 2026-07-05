@@ -46,6 +46,7 @@ From pnl.db (window = since previous analyzer run or campaign baseline):
 | Metric | Source | Red line |
 |---|---|---|
 | LP fees earned | `rebalances.claimed_fees_*` + state `totalClaimedFees` | — |
+| Net per position | `getRebalanceDecomposition` (pnlDb) / `pnpm pnl` section "NET RETURN PER CLOSED POSITION" — fees + IL − swap − network, LP-side only | positions with net < 0 in a calm market |
 | Hedge churn | `hedge_actions`: count, Σ`size_usd`; fee ≈ Σ×6bps | churn fees > 25% of LP fees |
 | Hedge flapping | alternating increase/decrease pairs share | > 30% of actions |
 | LP rebalances/day | `rebalances` count | outside 2–40 |

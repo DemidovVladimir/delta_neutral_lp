@@ -1640,6 +1640,60 @@ New `HEDGE_LP_INPUT` mode (`env.ts`, default `live`; production set to
 
 ---
 
+## ADR-020: Kamino-inspired oracle gate for swaps + per-rebalance net-return decomposition
+
+**Date:** 2026-07-05
+**Status:** Accepted
+
+### Context
+
+Deep-research on Kamino (ex-Hubble) vault mechanics (2026-07-04) surfaced two
+practices worth stealing; both were operator-approved:
+
+1. Kamino executes rebalance swaps through Jupiter ONLY when the execution
+   price matches its own Switchboard fair-price oracles (per-asset
+   tolerances, retry until match) — protection against stale routes and
+   thin/manipulated liquidity.
+2. Kamino's docs define depositor net return as *fees − rebalance costs −
+   IL*, and its Strategy Simulator reports exactly Fees %, IL %, PnL vs USD,
+   PnL vs HODL.
+
+### Decision
+
+1. **Oracle gate** (`SWAP_ORACLE_GATE_BPS`, default 50, 0 = off):
+   `checkSwapOracleGate` (pure, in `swapPlanner.ts`) compares the Ultra
+   order's implied SOL price against the cross-validated Pyth+Jupiter oracle
+   (`priceOracle.ts`); `executeSwap` throws BEFORE signing when deviation >
+   tolerance — the rebalance retry loop re-plans on a later cycle. Symmetric
+   gate (a too-good quote is also suspicious). If the order lacks amounts to
+   evaluate, the gate is skipped with a warning (bricking a mid-rebalance
+   swap on an API shape change is worse than missing one opportunistic
+   check); the pure helper itself fails closed on garbage inputs.
+2. **Net-return decomposition** (`getRebalanceDecomposition` in `pnlDb.ts`,
+   printed by `pnpm pnl`): per closed position — fees (claimed, at exit
+   price), realized IL (exit vs deposit composition at exit price), the
+   closing rebalance's swap cost (time-window join; `swap_signature` was
+   never populated) and network fees (needs BUG-010 backfill), and
+   `net = fees + IL − swap − network`. LP-side only — hedge PnL/fees are
+   accounted separately.
+
+### First data (prod db, last 15 closed positions)
+
+fees $1.40, IL −$1.79, swap $0.27, network $0.01 → net −$0.68. The outage
+position alone (372 min, closed 2026-07-04T10:45Z) carries IL −$1.01.
+Observation for later: positions living <10 min are consistently net-negative
+(−$0.04…−$0.09 each) — rapid re-triggers churn IL; a re-trigger dampener may
+be worth testing after the Jul 7 verdict.
+
+### References
+
+- Kamino docs: creator-vault rebalancing (oracle gating), concepts.md (net
+  return definition), strategy-simulator. Research run wf_ce2f2699-2a8.
+- `swapPlanner.ts` (`checkSwapOracleGate` + 5 tests), `jupiterSwapper.ts`
+  (step 1.5), `pnlDb.ts` (`getRebalanceDecomposition`), `src/cli/pnl.ts`.
+
+---
+
 ## Decision Index
 
 - ADR-001: Use solana-agent-kit for Transaction Execution *(superseded — direct @solana/web3.js)*
@@ -1661,12 +1715,13 @@ New `HEDGE_LP_INPUT` mode (`env.ts`, default `live`; production set to
 - ADR-017: Simplification + both-sides target-delta hedge + Hetzner deploy (Accepted)
 - ADR-018: Hedge band sized to LP bin granularity + cooldown as churn throttle (Accepted)
 - ADR-019: Hedge targets the LP range midpoint, not the live composition (Accepted)
+- ADR-020: Kamino-inspired oracle gate for swaps + per-rebalance net-return decomposition (Accepted)
 
 ---
 
 ## Decision Status
 
-- **Accepted:** 16 (incl. ADR-019 — hedge targets the LP range midpoint)
+- **Accepted:** 17 (incl. ADR-020 — oracle-gated swaps + net-return decomposition)
 - **Superseded:** 3 (ADR-001 by direct web3.js, ADR-010 by removal of Jito, ADR-014 as active venue by ADR-015)
 - **Proposed:** 0
 - **Deprecated:** 0
