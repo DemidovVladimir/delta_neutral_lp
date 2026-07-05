@@ -1133,6 +1133,58 @@ export function getRebalanceDecomposition(limit = 15): RebalanceDecompositionRow
   );
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// Position lifetime buckets — the "trend-tax" measurement behind the
+// range-geometry check (strategy-analyzer). Sub-15-minute positions are the
+// signature of recentering into a still-moving price: fees have no time to
+// accrue while the recenter locks a full traversal's IL. A healthy narrow
+// range shows fees/|IL| ≈ 1 in the longer buckets and few short-lived rows.
+// ────────────────────────────────────────────────────────────────────────────
+
+export interface PositionLifetimeBucketRow {
+  bucket: '<15min' | '15-45min' | '>45min';
+  positions: number;
+  avgLifeMin: number;
+  feesUsd: number;
+  ilUsd: number;
+  /** feesUsd + ilUsd — LP-side net before rebalance tx costs. */
+  netUsd: number;
+}
+
+export function getPositionLifetimeBuckets(sinceIso?: string): PositionLifetimeBucketRow[] {
+  return (
+    safe(() => {
+      const db = openDb();
+      const rows = db
+        .prepare(
+          `SELECT CASE WHEN lifeMin < 15 THEN '<15min'
+                       WHEN lifeMin < 45 THEN '15-45min'
+                       ELSE '>45min' END AS bucket,
+                  COUNT(*) AS positions,
+                  ROUND(AVG(lifeMin), 1) AS avgLifeMin,
+                  SUM(feesUsd) AS feesUsd,
+                  SUM(ilUsd) AS ilUsd,
+                  SUM(feesUsd + ilUsd) AS netUsd
+           FROM (
+             SELECT (julianday(p.closed_at) - julianday(p.opened_at)) * 1440 AS lifeMin,
+                    COALESCE(p.claimed_fees_sol, 0) * p.exit_price_sol_usd
+                      + COALESCE(p.claimed_fees_usdc, 0) AS feesUsd,
+                    (COALESCE(p.exit_sol, 0) - p.deposit_sol) * p.exit_price_sol_usd
+                      + (COALESCE(p.exit_usdc, 0) - p.deposit_usdc) AS ilUsd
+             FROM positions p
+             WHERE p.closed_at IS NOT NULL
+               AND p.exit_price_sol_usd IS NOT NULL
+               AND (? IS NULL OR p.opened_at >= ?)
+           )
+           GROUP BY bucket
+           ORDER BY CASE bucket WHEN '<15min' THEN 0 WHEN '15-45min' THEN 1 ELSE 2 END`,
+        )
+        .all(sinceIso ?? null, sinceIso ?? null) as PositionLifetimeBucketRow[];
+      return rows;
+    }, 'getPositionLifetimeBuckets') ?? []
+  );
+}
+
 export interface LatestSnapshotForPosition {
   positionId: number;
   takenAt: string;

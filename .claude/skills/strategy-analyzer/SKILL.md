@@ -69,6 +69,52 @@ adjustments» ниже) — a deposit shows up as fake strategy profit.
 - LP range width (binCount × binStep) vs realized rebalance cadence: <2
   rebalances/day → range wastefully wide; >40/day → too narrow.
 
+## Tool: Range-geometry check (width & shape — spot/curve/bidask)
+
+Run when the operator asks about bin count / range width / distribution
+shape, when LP rebalances/day approach the red line, or when the `<15min`
+lifetime bucket grows. First derived 2026-07-05 on live Campaign-2 data;
+the scaling laws below let you answer geometry questions WITHOUT live A/B
+experiments (a $1/day effect drowns in noise for weeks on $100 capital).
+
+**Data (one command):** `pnpm pnl` → section `POSITION LIFETIME BUCKETS`
+(programmatic: `getPositionLifetimeBuckets(sinceIso?)` in pnlDb — fees, IL,
+net, fees/|IL| per `<15min` / `15-45min` / `>45min` bucket).
+
+**Scaling laws (verify against fresh data before relying on them):**
+1. **Fees/day ∝ 1/width** — fees accrue only in the active bin,
+   proportionally to our share of it (valid while our liquidity ≪ pool's,
+   e.g. $100 vs $2.7M).
+2. **IL(gamma)/day is width-independent** — IL per range traversal
+   ≈ V×w/8 (V = position value, w = fractional width), traversals/day
+   ∝ 1/w; the product depends only on the price path, not the grid.
+   Sanity-check: avg IL per closed position should ≈ V×w/8 (measured
+   2026-07-05: −$0.081 avg vs $0.10 theoretical on 20 bins × 4bps — ✓).
+3. Therefore **narrower = strictly better fee/IL ratio**, bounded only by
+   (a) per-recenter tx costs — negligible since ADR-019 decoupled the hedge
+   from recenters, and (b) the **trend tax**: the `<15min` bucket, recenters
+   into a still-moving price (measured −$0.22/day). The trend tax is fixed
+   by a re-trigger dampener, NOT by widening (widening pays ~half the fee
+   income for the same cure).
+
+**Shape rules for THIS architecture (auto-recenter + midpoint hedge):**
+- **Spot** — correct. Uniform density, delta linear in price, midpoint
+  hedging exact.
+- **Curve** — emulates a narrower spot with dead tails; composition crosses
+  the imbalance threshold FASTER → more recenters, worse `<15min` bucket.
+  Meteora positions it for stables/calm pairs. Wrong for SOL/USDC here.
+- **BidAsk** — liquidity at the edges, thinnest exactly where our recenter
+  puts the price (center). A directional-view/DCA tool; anti-fit for a
+  delta-neutral recentering loop. Do not use.
+
+**Decision template** (fill with fresh $/day numbers): widening W× costs
+`fees/day × (1 − 1/W)` and saves only `(trend tax) + (recenter tx costs ×
+(1 − 1/W))`. On 2026-07-05 data: 2× widening = −$1.16 + $0.22 ≈ −$0.94/day
+→ rejected. Revisit if the market enters a sustained trend regime (long
+one-way traversals, recenters > 40/day, `<15min` bucket dominating) — then
+consider a dampener FIRST, then moderate widening (e.g. 30 bins), never
+curve/bidask for this loop.
+
 ## Step 5 — Verdict and proposal
 
 1. **Все инварианты в норме** → «стратегия подтверждена, менять нечего» +

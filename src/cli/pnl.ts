@@ -20,6 +20,7 @@ import {
   getRecentSwaps,
   getLatestSnapshotForPosition,
   getRebalanceDecomposition,
+  getPositionLifetimeBuckets,
 } from '../modules/pnlDb.js';
 import { getStrategyVersion } from '../utils/strategyVersion.js';
 
@@ -112,6 +113,26 @@ function main() {
         console.log('    (no snapshots yet)');
       }
     }
+  }
+
+  // ─────────────── LIFETIME BUCKETS (range-geometry / trend-tax) ─────────
+  const buckets = getPositionLifetimeBuckets();
+  if (buckets.length > 0) {
+    header('POSITION LIFETIME BUCKETS (trend-tax check; net = fees + IL, LP-side)');
+    console.log(
+      '  ' + 'bucket'.padEnd(10) + 'n'.padStart(5) + 'avg life'.padStart(10) +
+      'fees'.padStart(9) + 'IL'.padStart(9) + 'net'.padStart(9) + '  fees/|IL|',
+    );
+    for (const b of buckets) {
+      const ratio = b.ilUsd !== 0 ? (b.feesUsd / Math.abs(b.ilUsd)).toFixed(2) : '—';
+      console.log(
+        '  ' + b.bucket.padEnd(10) + String(b.positions).padStart(5) +
+        `${b.avgLifeMin}m`.padStart(10) + fmtUsd(b.feesUsd).padStart(9) +
+        fmtUsd(b.ilUsd).padStart(9) + fmtUsd(b.netUsd).padStart(9) +
+        ratio.padStart(11),
+      );
+    }
+    console.log('  (<15min rows are recenters into a still-moving price — the trend tax)');
   }
 
   // ─────────────────── NET-RETURN DECOMPOSITION (ADR-020) ────────────────

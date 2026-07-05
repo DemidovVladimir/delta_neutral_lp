@@ -7,6 +7,10 @@
 
 ## 2026-07-05
 
+### Session 17c — range-geometry check formalized as an analyzer tool
+
+Operator asked whether to keep the narrow 20-bin spot or go wider with curve/bidask. Analysis (scaling laws + live data): fees/day ∝ 1/width; IL(gamma)/day is width-independent (avg IL per closed position −$0.081 ≈ theoretical V×w/8 = $0.10 ✓) → 2× widening = −$1.16/day fees for +$0.27/day savings ≈ −$0.94/day, rejected. Curve = narrower-spot emulation with dead tails (more recenters); BidAsk = thinnest liquidity exactly at our recenter point — both anti-fit for the auto-recenter + midpoint-hedge loop. **Formalized as the "Range-geometry check" tool in strategy-analyzer** + `getPositionLifetimeBuckets()` in pnlDb + "POSITION LIFETIME BUCKETS" section in `pnpm pnl`. All-time buckets: <15min fees/|IL| 0.42 (net −$0.48, the trend tax), 15-45min 1.02, >45min 0.99 — dampener remains the post-verdict candidate.
+
 ### Session 17b — срез #3 + analyzer: midpoint validated; dashboard taught about ADR-019
 
 **Срез #3 (Jul 5 ~13:00Z, 1.7d window):** beats-sol-only — equity $368.85 (−$3.84, SOL $82.50→$80.84); vs HODL-SOL **+$3.68**, vs **HODL-as-is +$1.39** (first confidently positive; was −$0.56 pre-midpoint → +$1.95 over the midpoint night). APRs still noise.
