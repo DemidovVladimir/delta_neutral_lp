@@ -326,6 +326,17 @@ export class AutoTuneOrchestrator {
    */
   private cycleInFlight = false;
 
+  /**
+   * Cycles in a row with NO LP position on-chain. Guards the hedge unwind
+   * (BUG-011): the perp may only be unwound after the no-LP state persists
+   * for a full grace window — a transient gap between "old position closed"
+   * and "new position created" must never strip the hedge while the LP's
+   * funds sit in the wallet, least of all during the fast move that made
+   * the re-creation fail.
+   */
+  private consecutiveNoLpCycles = 0;
+  private static readonly NO_LP_HEDGE_GRACE_CYCLES = 20; // ≈5 min at 15s cycles
+
   private async runCheckCycle(): Promise<void> {
     if (this.cycleInFlight) {
       log.info('⏭️  Skipping check cycle — previous cycle still in flight');
@@ -424,12 +435,35 @@ export class AutoTuneOrchestrator {
           }
         }
 
-        await this.maybeRebalanceHedge(exposure, lpMutatedThisCycle);
+        // Safety (BUG-011, 2026-07-05): a rebalance that closed the old
+        // position but FAILED to create the new one leaves the LP's SOL in
+        // the wallet while exposure reads 0 — and the controller would then
+        // UNWIND the protective short (decreases are never guard-blocked) in
+        // the middle of exactly the kind of fast move that makes creations
+        // fail. Defer hedge decisions until the no-LP state has persisted a
+        // full grace window and is therefore real (operator wind-down), not
+        // a mid-rebalance gap. A created-this-cycle position skips the hedge
+        // anyway (stale exposure), so only the failed-creation path defers.
+        this.consecutiveNoLpCycles++;
+        if (
+          lpMutatedThisCycle ||
+          this.consecutiveNoLpCycles >= AutoTuneOrchestrator.NO_LP_HEDGE_GRACE_CYCLES
+        ) {
+          await this.maybeRebalanceHedge(exposure, lpMutatedThisCycle);
+        } else {
+          log.warn('⏳ Hedge decision deferred — no LP position, funds may be mid-rebalance', {
+            noLpCycles: this.consecutiveNoLpCycles,
+            graceCycles: AutoTuneOrchestrator.NO_LP_HEDGE_GRACE_CYCLES,
+          });
+        }
 
         this.state.consecutiveErrors = 0;
         saveAutoTuneState(this.state);
         return;
       }
+
+      // An LP position exists again — the no-LP grace counter starts over.
+      this.consecutiveNoLpCycles = 0;
 
       if (!this.watchMode) {
         // ALWAYS log at INFO (not sampled) — this is the precondition state

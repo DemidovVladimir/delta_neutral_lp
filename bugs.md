@@ -6,6 +6,29 @@
 
 ## Active Bugs
 
+### BUG-011: Failed LP re-creation mid-crash would unwind the protective short
+**Status:** Fixed (2026-07-05) — 5-minute grace window before no-LP hedge decisions
+**Severity:** High (loss-prevention hole; never triggered live, found by drawdown review)
+**Reported:** 2026-07-05
+**Related:** ADR-017 (unwind-leftover-perp design), ADR-020 (oracle gate raises failed-swap odds in fast markets)
+
+**Description:**
+The rebalance closes the old position (Phase 1) before creating the new one.
+If creation fails (oracle-gate-refused swap in a fast move, RPC hiccup,
+slippage), the next cycle sees exposure = 0 and the controller — by the
+ADR-017 rule "a leftover perp with no LP is naked directional risk to
+unwind" — issues a FULL decrease_short. Decreases are never guard-blocked
+and the cooldown has long expired, so the bot would strip its only downside
+protection in the middle of exactly the kind of move that made the creation
+fail, while the LP's entire SOL sat un-deposited in the wallet.
+
+**Fix:** `consecutiveNoLpCycles` counter in the orchestrator; hedge decisions
+in the no-LP branch are deferred (loud warning) until the state persists
+NO_LP_HEDGE_GRACE_CYCLES = 20 cycles (~5 min). A genuine wind-down still
+unwinds — 5 minutes later. Positions found on-chain reset the counter.
+
+---
+
 ### BUG-010: Network fees never persisted to pnl.db — `pnpm pnl` reported $0 network costs
 **Status:** Fixed (2026-07-04)
 **Severity:** Low (reporting only; ~$0.10 understated so far, no funds lost)

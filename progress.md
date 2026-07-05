@@ -7,6 +7,10 @@
 
 ## 2026-07-05
 
+### Session 17e — drawdown review: BUG-011 found & fixed (grace window for no-LP hedge unwind)
+
+Operator asked to re-verify the hedge for SOL-crash scenarios. Traced the paths: downside liquidation impossible (short liqs UPWARD at 120.21 USD = +48%; USDC collateral), rallies self-correct (midpoint = V/2/P falls -> decrease fires), carry cap blocks only increases, full-close uses guaranteed-fill bounds. **Found BUG-011:** Phase-1-closed + failed re-creation -> exposure 0 -> controller fully unwinds the short mid-crash while the LP's SOL sits in the wallet (oracle gate makes failed swaps MORE likely in fast moves). Fixed with a 20-cycle (~5 min) no-LP grace window before any hedge decision in the no-position branch. Also documented HOLE-2 (out-of-range-below position has true delta = full lpSol vs midpoint's half — matters only if recenters stall during a crash; folded into the post-verdict crash-mode design).
+
 ### Session 17d — срез #4 + first live validation of the range-geometry tool (found & fixed a skill-engine bug)
 
 **Срез #4 (~13:57Z):** beats-sol-only — equity 369.11 USD (−3.58), vs HODL-SOL +2.55, vs HODL-as-is +0.69. Interpretation note recorded: the as-is edge breathes ±0.5 USD per 30¢ SOL move because ~1.29 idle wallet SOL is unhedged BY DESIGN (hedge covers LP only) — short-horizon edge wiggles are the idle-wallet delta, not strategy performance; judge the strategy by the decomposition.

@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Usage</title>
+<style>
+:root{
+  /* neutrals (warm near-blacks & cool greys) */
+  --color-ink-900:rgb(2,9,21);--color-ink-800:rgb(7,20,31);--color-ink-700:rgb(15,39,63);
+  --color-ink-600:rgb(18,31,47);--color-ink-500:rgb(30,50,74);--color-ink-400:rgb(43,69,101);
+  --color-ink-300:rgb(68,117,154);--color-ink-200:rgb(127,138,152);--color-ink-100:rgb(180,190,205);
+  /* borders + surfaces */
+  --color-border:rgb(213,220,230);--color-border-soft:rgb(238,242,246);
+  --color-surface-0:rgb(255,255,255);--color-surface-1:rgb(249,249,249);
+  --color-surface-2:rgb(244,249,252);--color-surface-3:rgb(238,242,246);
+  /* accent blues */
+  --color-blue-50:rgb(244,248,253);--color-blue-100:rgb(233,241,250);--color-blue-150:rgb(223,238,255);
+  --color-blue-200:rgb(221,233,248);--color-blue-300:rgb(193,219,250);--color-blue-400:rgb(132,178,233);
+  --color-blue-500:rgb(130,165,206);--color-blue-600:rgb(68,117,154);--color-blue-700:rgb(27,88,156);
+  --color-blue-800:rgb(13,69,113);--color-blue-900:rgb(3,22,49);
+  /* secondary accents */
+  --color-purple-500:rgb(112,70,198);--color-purple-100:rgb(241,234,255);
+  --color-teal-500:rgb(0,200,187);--color-magenta-500:rgb(252,65,255);--color-violet-500:rgb(128,68,255);
+  /* semantic */
+  --fg-primary:var(--color-ink-600);--fg-secondary:var(--color-ink-400);--fg-tertiary:var(--color-ink-200);
+  --fg-muted:var(--color-ink-100);--fg-accent:var(--color-blue-400);--fg-on-dark:var(--color-surface-0);
+  --bg-page:var(--color-surface-0);--bg-surface:var(--color-surface-1);--bg-quiet:var(--color-surface-2);--bg-chip:var(--color-surface-3);
+  --bg-sky-soft:linear-gradient(180deg,rgb(233,241,250) 0%,rgb(223,238,255) 100%);
+  --bg-diamond:radial-gradient(circle,rgb(252,65,255) 0%,rgb(128,68,255) 49%,rgba(128,68,255,0) 100%);
+  /* borders / radii */
+  --border-hairline:1px solid var(--color-border);--border-soft:1px solid var(--color-border-soft);--border-accent:1px solid var(--color-blue-400);
+  --radius-xs:4px;--radius-sm:8px;--radius-md:12px;--radius-lg:16px;--radius-xl:24px;--radius-pill:999px;
+  /* spacing (4px base) */
+  --space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:24px;--space-6:32px;--space-7:48px;--space-8:64px;--space-9:80px;--space-10:128px;
+  /* shadows (subtle, warm tint) */
+  --shadow-xs:0 1px 2px rgba(96,0,228,.03);--shadow-sm:0 2px 8px rgba(96,0,228,.06);
+  --shadow-md:0 8px 24px rgba(96,0,228,.06),0 1px 2px rgba(23,219,207,.02);
+  --shadow-lg:0 20px 40px rgba(2,9,21,.08),0 2px 8px rgba(96,0,228,.06);
+  --shadow-focus:0 0 0 3px rgba(132,178,233,.35);
+  /* type families — no bundled fonts; first names are preferences only */
+  --font-display:"Aeonik","Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  --font-body:"Geist","Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  --font-mono:"Geist Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  /* type scale */
+  --type-display-xl:500 56px/1.1 var(--font-display);--type-display-lg:500 40px/1.2 var(--font-display);
+  --type-h1:500 40px/1.2 var(--font-display);--type-h2:500 32px/1.2 var(--font-display);
+  --type-h3:500 24px/1.2 var(--font-display);--type-h4:500 20px/1.2 var(--font-display);
+  --type-h5:500 16px/1.3 var(--font-display);--type-h6:500 14px/1.3 var(--font-display);
+  --type-body-lg:400 18px/1.4 var(--font-body);--type-body:400 16px/1.4 var(--font-body);
+  --type-body-sm:400 14px/1.4 var(--font-body);--type-body-xs:400 12px/1.4 var(--font-body);
+  --type-overline:500 14px/1.4 var(--font-mono);--type-overline-sm:500 12px/1.3 var(--font-mono);
+  --type-label:500 12px/14px var(--font-body);
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg-page);color:var(--fg-primary);font:var(--type-body);
+  -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+h1{font:var(--type-h1);margin:0}h2{font:var(--type-h2);margin:0}h3{font:var(--type-h3);margin:0}
+h4{font:var(--type-h4);margin:0}h5{font:var(--type-h5);margin:0}h6{font:var(--type-h6);margin:0}
+p{font:var(--type-body);color:var(--fg-secondary);margin:0}
+::selection{background:var(--color-blue-150)}
+a{color:var(--fg-primary);text-decoration:underline;text-underline-offset:2px;text-decoration-thickness:1px}
+a:hover{color:var(--color-blue-700)}
+.mono{font-family:var(--font-mono)}
+.overline{font:var(--type-overline);text-transform:uppercase;letter-spacing:.03em;color:var(--color-blue-500)}
+code,kbd,samp{font:var(--type-body-sm);font-family:var(--font-mono);background:var(--bg-chip);padding:2px 6px;border-radius:var(--radius-xs)}
+/* inside a <pre> block, code/kbd/samp are the block body, not inline chips:
+   drop the chip background/padding so they inherit the <pre>'s own colours
+   (otherwise the light chip bg paints behind light-on-dark code = unreadable). */
+pre code,pre kbd,pre samp{background:none;padding:0;border-radius:0;font:inherit;color:inherit}
+
+/* ---------- shared chrome ---------- */
+.wrap{max-width:1040px;margin:0 auto;padding:0 32px}
+.wrap.wide{max-width:1240px}
+
+/* brand slot */
+.brand{display:inline-flex;align-items:center;gap:9px;color:var(--color-ink-600);text-decoration:none}
+.brand svg{width:22px;height:22px;display:block;color:var(--color-blue-700)}
+.brand-img{height:24px;width:auto;display:block}
+.brand-text{font:var(--type-h6);font-weight:500;color:var(--color-ink-700);letter-spacing:-.01em}
+.brand-link{text-decoration:none}
+.brand-placeholder{border:1px dashed var(--color-blue-300);border-radius:var(--radius-pill);
+  padding:5px 13px 5px 11px;color:var(--color-blue-600)}
+.brand-placeholder .brand-text{font:var(--type-overline-sm);text-transform:uppercase;letter-spacing:.08em;color:var(--color-blue-600)}
+.brand-placeholder svg{width:16px;height:16px}
+
+/* topbar */
+.topbar{position:sticky;top:0;z-index:30;background:rgba(255,255,255,.86);
+  backdrop-filter:saturate(1.2) blur(8px);border-bottom:var(--border-hairline)}
+.topbar .wrap{display:flex;align-items:center;gap:16px;height:64px}
+.topbar .crumb{font:var(--type-body-sm);color:var(--fg-tertiary);display:flex;gap:8px;align-items:center;white-space:nowrap}
+.topbar .crumb b{color:var(--fg-secondary);font-weight:500}
+.topbar .crumb span.sep{color:var(--color-ink-100)}
+.topbar .sp{flex:1}
+.topbar .pilltag{font:var(--type-overline-sm);text-transform:uppercase;letter-spacing:.08em;white-space:nowrap;
+  color:var(--color-blue-700);background:var(--color-blue-100);padding:6px 12px;border-radius:var(--radius-pill)}
+@media(max-width:620px){.topbar .crumb{display:none}}
+
+/* scroll progress (sits under the topbar) */
+.scrollbar{position:fixed;top:0;left:0;height:3px;width:0;z-index:40;
+  background:linear-gradient(90deg,var(--color-blue-400),var(--color-blue-700));transition:width .12s linear}
+
+/* hero */
+.hero{background:var(--bg-sky-soft);border-bottom:var(--border-hairline);overflow:hidden;position:relative}
+.hero .wrap{display:grid;grid-template-columns:1.15fr .85fr;gap:32px;align-items:center;padding:60px 32px}
+.eyebrow{font:var(--type-overline-sm);text-transform:uppercase;letter-spacing:.16em;color:var(--color-blue-700);
+  margin-bottom:18px;display:flex;align-items:center;gap:10px}
+.eyebrow::before{content:"";width:22px;height:1px;background:var(--color-blue-500);display:inline-block}
+.hero h1{font:var(--type-display-xl);letter-spacing:-.01em;color:var(--color-ink-700);margin:0 0 20px}
+.hero .lede{font:var(--type-body-lg);color:var(--color-ink-500);max-width:42ch;line-height:1.5}
+.hero .audience{margin-top:18px;font:var(--type-body-sm);color:var(--color-ink-400);max-width:46ch;line-height:1.5}
+@media(max-width:860px){.hero .wrap{grid-template-columns:1fr;padding:44px 32px;gap:24px}.hero h1{font:var(--type-display-lg)}}
+
+/* nutshell band */
+.nutshell{background:var(--color-surface-2);border-bottom:var(--border-hairline)}
+.nutshell .wrap{padding:28px 32px;display:flex;gap:20px;align-items:flex-start}
+.nutshell .mark{flex:0 0 auto;width:40px;height:40px;border-radius:var(--radius-md);background:var(--color-ink-600);
+  color:#fff;display:grid;place-items:center}
+.nutshell .mark svg{width:22px;height:22px}
+.nutshell p{font:var(--type-body-lg);color:var(--color-ink-600);line-height:1.55;margin:0}
+
+/* section scaffold */
+section.block{padding:64px 0;border-bottom:var(--border-hairline)}
+section.block:last-of-type{border-bottom:0}
+.kicker{font:var(--type-overline-sm);text-transform:uppercase;letter-spacing:.14em;color:var(--color-blue-500);
+  margin-bottom:14px;display:flex;align-items:center;gap:12px}
+.kicker .hint{color:var(--fg-tertiary);letter-spacing:.06em;text-transform:none;font-family:var(--font-body);font-size:12px}
+h2.sec{font:var(--type-h2);letter-spacing:-.01em;color:var(--color-ink-700);margin:0 0 16px;max-width:24ch}
+.sec-intro{font:var(--type-body-lg);color:var(--color-ink-400);max-width:64ch;line-height:1.55}
+
+/* reveal-on-scroll (gated on .js so it never hides content when JS is off) */
+.js .reveal{opacity:0;transform:translateY(14px);transition:opacity .6s ease,transform .6s ease}
+.js .reveal.in{opacity:1;transform:none}
+/* visually-hidden text for screen readers */
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+/* honour reduced-motion across every generated animation/transition */
+@media(prefers-reduced-motion:reduce){.js .reveal{opacity:1;transform:none}
+  .js *,.js *::before,.js *::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}}
+
+/* footer */
+footer{background:var(--color-ink-900);color:var(--color-blue-100);padding:36px 0}
+footer .wrap{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+footer .brand{color:#fff}
+footer .brand svg{color:var(--color-blue-300)}
+footer .brand-text{color:#fff}
+footer .brand-placeholder{border-color:rgba(255,255,255,.25);color:var(--color-blue-200)}
+footer .brand-placeholder svg,footer .brand-placeholder .brand-text{color:var(--color-blue-200)}
+footer .sp{flex:1}
+footer .meta{font:var(--type-body-sm);color:var(--color-blue-500)}
+
+/* ===== usage report (light editorial) ===== */
+header.ov{background:var(--bg-sky-soft);border-bottom:var(--border-hairline)}
+header.ov .wrap{padding:48px 32px 36px}
+header.ov .eyebrow{font:var(--type-overline-sm);text-transform:uppercase;letter-spacing:.16em;color:var(--color-blue-700);margin-bottom:16px}
+header.ov h1{font:var(--type-display-lg);letter-spacing:-.01em;color:var(--color-ink-700);margin:0 0 10px;font-family:var(--font-mono)}
+#overview{font:var(--type-body-lg);color:var(--color-ink-500);line-height:1.55;max-width:78ch}
+.sub{color:var(--color-ink-400);max-width:74ch;margin-top:14px;font:var(--type-body-sm);line-height:1.6}
+main{padding:40px 0 64px;display:grid;gap:24px}
+.panel{background:var(--color-surface-0);border:var(--border-hairline);border-radius:var(--radius-lg);box-shadow:var(--shadow-sm);padding:24px}
+h2{font:var(--type-h4);color:var(--color-ink-700);margin:0 0 16px}
+.muted{color:var(--fg-tertiary);line-height:1.5}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:16px}
+.stat{border:var(--border-hairline);border-radius:var(--radius-md);background:var(--color-surface-2);padding:18px}
+.stat b{display:block;font:var(--type-h2);font-family:var(--font-display);color:var(--color-ink-700);line-height:1}
+.stat span{display:block;color:var(--fg-tertiary);font:var(--type-overline-sm);text-transform:uppercase;letter-spacing:.08em;margin-top:8px}
+.folder{border:var(--border-hairline);border-radius:var(--radius-lg);background:var(--color-surface-0);padding:18px 20px;margin-top:14px;box-shadow:var(--shadow-xs)}
+.folder h3{margin:0 0 6px;font:var(--type-h5);color:var(--color-ink-700);font-family:var(--font-mono);display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.folder .count{display:inline-flex;align-items:center;justify-content:center;min-width:26px;height:24px;padding:0 8px;border-radius:var(--radius-pill);background:var(--color-ink-600);color:#fff;font:var(--type-overline-sm);font-family:var(--font-mono)}
+.lang{display:inline-flex;border-radius:var(--radius-pill);padding:3px 10px;margin:0 4px 0 0;font:var(--type-overline-sm);font-family:var(--font-mono);background:var(--color-blue-50);color:var(--color-blue-700)}
+.site{display:flex;justify-content:space-between;gap:12px;align-items:baseline;border-top:var(--border-hairline);padding:8px 0;font:var(--type-body-sm)}
+.site:first-of-type{border-top:0}
+.site code{color:var(--color-ink-600);font:var(--type-body-xs);font-family:var(--font-mono);overflow-wrap:anywhere}
+.site .mech{display:inline-block;border-radius:var(--radius-pill);padding:2px 9px;font:var(--type-overline-sm);font-family:var(--font-mono);background:var(--color-surface-2);color:var(--color-ink-500);white-space:nowrap}
+.site .mech.env{background:rgba(0,200,187,.12);color:#007f76}
+.site .mech.route{background:rgba(255,193,7,.16);color:#9a6700}
+.site .mech.lit{background:var(--color-surface-1);color:var(--fg-tertiary)}
+.site .who{color:var(--fg-tertiary);font:var(--type-body-xs);font-family:var(--font-mono)}
+.def{border:var(--border-hairline);border-radius:var(--radius-md);background:var(--color-surface-1);padding:10px 14px;margin-top:8px;font:var(--type-body-sm)}
+.def code{font-family:var(--font-mono);color:var(--color-blue-700)}
+.matched div{color:var(--color-ink-500);font:var(--type-body-xs);line-height:1.5}
+.matched b{color:var(--color-ink-700);font-weight:500;font-family:var(--font-mono);text-transform:uppercase;letter-spacing:.04em;font-size:10px}
+.item.warn{border:1px solid var(--color-blue-300);border-radius:var(--radius-md);background:var(--color-blue-50);padding:14px 16px;margin-top:12px}
+.item.warn strong{color:var(--color-blue-700);font:var(--type-h6);display:block;margin-bottom:4px}
+.item.warn div{color:var(--color-ink-500);font:var(--type-body-sm);line-height:1.5}
+</style>
+</head>
+<body data-chaos-usage>
+<div class="topbar"><div class="wrap"><span class="brand brand-placeholder" title="Pass a `brand` object (name, logo_src, tagline) to label this page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="6" r="2.4"/><circle cx="19" cy="9" r="2.4"/><circle cx="11" cy="18" r="2.4"/><path d="M7 7 17 8.4M16.8 11 12.4 15.8M9 16 6 8.3"/></svg><span class="brand-text">Add your logo</span></span><span class="crumb">Usage<span class="sep">&rsaquo;</span><b>consumers</b></span><span class="sp"></span><span class="pilltag">Usage</span></div></div>
+<header class="ov">
+  <div class="wrap">
+    <div class="eyebrow">Who consumes this</div>
+    <h1 id="title">Usage</h1>
+    <div id="overview"></div>
+    <div class="sub" id="subtitle"></div>
+  </div>
+</header>
+<main>
+  <div class="wrap">
+    <section class="panel"><div id="stats" class="stats"></div></section>
+    <section class="panel" data-usage-defs><h2>Defined at</h2><div class="muted" style="margin-bottom:10px">Where the target itself lives (context &mdash; not a use site).</div><div id="definitions"></div></section>
+    <section class="panel" data-usage-folders><h2>Use sites by subfolder</h2><div class="muted" style="margin-bottom:10px">Most-used folder first. Mechanism shows HOW each site uses the target.</div><div id="folders"></div></section>
+    <section class="panel" data-usage-provenance><h2>How this was generated</h2><div class="muted" style="margin-bottom:10px">Provenance breadcrumbs &mdash; the index queries that produced this report.</div><div id="provenance"></div></section>
+    <section class="panel"><h2>Warnings</h2><div id="warnings"></div></section>
+  </div>
+</main>
+<footer><div class="wrap"><span class="brand brand-placeholder" title="Pass a `brand` object (name, logo_src, tagline) to label this page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="6" r="2.4"/><circle cx="19" cy="9" r="2.4"/><circle cx="11" cy="18" r="2.4"/><path d="M7 7 17 8.4M16.8 11 12.4 15.8M9 16 6 8.3"/></svg><span class="brand-text">Add your company</span></span><span class="sp"></span><span class="meta">generated by Chaos Substrate</span></div></footer>
+<script type="application/json" id="chaos-usage-manifest">{"schema_version":"usage-1","repo_name":"delta_neutral_bot","target":"unwrapWsol","title":"unwrapWsol — usage across delta_neutral_bot","subtitle":"Every place this symbol or surface string is consumed, grouped by subfolder — from user-surface nodes (env vars, routes), reverse code edges (calls/imports), and a literal sweep. Resolved entirely from the index; no repo grep.","overview":"`unwrapWsol` is defined in src/modules/jupiterPerpsEngine.ts and used at 6 site(s) across 2 subfolder(s): src and (root).","definitions":[{"name":"unwrapWsol","kind":"function","file":"src/modules/jupiterPerpsEngine.ts","line":627}],"folders":[{"folder":"src","site_count":4,"languages":["TypeScript"],"sites":[{"file":"src/cli/jupiter-hedge.ts","line":91,"mechanism":"calls","consumer":"main","kind":"function","language":"TypeScript","retrieved_by":[]},{"file":"src/modules/autoTuneOrchestrator.ts","line":714,"mechanism":"calls","consumer":"maybeRebalanceHedge","kind":"function","language":"TypeScript","retrieved_by":[]},{"file":"src/modules/jupiterPerpsEngine.ts","line":93,"mechanism":"references (literal)","consumer":"","kind":"chunk","language":"TypeScript","retrieved_by":["literal"]},{"file":"src/modules/jupiterPerpsEngine.ts","line":500,"mechanism":"references (literal)","consumer":"","kind":"chunk","language":"TypeScript","retrieved_by":["literal"]}]},{"folder":"(root)","site_count":2,"languages":["Markdown"],"sites":[{"file":"CLAUDE.md","line":58,"mechanism":"references (literal)","consumer":"","kind":"chunk","language":"Markdown","retrieved_by":["literal"]},{"file":"HANDOVER.md","line":132,"mechanism":"references (literal)","consumer":"","kind":"chunk","language":"Markdown","retrieved_by":["literal"]}]}],"provenance":[{"source":"postgres","method":"nodes_by_name_exact","detail":"resolved `unwrapWsol` → 1 graph node(s): 1 definition(s), 0 user-surface use site(s)"},{"source":"graph","method":"consumers_of_nodes","detail":"reverse-edge lookup over the persisted graph → 2 consumer reference(s) (calls/imports/uses_type/implements/tests/depends_on) of the definition node(s)"},{"source":"postgres","method":"literal_search","detail":"literal chunk sweep for `unwrapWsol` → 6 reference(s) (sampled ≤2/file)"},{"source":"graph","method":"usage_aggregation","detail":"grouped 6 use site(s) into 2 subfolder(s)"}],"warnings":["Reverse-edge consumers (calls/imports) resolve cross-file only when the symbol name is repo-unique; ambiguously-named consumers may be undercounted. The literal sweep backstops this but samples ≤2 hits per file."]}</script>
+<script>
+(function(){
+var D=JSON.parse(document.getElementById("chaos-usage-manifest").textContent);
+function esc(v){return String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#039;");}
+document.getElementById("title").textContent=D.title||"Usage";
+document.getElementById("overview").textContent=D.overview||"";
+document.getElementById("subtitle").textContent=D.subtitle||"";
+var F=D.folders||[];
+var totalSites=F.reduce(function(a,f){return a+(f.site_count||0);},0);
+var stat=[[totalSites,"use sites"],[F.length,"subfolders"],[(D.definitions||[]).length,"definitions"],[(D.warnings||[]).length,"warnings"]];
+document.getElementById("stats").innerHTML=stat.map(function(s){return '<div class="stat"><b>'+s[0]+'</b><span>'+s[1]+'</span></div>';}).join("");
+var defs=document.getElementById("definitions");
+(D.definitions||[]).forEach(function(d){var el=document.createElement("div");el.className="def";el.innerHTML='<code>'+esc(d.name)+'</code> <span class="who">'+esc(d.kind)+'</span> &middot; <code>'+esc(d.file)+(d.line?':'+d.line:'')+'</code>';defs.appendChild(el);});
+if(!defs.children.length)defs.innerHTML='<div class="muted">No definition node found in the index (the target may be an external symbol or a surface string).</div>';
+function mechClass(m){if(/env/.test(m))return 'env';if(/route/.test(m))return 'route';if(/literal/.test(m))return 'lit';return '';}
+var host=document.getElementById("folders");
+F.forEach(function(f){
+  var el=document.createElement("div");el.className="folder";
+  var langs=(f.languages||[]).map(function(l){return '<span class="lang">'+esc(l)+'</span>';}).join("");
+  var sites=(f.sites||[]).map(function(s){
+    return '<div class="site"><span><span class="mech '+mechClass(s.mechanism)+'">'+esc(s.mechanism)+'</span> <code>'+esc(s.file)+(s.line?':'+s.line:'')+'</code></span>'+(s.consumer?'<span class="who">'+esc(s.consumer)+' &middot; '+esc(s.kind)+'</span>':'<span class="who">'+esc(s.kind)+'</span>')+'</div>';
+  }).join("");
+  el.innerHTML='<h3><span class="count">'+(f.site_count||0)+'</span>'+esc(f.folder)+' '+langs+'</h3>'+sites;
+  host.appendChild(el);
+});
+if(!host.children.length)host.innerHTML='<div class="muted">No use sites found. Verify the exact name/string, or index the consuming files (chaos_analyze).</div>';
+var prov=document.getElementById("provenance");
+(D.provenance||[]).forEach(function(c){var el=document.createElement("div");el.className="matched";el.innerHTML='<div><b>'+esc(c.source)+'</b> '+esc(c.method)+'</div><div class="muted">'+esc(c.detail)+(c.locator?' &middot; '+esc(c.locator):'')+'</div>';prov.appendChild(el);});
+if(!prov.children.length)prov.innerHTML='<div class="muted">No breadcrumbs recorded.</div>';
+var w=document.getElementById("warnings");
+(D.warnings||[]).forEach(function(x){var el=document.createElement("div");el.className="item warn";el.innerHTML='<strong>Note</strong><div>'+esc(x)+'</div>';w.appendChild(el);});
+if(!w.children.length)w.innerHTML='<div class="muted">No warnings.</div>';
+})();
+</script>
+</body>
+</html>
