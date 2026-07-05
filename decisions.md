@@ -1747,6 +1747,10 @@ with whipsaw losses on every V-bottom, and untuneable without a backtester.
   upward, 120+ USD); recovery is automatic when volatility calms.
 - `hedge_actions.lp_sol` now records LP-delta + idle wallet SOL (the full
   hedge input).
+- Verified invariant: the combined input is UNCHANGED by recenter-phase
+  wallet↔LP transfers (they cancel inside the sum) — full-portfolio mode
+  does NOT reintroduce ADR-019's recenter churn; only real SOL↔USDC swaps
+  move the target, which is exactly when adjusting is correct.
 - Costs: ~2 extra hedge trades per storm episode (~12bps of the clamped
   amount round-trip) + carry on the idle-SOL notional.
 - Rollback: HEDGE_INCLUDE_WALLET_SOL=false, LP_VOL_PAUSE_PCT_5M=0 + redeploy.
