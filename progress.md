@@ -7,6 +7,14 @@
 
 ## 2026-07-05
 
+### Session 17b — срез #3 + analyzer: midpoint validated; dashboard taught about ADR-019
+
+**Срез #3 (Jul 5 ~13:00Z, 1.7d window):** beats-sol-only — equity $368.85 (−$3.84, SOL $82.50→$80.84); vs HODL-SOL **+$3.68**, vs **HODL-as-is +$1.39** (first confidently positive; was −$0.56 pre-midpoint → +$1.95 over the midpoint night). APRs still noise.
+
+**Analyzer (midpoint window Jul 4 16:42Z → Jul 5 13:00Z, ~20.3h):** hedge mutations **0** (prior 20h: 178) with 29 LP recenters; LP fees $1.94; swaps 6/$196 vol, avg impact 0.026%; network $0.05 (BUG-010 live); carry −$0.01/d; all invariants green, churn red-line cleared. Decomposition: LP-side net −$0.17 (fees $0.97, IL −$1.04) while hedge uPnL +$1.08 — the short did its job on the dump. Sub-15-min positions still uniformly negative → re-trigger dampener remains the Tuesday candidate. Balance movements fully reconciled (collateral top-up 16:40Z + LP flows + swaps); no external flows.
+
+**Fixed:** dashboard delta ignored `HEDGE_LP_INPUT` — showed live-based netΔ −0.50 `outOfBand:true` while the controller sat in band at −0.197. `dashboardData` now computes the controller's view (midpoint via `computeLpMidpointSol`), exposes `lpSolLive` + `hedgeLpInput` alongside. ADR-020 code verified inside the running container (deploy was already live from Session 17).
+
 ### Session 17 — Kamino research applied: oracle-gated swaps + net-return decomposition (ADR-020)
 
 **Research (Jul 4, deep-research run wf_ce2f2699-2a8, 102 agents):** Kamino (ex-Hubble) = range-exit recentering + auto-compound — structurally our own strategy, but wrapped in fees (per-vault deposit/withdrawal/performance; performance charged on GROSS compounded fees without IL netting or high-water-mark). Glow (Blueprint Finance) turned out to be a margin/lending protocol (rebuilt Jet), not a CLMM manager — nothing to borrow for LP; its fee code shipped a Critical Halborn finding pre-launch. Borrowed the two best Kamino practices (operator approved):

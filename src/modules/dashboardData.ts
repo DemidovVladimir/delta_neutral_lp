@@ -15,6 +15,8 @@
 import { Connection, PublicKey } from '@solana/web3.js';
 import { getAssociatedTokenAddress } from '@solana/spl-token';
 import { getSolPrice } from '../core/priceOracle.js';
+import { getConfig } from '../config/env.js';
+import { computeLpMidpointSol } from './hedgeController.js';
 import type { MeteoraAdapter } from './meteoraAdapter.js';
 import type { JupiterPerpsEngine } from './jupiterPerpsEngine.js';
 
@@ -57,7 +59,11 @@ export interface DashboardSnapshot {
     liquidationPrice: number | null;
   };
   delta: {
+    /** LP SOL figure the CONTROLLER sees (midpoint in ADR-019 mode, else live). */
     lpSol: number;
+    /** Raw current LP SOL composition, regardless of hedge input mode. */
+    lpSolLive: number;
+    hedgeLpInput: 'live' | 'midpoint';
     shortSol: number; // magnitude of the short (0 if none)
     netDeltaSol: number; // lpSol + perpBaseSol; target ≈ 0
     bandSol: number; // deltaThresholdSol
@@ -167,8 +173,18 @@ export async function collectSnapshot(sources: SnapshotSources): Promise<Dashboa
   }
 
   // --- Net delta ---
-  const lpSol = lp.available ? lp.solAmount : 0;
-  const netDeltaSol = lpSol + hedge.perpBaseSol;
+  const config = getConfig();
+  // Show the CONTROLLER's view (ADR-019): in 'midpoint' mode the hedge
+  // targets the SOL half of LP value, not the live composition — a live-based
+  // netΔ would false-alarm outOfBand on every intra-range swing while the
+  // controller is perfectly in band. `lpSolLive` is kept alongside so the
+  // operator still sees the raw composition.
+  const lpSolLive = lp.available ? lp.solAmount : 0;
+  const lpSolForDelta =
+    config.hedgeLpInput === 'midpoint' && lp.available
+      ? computeLpMidpointSol(lp.solAmount, lp.usdcAmount, solUsd)
+      : lpSolLive;
+  const netDeltaSol = lpSolForDelta + hedge.perpBaseSol;
   const shortSol = Math.max(0, -hedge.perpBaseSol);
 
   return {
@@ -178,7 +194,9 @@ export async function collectSnapshot(sources: SnapshotSources): Promise<Dashboa
     lp,
     hedge,
     delta: {
-      lpSol,
+      lpSol: lpSolForDelta,
+      lpSolLive,
+      hedgeLpInput: config.hedgeLpInput,
       shortSol,
       netDeltaSol,
       bandSol: deltaThresholdSol,
@@ -216,6 +234,6 @@ export function mockSnapshot(): DashboardSnapshot {
       carryRateBps: -1177, // negative = short pays borrow fee (~11.8% APR)
       liquidationPrice: 198.4,
     },
-    delta: { lpSol, shortSol: 12.0, netDeltaSol, bandSol: 2.0, outOfBand: Math.abs(netDeltaSol) > 2 },
+    delta: { lpSol, lpSolLive: lpSol, hedgeLpInput: 'live', shortSol: 12.0, netDeltaSol, bandSol: 2.0, outOfBand: Math.abs(netDeltaSol) > 2 },
   };
 }
