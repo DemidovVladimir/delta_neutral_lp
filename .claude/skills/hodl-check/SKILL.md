@@ -66,6 +66,34 @@ there is no baseline:
 - Answer the user in Russian; keep report numbers in USD/SOL as printed.
   Always show wallet addresses and identifiers in full, never abbreviated.
 
+## MANDATORY report format (operator feedback 2026-07-05)
+
+The operator was left unsure whether the bot is profitable because a report
+labeled the HODL-USDC edge as «PnL к baseline» without naming it (they are
+the SAME number: HODL-USDC = the frozen baseline total), and never gave a
+one-line bottom line. Every срез MUST render this block, all three
+benchmarks explicitly labeled in plain language, then ONE verdict sentence:
+
+```
+ВЕРДИКТ СРЕЗА (окно N дней):
+  🤖 Бот vs «ничего не делать» (HODL-as-is):  ±X USD   ← ГЛАВНОЕ ЧИСЛО
+  💵 Портфель vs «всё в USDC» (= PnL к baseline): ±Y USD
+  🌊 Портфель vs «всё в SOL»:                  ±Z USD
+Итог: <одно предложение: бот заработал/потерял X USD относительно
+бездействия за N дней; тренд этого числа между срезами; когда финальный
+вердикт кампании>.
+```
+
+Interpretation rules for the block:
+- «Бот выгоден?» отвечает ТОЛЬКО строка vs HODL-as-is и её ТРЕНД между
+  срезами — fees + hedge PnL − IL − все косты относительно полного
+  бездействия. Один срез — точка; тренд — ответ.
+- vs HODL-USDC (= PnL к baseline) дышит вместе с ценой SOL, потому что
+  часть портфеля (idle-кошелёк) держит SOL нехеджированным by design; не
+  подавать его как успех/провал бота.
+- Never write a dollar sign followed by a digit in this file (skill-engine
+  arg substitution) — use `N USD`.
+
 ## After every срез: run the strategy analyzer
 
 Once the срез is reported, invoke the `strategy-analyzer` project skill
