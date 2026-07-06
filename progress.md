@@ -7,6 +7,10 @@
 
 ## 2026-07-06
 
+### Session 18 (addendum, evening) — Rust simulator stage 1 shipped
+
+Operator reprioritized the simulator above the Jul 7 verdict tasks («Симулятор важнее, начинай с него»). Shipped `simulator/` (Rust, commit `a2bd981`, both branches): per-bin Spot position model where fees and IL EMERGE from bin-sweep conversions (no bolted-on formulas), candle→price-leg replay, Binance SOLUSDC 1m loader with CSV cache. 13 tests green incl. golden fixtures pinned to REAL Campaign-2 on-chain snapshots: three live compositions reproduced to <0.75pp (en route the test itself caught that the bot's logged ranges span 18–20 bin steps — creation convention deferred to the stage-3 replay), full-traversal IL = V·w/8, whipsaw fee proportionality. First unreconciled replay of the real Jul 5–6 night: static position $2.19 fees vs the real recentering bot's $2.77 claimed — right universe before any calibration. Verification strategy (operator asked about a parallel TS engine): NO TS twin — shared JSON test vectors exported from hedgeController.test.ts (stage 2, task #7) + the replay-vs-pnl.db authenticity gate (stage 3, task #8) before any parameter search is trusted.
+
 ### Session 18 — срез #6 + health test: чоповая ночь вскрыла clamp-флаппинг и cap-pin (BUG-012)
 
 **Срез #6 (08:17Z, 2.49d):** vs as-is **+1.09 USD**, vs USDC −4.70, vs SOL +3.62 (beats-sol-only). Like-for-like day (Jul 5 00:17Z px 81.54 → Jul 6 00:17Z px 81.53, same price): edge fell +1.12 → −1.06 = **−2.2 USD за сутки чопа** — the night's cost, not price drift.
