@@ -49,6 +49,8 @@ export interface HedgeDecisionInput {
   walletSol: number;
   /** SOL that must stay in the wallet (MINIMUM_WALLET_BALANCE_SOL + RENT_RESERVE_SOL). */
   walletReserveSol: number;
+  /** Wallet USDC balance (short collateral comes from here). */
+  walletUsdc: number;
 
   // Config
   targetDeltaSol: number;
@@ -190,6 +192,32 @@ function guardIncrease(
     sizeUsd = headroomUsd;
     adjustSol = sizeUsd / price;
   }
+
+  // BUG-013: the side's collateral must physically exist in the wallet —
+  // fill what we CAN collateralize (same philosophy as the headroom fill
+  // above). Shorts post USDC, longs post SOL above reserves. The old static
+  // notional cap masked this hole; without the guard an oversized increase
+  // fails simulation every cycle until the 5-error kill switch disables the
+  // hedge entirely — strictly worse than a partial fill.
+  const availableCollateral =
+    side === 'short'
+      ? Math.max(0, input.walletUsdc) // USDC ≈ USD
+      : Math.max(0, (input.walletSol - input.walletReserveSol) * price);
+  if (sizeUsd * input.targetCollateralRatio > availableCollateral) {
+    const affordableUsd = availableCollateral / input.targetCollateralRatio;
+    if (affordableUsd < MIN_HEDGE_INCREASE_USD) {
+      return {
+        action: 'blocked',
+        reason:
+          side === 'short'
+            ? `short collateral $${(sizeUsd * input.targetCollateralRatio).toFixed(2)} exceeds wallet USDC $${input.walletUsdc.toFixed(2)} and the affordable size $${affordableUsd.toFixed(2)} is below the $${MIN_HEDGE_INCREASE_USD} minimum increase`
+            : `long collateral ${((sizeUsd * input.targetCollateralRatio) / price).toFixed(4)} SOL exceeds available wallet SOL ${Math.max(0, input.walletSol - input.walletReserveSol).toFixed(4)} above reserves and the affordable size $${affordableUsd.toFixed(2)} is below the $${MIN_HEDGE_INCREASE_USD} minimum increase`,
+      };
+    }
+    sizeUsd = affordableUsd;
+    adjustSol = sizeUsd / price;
+  }
+
   const projectedNotional = currentNotional + sizeUsd;
 
   const collateralUsd = sizeUsd * input.targetCollateralRatio;
@@ -204,15 +232,12 @@ function guardIncrease(
   }
 
   if (side === 'long') {
-    // Long collateral is native SOL from the wallet — never dip into reserves.
-    const collateralSol = collateralUsd / price;
-    const availableSol = input.walletSol - input.walletReserveSol;
-    if (collateralSol > availableSol) {
-      return {
-        action: 'blocked',
-        reason: `long collateral ${collateralSol.toFixed(4)} SOL exceeds available wallet SOL ${availableSol.toFixed(4)} (balance ${input.walletSol.toFixed(4)} − reserves ${input.walletReserveSol.toFixed(4)})`,
-      };
-    }
+    // Availability was already guaranteed by the collateral fill above; the
+    // min() only absorbs float rounding at the boundary.
+    const collateralSol = Math.min(
+      collateralUsd / price,
+      Math.max(0, input.walletSol - input.walletReserveSol),
+    );
     return { action: 'increase_long', sizeUsd, collateralTokens: collateralSol, adjustSol };
   }
 

@@ -170,9 +170,10 @@ export class JupiterPerpsEngine implements HedgeEngine {
     usdcCustody: any;
     oraclePriceUsd: number;
     walletSol: number;
+    walletUsdc: number;
   }> {
     const connection = this.program.provider.connection;
-    const [longPos, shortPos, solCustody, usdcCustody, priceData, walletLamports] =
+    const [longPos, shortPos, solCustody, usdcCustody, priceData, walletLamports, walletUsdc] =
       await Promise.all([
         this.fetchOpenPosition('long'),
         this.fetchOpenPosition('short'),
@@ -180,6 +181,11 @@ export class JupiterPerpsEngine implements HedgeEngine {
         this.program.account.custody.fetch(CUSTODY.USDC),
         getSolPrice().catch(() => null),
         connection.getBalance(this.walletPubkey).catch(() => 0),
+        // BUG-013: short increases are bounded by the USDC actually present.
+        connection
+          .getTokenAccountBalance(deriveAta(this.walletPubkey, USDC_MINT))
+          .then((r: { value: { uiAmount: number | null } }) => r.value.uiAmount ?? 0)
+          .catch(() => 0), // no ATA / transient RPC error → treat as 0, guard blocks
       ]);
 
     // Carry accrues on the side's COLLATERAL custody: SOL for longs, USDC for
@@ -241,6 +247,7 @@ export class JupiterPerpsEngine implements HedgeEngine {
       usdcCustody,
       oraclePriceUsd,
       walletSol: walletLamports / SOL_DECIMALS_POW,
+      walletUsdc,
     };
   }
 
@@ -730,6 +737,7 @@ export class JupiterPerpsEngine implements HedgeEngine {
       oraclePriceUsd: price,
       walletSol: sides.walletSol,
       walletReserveSol: cfg.minimumWalletBalanceSol + cfg.rentReserveSol,
+      walletUsdc: sides.walletUsdc,
       targetDeltaSol,
       bandSol: cfg.deltaThresholdSol,
       carryCapBps: cfg.hedgeCarryCapBps,

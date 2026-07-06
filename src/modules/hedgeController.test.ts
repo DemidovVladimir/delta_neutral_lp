@@ -18,6 +18,8 @@ function baseInput(overrides: Partial<HedgeDecisionInput> = {}): HedgeDecisionIn
     oraclePriceUsd: 100,
     walletSol: 10,
     walletReserveSol: 0.3,
+    walletUsdc: 1_000_000, // effectively unlimited unless a test narrows it
+
     targetDeltaSol: 0,
     bandSol: 0.5,
     carryCapBps: 5000,
@@ -162,8 +164,21 @@ describe('decideHedgeAction — add delta (error < −band)', () => {
     }
   });
 
-  it('blocks a long increase that would dip into wallet reserves', () => {
+  it('fills a long up to the SOL available above reserves (BUG-013)', () => {
+    // Wants 5 SOL collateral but only 4.7 is above reserves → fill $470.
     const d = decideHedgeAction(baseInput({ targetDeltaSol: 5, walletSol: 5, walletReserveSol: 0.3 }));
+    expect(d.action).toBe('increase_long');
+    if (d.action === 'increase_long') {
+      expect(d.sizeUsd).toBeCloseTo(470, 6);
+      expect(d.collateralTokens).toBeCloseTo(4.7, 9);
+      expect(d.adjustSol).toBeCloseTo(4.7, 9);
+    }
+  });
+
+  it('blocks a long when the SOL above reserves affords less than the minimum increase', () => {
+    const d = decideHedgeAction(
+      baseInput({ targetDeltaSol: 5, walletSol: 0.35, walletReserveSol: 0.3 })
+    );
     expect(d.action).toBe('blocked');
     expect((d as { reason: string }).reason).toContain('reserves');
   });
@@ -200,6 +215,23 @@ describe('decideHedgeAction — increase guards', () => {
       expect(d.adjustSol).toBeCloseTo(-120, 9);
       expect(d.collateralTokens).toBeCloseTo(12_000, 6); // ratio 1.0, USDC
     }
+  });
+
+  it('fills a short up to the USDC actually in the wallet (BUG-013)', () => {
+    // Wants $500 collateral (ratio 1.0) but the wallet holds 50 USDC → fill $50.
+    const d = decideHedgeAction(baseInput({ lpSol: 5, walletUsdc: 50 }));
+    expect(d.action).toBe('increase_short');
+    if (d.action === 'increase_short') {
+      expect(d.sizeUsd).toBeCloseTo(50, 6);
+      expect(d.collateralTokens).toBeCloseTo(50, 6);
+      expect(d.adjustSol).toBeCloseTo(-0.5, 9);
+    }
+  });
+
+  it('blocks a short when wallet USDC affords less than the minimum increase', () => {
+    const d = decideHedgeAction(baseInput({ lpSol: 5, walletUsdc: 5 }));
+    expect(d.action).toBe('blocked');
+    expect((d as { reason: string }).reason).toContain('USDC');
   });
 
   it('blocks when the cap headroom is below the minimum viable increase', () => {
