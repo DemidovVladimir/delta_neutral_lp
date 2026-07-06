@@ -39,6 +39,12 @@ fn main() {
         if let Some(b) = flag(&args, "--band") {
             params.band_sol = b.parse().expect("--band <sol>");
         }
+        if let Some(d) = flag(&args, "--deadband-bps") {
+            params.arb_deadband = d.parse::<f64>().expect("--deadband-bps <bps>") / 10_000.0;
+        }
+        if let Some(l) = flag(&args, "--latency-ticks") {
+            params.recenter_latency_ticks = l.parse().expect("--latency-ticks <n>");
+        }
         let r = run_strategy(&params, &points);
         println!(
             "strategy replay: {} candles, confirm {}m, {} bins, band {}",

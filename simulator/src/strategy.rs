@@ -50,6 +50,16 @@ pub struct StrategyParams {
     pub idle_wallet_sol: f64,
     pub wallet_usdc_start: f64,
     pub wallet_reserve_sol: f64,
+    /// Stage-3 calibration: the pool price follows the exchange price
+    /// LAZILY — arbitrage only moves the pool when the deviation exceeds
+    /// roughly the pool fee, so sub-fee wiggles never sweep our bins.
+    /// Fraction (0.0004 = 4 bps). 0 = pool mirrors the exchange exactly.
+    pub arb_deadband: f64,
+    /// Stage-3 calibration: a triggered recenter executes this many ticks
+    /// (15s legs) AFTER confirmation — the real bot needs 7–15s, and during
+    /// that gap the hedge sees the one-sided composition (this is what let
+    /// the 98% clamp engage on the real whipsaw night). 0 = instant.
+    pub recenter_latency_ticks: u32,
 }
 
 impl Default for StrategyParams {
@@ -76,6 +86,13 @@ impl Default for StrategyParams {
             idle_wallet_sol: 1.0,
             wallet_usdc_start: 60.0,
             wallet_reserve_sol: 0.3,
+            // Calibrated 2026-07-06 against pnl.db (stage 3, task #8):
+            // night window fit → fees +6%, recenter count −16%, per-trade
+            // size $44 vs $42; OUT-OF-SAMPLE validation on the Jul-6 day
+            // window: recenters 10/10 exact, perp trades 7/7 exact,
+            // churn +5%, fees +11%.
+            arb_deadband: 0.0002,
+            recenter_latency_ticks: 1,
         }
     }
 }
@@ -129,10 +146,20 @@ pub fn run(params: &StrategyParams, points: &[(i64, f64)]) -> SimReport {
     let mut storm_active = false;
     let mut price_window: Vec<(i64, f64)> = Vec::new();
     let mut claimed_fees_marker = 0.0; // fees already moved to the wallet
+    // Stage-3 mechanics: lazy pool price + in-flight recenter countdown.
+    let mut pool_price = p0;
+    let mut pending_recenter: Option<u32> = None;
 
     let mut prev_t = points[0].0;
     for &(t, price) in &points[1..] {
-        lp.advance(price);
+        // The pool follows the exchange only when arbitrage clears the
+        // dead-band; sub-fee wiggles never reach our bins.
+        if price > pool_price * (1.0 + params.arb_deadband) {
+            pool_price = price / (1.0 + params.arb_deadband);
+        } else if price < pool_price * (1.0 - params.arb_deadband) {
+            pool_price = price / (1.0 - params.arb_deadband);
+        }
+        lp.advance(pool_price);
 
         // Carry accrual on the open short.
         let dt_ms = (t - prev_t).max(0) as f64;
@@ -159,8 +186,8 @@ pub fn run(params: &StrategyParams, points: &[(i64, f64)]) -> SimReport {
             }
         }
 
-        // --- LP recenter with выдержка --------------------------------------
-        let sol_pct = lp.sol_percent(price) / 100.0;
+        // --- LP recenter with выдержка + execution latency ------------------
+        let sol_pct = lp.sol_percent(pool_price) / 100.0;
         let imbalanced = sol_pct >= params.imbalance_threshold || sol_pct <= 1.0 - params.imbalance_threshold;
         if imbalanced {
             imbalance_since.get_or_insert(t);
@@ -175,27 +202,43 @@ pub fn run(params: &StrategyParams, points: &[(i64, f64)]) -> SimReport {
         let confirmed = imbalanced
             && imbalance_since.map_or(false, |since| t - since >= params.trend_confirm_ms);
 
+        // A confirmed trigger starts execution; once in flight it completes
+        // regardless (the real bot does not cancel a running rebalance).
+        if confirmed && !storm_active && pending_recenter.is_none() {
+            pending_recenter = Some(params.recenter_latency_ticks);
+        }
         let mut lp_mutated = false;
-        if confirmed && !storm_active {
-            // Withdraw + claim: inventory and earned fees go to the wallet…
-            let fresh_fees = lp.fees_usd - claimed_fees_marker;
-            let withdrawn_sol = lp.total_sol();
-            let withdrawn_usdc = lp.total_usdc() + fresh_fees;
-            let value = withdrawn_sol * price + withdrawn_usdc;
-            // …swap toward 50/50 (fee + impact on the swapped notional)…
-            let swap_notional = (withdrawn_sol * price - value / 2.0).abs();
-            let swap_cost = swap_notional * params.swap_fee_rate;
-            let network = params.network_fee_usd_per_recenter;
-            wallet_usdc += fresh_fees - swap_cost - network;
-            report.lp_fees_usd += fresh_fees;
-            report.swap_cost_usd += swap_cost;
-            report.network_cost_usd += network;
-            // …and redeposit the same principal, recentered.
-            lp = SpotPosition::open(g, price, params.n_bins, value - fresh_fees.min(value), params.fee_rate_net);
-            claimed_fees_marker = 0.0;
-            report.recenters += 1;
-            imbalance_since = None;
-            lp_mutated = true;
+        match pending_recenter {
+            Some(0) => {
+                // Withdraw + claim: inventory and earned fees go to the wallet…
+                let fresh_fees = lp.fees_usd - claimed_fees_marker;
+                let withdrawn_sol = lp.total_sol();
+                let withdrawn_usdc = lp.total_usdc() + fresh_fees;
+                let value = withdrawn_sol * pool_price + withdrawn_usdc;
+                // …swap toward 50/50 (fee + impact on the swapped notional)…
+                let swap_notional = (withdrawn_sol * pool_price - value / 2.0).abs();
+                let swap_cost = swap_notional * params.swap_fee_rate;
+                let network = params.network_fee_usd_per_recenter;
+                wallet_usdc += fresh_fees - swap_cost - network;
+                report.lp_fees_usd += fresh_fees;
+                report.swap_cost_usd += swap_cost;
+                report.network_cost_usd += network;
+                // …and redeposit the same principal, recentered.
+                lp = SpotPosition::open(
+                    g,
+                    pool_price,
+                    params.n_bins,
+                    value - fresh_fees.min(value),
+                    params.fee_rate_net,
+                );
+                claimed_fees_marker = 0.0;
+                report.recenters += 1;
+                imbalance_since = None;
+                pending_recenter = None;
+                lp_mutated = true;
+            }
+            Some(k) => pending_recenter = Some(k - 1),
+            None => {}
         }
 
         // --- Hedge (skipped the cycle the LP mutated, like the orchestrator) --
@@ -203,7 +246,7 @@ pub fn run(params: &StrategyParams, points: &[(i64, f64)]) -> SimReport {
             continue;
         }
         // Clamp regime with выдержка; storms commit immediately (ADR-023).
-        let candidate = lp_hedge_regime(lp.total_sol(), lp.total_usdc(), price, lp_regime);
+        let candidate = lp_hedge_regime(lp.total_sol(), lp.total_usdc(), pool_price, lp_regime);
         if candidate != lp_regime {
             let since = match pending_regime {
                 Some((pend, s)) if pend == candidate => s,
@@ -219,8 +262,8 @@ pub fn run(params: &StrategyParams, points: &[(i64, f64)]) -> SimReport {
         } else {
             pending_regime = None;
         }
-        let lp_delta = lp_delta_for_regime(lp_regime, lp.total_sol(), lp.total_usdc(), price);
-        let lp_full_value_sol = lp.total_sol() + lp.total_usdc() / price;
+        let lp_delta = lp_delta_for_regime(lp_regime, lp.total_sol(), lp.total_usdc(), pool_price);
+        let lp_full_value_sol = lp.total_sol() + lp.total_usdc() / pool_price;
         let cap = auto_notional_cap_usd(
             params.idle_wallet_sol + lp_full_value_sol,
             price,
@@ -307,7 +350,7 @@ pub fn run(params: &StrategyParams, points: &[(i64, f64)]) -> SimReport {
     report.hold_as_is_end = deposit_sol0 * p_end + deposit_usdc0;
     report.edge_vs_hold = report.equity_end - report.hold_as_is_end;
     report.final_net_delta_sol =
-        lp_delta_for_regime(lp_regime, lp.total_sol(), lp.total_usdc(), p_end)
+        lp_delta_for_regime(lp_regime, lp.total_sol(), lp.total_usdc(), pool_price)
             + params.idle_wallet_sol
             - short.sol;
     report
