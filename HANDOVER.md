@@ -1,16 +1,13 @@
 # HANDOVER — Delta-Neutral Bot (LP + Jupiter Perps hedge, both sides)
 
-**Last updated:** 2026-07-04 (end of Session 16b)
-**Branch:** `feature/hedge-jupiter-perps-pivot` — pushed to `origin` (github.com:DemidovVladimir/delta_neutral_lp) at `3e109b0`, 2026-07-04
-**Status:** **LIVE AND HEALTHY.** Deployed 2026-07-04 ~11:14Z at `5a56b6f`. The BUG-008 brick-loop
-(bot silently down 04:33→10:45Z) is fixed and verified live; ADR-018 band 0.25 / cooldown 600s
-active (banner-confirmed); LP `93Ze55Pao1jDHbbE5VBBBWoe84ATXA1nHMKs5BeUgrRD` in range; hedge short
-0.531 SOL, netΔ in band with ZERO hedge trades since 04:32 (band absorbs bin noise as designed).
-Wallet janitor closed all 17 legacy dust ATAs on first run (+0.0350436 SOL rent reclaimed).
-**Campaign 2 baseline was ADJUSTED to $369.80143962251805** (operator top-up +0.872936368 SOL at
-10:47:15Z folded into the SOL side — see the baseline note field); verdict still Tuesday Jul 7.
-Watch-fors: `transactions.fee_sol` should populate on the next LP rebalance (BUG-010 fix, deployed
-but not yet exercised); janitor re-runs every 6h (should find 0).
+**Last updated:** 2026-07-06 (end of Session 18)
+**Branch:** `feature/hedge-jupiter-perps-pivot` — pushed to `origin` (github.com:DemidovVladimir/delta_neutral_lp) at `0df7bf4`, 2026-07-06
+**Status:** **LIVE at `0df7bf4`** (three same-day deploys Jul 6: ADR-022 auto-cap 10:23Z → BUG-013
+collateral-fill 10:46Z → ADR-023 выдержка 5 мин ~11:26Z). RestartCount 0, hedge in band
+(netΔ +0.0017 on the first ADR-023 cycle). **Campaign 2 baseline $372.69253481882396**
+(twice-adjusted; do NOT re-init). Full Jul-6 story: progress.md Session 18, ADR-022/023,
+BUG-012/013. Срез #6: vs as-is +1.09 / vs USDC −4.70 / vs SOL +3.62; the Jul 5–6 whipsaw
+night cost −2.2 USD like-for-like (clamp churn, now dampened).
 
 ---
 
@@ -75,26 +72,66 @@ it; utilization spikes in carry; the first live long-close/unwrap if a long ever
   design) until the FIRST rebalance creates the next position; from then on stats are complete.
   `hedge_actions` records fine regardless.
 
-## Next-session checklist (start here)
+## Jul 7 checklist — ВЕРДИКТ дня (operator-approved plan; commands inline, no re-derivation needed)
 
-1. Read state: `pnpm logs:hetzner` (or `ssh root@167.233.105.131 'cd /opt/delta-bot && docker compose logs --tail=200'`), local `pnpm dashboard --json`, and on-server pnl:
-   `ssh root@167.233.105.131 'cd /opt/delta-bot && docker compose exec -T delta-neutral-bot ./node_modules/.bin/tsx src/cli/pnl.ts'`.
-2. Questions to answer for the operator (he speaks Russian, wants a profitability read):
-   - **Whole-strategy vs HODL: `pnpm hodl`** (campaign-level verdict; skill: `.claude/skills/hodl-check`).
-     **Campaign 2 baseline** (local `data/hodl-baseline.json` + server copy): captured
-     2026-07-03T20:26:42.414Z, 2.237812341 SOL + 113.16 USDC @ $82.50 = $297.78, note
-     "Campaign 2: ~$100 working capital". Do NOT re-init without the operator asking.
-     Daily history: server crontab (00:17 UTC) appends to /opt/delta-bot/data/hodl-history.jsonl.
-     **Operator plan: срез Jul 4 (sanity), verdict Tuesday Jul 7 (~3.5-day window).**
-   - How many LP rebalances happened; realized PnL vs HODL benchmarks (`pnpm pnl`).
-   - How many hedge adjustments (`hedge_actions` table), did net ΔSOL stay in the ±0.1 band.
-   - Fee income rate vs carry cost; network fees burned.
-3. If the hedge ever opened a LONG and closed it: verify the wSOL unwrap path worked live (first
-   live exercise of that path; the loop's idle-unwrap should have folded wSOL back to native).
-4. Consider: push the branch to a remote (12 local commits, no backup!) and open a PR to main.
-5. Emergency commands if something looks wrong: `pnpm hedge:emergency --live` flattens ALL perp
-   positions at any price; `ssh … docker compose down` stops the bot; LP can be closed from the
-   Meteora UI or by the bot's own withdrawClaimAndClose.
+**Regime timeline (compare windows, NEVER average across them):**
+tight-band Jul 3 20:26Z→Jul 4 04:33Z → outage 04:33–10:45Z → wide-band live-input →
+midpoint Jul 4 16:42Z → ADR-021 Jul 5 14:47Z → **whipsaw night** (38 recenters, 23 hedge trades) →
+Jul 6: ADR-022 10:23Z (`7ebd0ac`) → hedge SELF-DISABLED 10:25–10:46Z (BUG-013 gap, LP unhedged) →
+BUG-013 fix 10:46Z (`cb09b84`) → **ADR-023 выдержка live ~11:26Z (`0df7bf4`) = финальная машина**.
+Post-11:26Z-Jul-6 rows are the cleanest signal — judge primarily on them.
+
+### 1. Срез #7 + standing order
+
+```bash
+pnpm hodl          # локально; baseline $372.69253481882396 — НЕ переинициализировать
+```
+Then run the `strategy-analyzer` skill (standing order). Mandatory verdict-block format
+(hodl-check SKILL.md). Reference points: срез #6 (Jul 6 08:17Z): vs as-is +1.09 / vs USDC −4.70 /
+vs SOL +3.62; cron rows: Jul 5 00:17Z edge +1.12 @81.54, Jul 6 00:17Z edge −1.06 @81.53.
+
+### 2. Did the выдержка work? (ADR-023 effect check, ~24h window)
+
+```bash
+# pnl.db + WAL (ALWAYS both) → scratchpad:
+bash -c 'source deploy/hetzner/lib.sh; scp "${ssh_args[@]}" "${HETZNER_USER}@${HETZNER_HOST}:/opt/delta-bot/data/pnl.db*" <scratchpad>/'
+sqlite3 pnl.db "SELECT count(*) FROM rebalances WHERE triggered_at >= '2026-07-06T11:26'"
+sqlite3 pnl.db "SELECT action, count(*), round(sum(size_usd),2) FROM hedge_actions WHERE taken_at >= '2026-07-06T11:26' GROUP BY action"
+# сколько пересозданий выдержка отфильтровала (события «сам рассосался»):
+bash -c 'source deploy/hetzner/lib.sh; remote "cd /opt/delta-bot && docker compose logs --since 2026-07-06T11:26:00Z 2>&1 | grep -c \"recenter skipped\""'
+```
+Success criteria: recenters/day **< 40** (night was ~52); hedge trades in chop **≈ 0–2/day**
+(night was 23); no 🚧 blocked-streak banners; netΔ in band in ≥95% of samples.
+If the window filters too little/too much → `TREND_CONFIRM_MS` is one line in .env.
+
+### 3. Campaign verdict (full window)
+
+```bash
+bash -c 'source deploy/hetzner/lib.sh; remote "cat /opt/delta-bot/data/hodl-history.jsonl"'
+```
+Only rows with `baselineCapturedAt: 2026-07-03T20:26:42.414Z` AND benchmarks referencing 372.69
+(older rows reference 297.78/369.80 — re-derive or skip). Judge by the **as-is edge TREND per
+regime**. Run BOTH standing analyzer tools (range-geometry, hedge-economics & idle-capital).
+
+### 4. Operator decisions queue (approve/reject each; auto-scaling principle applies — no hand constants)
+
+1. `HEDGE_TARGET_COLLATERAL_RATIO` 0.5 → 0.33 (ADR-016 allows 3×; frees ~$29 of the $86
+   collateral; CHECK liq price stays ≥ 1.3× spot after the change).
+2. Pool with fatter base fee: `pnpm find-pools` (bin-step 8–10, 0.1%+ SOL/USDC); switching =
+   new campaign (baseline re-init) — decide consciously.
+3. Rebalancing simulator — build or not (gates выдержка tuning and policy-C ideas).
+4. If «machine earns» → scaling conversation (130→300+ USD; cap/collateral now auto-scale
+   per ADR-022, but ratio & band choices deserve a look).
+
+### 5. Health after three same-day deploys
+
+RestartCount / cron row 00:17Z Jul 7 (baseline 372.69) / `data/hodl-cron.err` (only bigint
+warnings) / wallet USDC level (was drained to ~$38 on Jul 6 — does it hamper recenters?) /
+first ⏳ ADR-023 log lines look sane / no 🚧 banners.
+
+Emergency commands if something looks wrong: `pnpm hedge:emergency --live` flattens ALL perp
+positions at any price; `pnpm derisk --live` = red button (LP + perps + all SOL → USDC; stop the
+server loop first); `ssh … docker compose down` stops the bot.
 
 ---
 
