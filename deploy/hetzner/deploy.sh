@@ -37,6 +37,7 @@ rsync -az --delete \
   --exclude node_modules \
   --exclude .git \
   --exclude data \
+  --exclude target \
   --exclude '.env*' \
   --exclude 'deploy/hetzner/host.env' \
   "${REPO_ROOT}/" "${HETZNER_USER}@${HETZNER_HOST}:${REMOTE_DIR}/"
