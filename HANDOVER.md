@@ -119,7 +119,16 @@ regime**. Run BOTH standing analyzer tools (range-geometry, hedge-economics & id
    collateral; CHECK liq price stays ≥ 1.3× spot after the change).
 2. Pool with fatter base fee: `pnpm find-pools` (bin-step 8–10, 0.1%+ SOL/USDC); switching =
    new campaign (baseline re-init) — decide consciously.
-3. Rebalancing simulator — build or not (gates выдержка tuning and policy-C ideas).
+3. Rebalancing simulator — **operator pre-approved Jul 6 evening, in RUST** (ecosystem verified:
+   Meteora dlmm-sdk repo ships Rust crates incl. `commons` = the on-chain bin/quote math;
+   `jup-perps-client` on crates.io; official `jupiter-swap-api-client`). Build plan = tasks #6–8:
+   (1) cargo workspace `simulator/` + bin math + golden tests vs real pnl.db positions;
+   (2) strategy port with SHARED TEST VECTORS — hedgeController.test.ts cases exported to JSON,
+   Rust must pass all 100 (no parallel TS simulator — one truth table, two executors);
+   (3) authenticity gate: replay the real Jul 3–6 price path and reproduce the measured facts
+   (38 recenters/night, $2.77 fees, $966 hedge churn, −2.2 USD/day like-for-like) within
+   tolerance BEFORE any parameter grid-search is trusted. Full bot rewrite in Rust: deferred —
+   the bot is I/O-bound; revisit after the simulator proves the crates.
 4. If «machine earns» → scaling conversation (130→300+ USD; cap/collateral now auto-scale
    per ADR-022, but ratio & band choices deserve a look).
 
