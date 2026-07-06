@@ -3,13 +3,16 @@
 //! in stage 2 — this binary exists to smoke the pipeline end-to-end.
 //!
 //! Usage:
-//!   cargo run --release -- --demo                        # synthetic whipsaw
-//!   cargo run --release -- --from 2026-07-05T14:47:00Z --hours 20   # Binance SOLUSDC
+//!   cargo run --release -- --demo                        # synthetic whipsaw, static position
+//!   cargo run --release -- --from 2026-07-05T14:47:00Z --hours 20   # Binance SOLUSDC, static
+//!   cargo run --release -- --from ... --hours 20 --strategy [--confirm-min 5] [--bins 20] [--band 0.25]
+//!                                                        # FULL strategy loop (recenters + hedge)
 
 use dlmm_simulator::bins::BinGeometry;
 use dlmm_simulator::data::fetch_1m;
 use dlmm_simulator::path::{to_price_points, Candle};
 use dlmm_simulator::position::SpotPosition;
+use dlmm_simulator::strategy::{run as run_strategy, StrategyParams};
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -24,6 +27,46 @@ fn main() {
     };
 
     let points = to_price_points(&candles);
+
+    if args.iter().any(|a| a == "--strategy") {
+        let mut params = StrategyParams::default();
+        if let Some(m) = flag(&args, "--confirm-min") {
+            params.trend_confirm_ms = m.parse::<i64>().expect("--confirm-min <minutes>") * 60_000;
+        }
+        if let Some(b) = flag(&args, "--bins") {
+            params.n_bins = b.parse().expect("--bins <n>");
+        }
+        if let Some(b) = flag(&args, "--band") {
+            params.band_sol = b.parse().expect("--band <sol>");
+        }
+        let r = run_strategy(&params, &points);
+        println!(
+            "strategy replay: {} candles, confirm {}m, {} bins, band {}",
+            candles.len(),
+            params.trend_confirm_ms / 60_000,
+            params.n_bins,
+            params.band_sol
+        );
+        println!("equity: {:.2} → {:.2} | hold-as-is: {:.2}", r.equity_start, r.equity_end, r.hold_as_is_end);
+        println!("EDGE vs hold-as-is:  {:+.4} USD   <- the срез metric", r.edge_vs_hold);
+        println!(
+            "LP fees {:.4} | perp fees {:.4} | carry {:.4} | swaps {:.4} | network {:.4}",
+            r.lp_fees_usd, r.perp_fees_usd, r.carry_paid_usd, r.swap_cost_usd, r.network_cost_usd
+        );
+        println!(
+            "recenters {} (skipped by выдержка: {}) | perp trades {} (${:.0} churn) | storms {} | netΔ end {:+.4}",
+            r.recenters,
+            r.recenters_skipped_by_confirm,
+            r.perp_trades,
+            r.perp_notional_traded_usd,
+            r.storm_pauses,
+            r.final_net_delta_sol
+        );
+        if r.unsupported_long_decisions > 0 {
+            println!("⚠ unsupported long decisions: {}", r.unsupported_long_decisions);
+        }
+        return;
+    }
     let first_price = points[0].1;
     let geometry = BinGeometry::from_bps(4.0);
     let mut position = SpotPosition::open(geometry, first_price, 20, 98.5, 0.0004 * 0.9);

@@ -10,6 +10,8 @@
 //! — stage 3, task #8.
 
 pub mod bins;
+pub mod hedge;
 pub mod data;
 pub mod path;
 pub mod position;
+pub mod strategy;
