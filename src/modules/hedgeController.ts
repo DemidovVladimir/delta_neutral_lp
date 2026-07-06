@@ -306,13 +306,25 @@ export function computeLpHedgeDelta(
     regime = solShare >= enterBelow ? 'below' : solShare <= enterAbove ? 'above' : 'in';
   }
 
-  const deltaSol =
-    regime === 'below'
-      ? lpSolAmount
-      : regime === 'above'
-        ? 0
-        : computeLpMidpointSol(lpSolAmount, lpUsdcAmount, solPriceUsd);
-  return { deltaSol, regime };
+  return { deltaSol: lpDeltaForRegime(regime, lpSolAmount, lpUsdcAmount, solPriceUsd), regime };
+}
+
+/**
+ * The hedge-input SOL delta a given clamp regime implies. Split out so the
+ * orchestrator can keep pricing the CURRENT regime while a candidate regime
+ * change waits out the ADR-023 confirmation window.
+ */
+export function lpDeltaForRegime(
+  regime: LpHedgeRegime,
+  lpSolAmount: number,
+  lpUsdcAmount: number,
+  solPriceUsd: number
+): number {
+  return regime === 'below'
+    ? lpSolAmount
+    : regime === 'above'
+      ? 0
+      : computeLpMidpointSol(lpSolAmount, lpUsdcAmount, solPriceUsd);
 }
 
 /**

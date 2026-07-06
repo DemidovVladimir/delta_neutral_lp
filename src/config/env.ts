@@ -134,6 +134,18 @@ export interface BotConfig {
    */
   lpVolPausePct5m: number;
   /**
+   * ADR-023 («выдержка»): a price move must PERSIST this long before the bot
+   * believes it. Two consumers: (1) the LP recenter fires only after the
+   * composition imbalance holds continuously for this window; (2) the hedge's
+   * out-of-range clamp commits a regime change only after the candidate
+   * regime holds this long — EXCEPT during a volatility storm, where the
+   * clamp reacts immediately (crash protection unchanged). Filters whipsaw
+   * (the measured sell-low-buy-high round trips); real moves pass because
+   * the price does not come back. 0 = disabled (react on first sight).
+   * Env: TREND_CONFIRM_MS (default 0; production 300000 = 5 min)
+   */
+  trendConfirmMs: number;
+  /**
    * Target collateral ratio (collateral / notional) the controller sizes
    * collateral to on an increase. 1.0 = fully collateralized (~1x); ADR-016
    * chose 0.33 (~3x) for capital efficiency — set it in .env.
@@ -349,6 +361,10 @@ function loadConfigFromEnv(): BotConfig {
   if (lpVolPausePct5m < 0) {
     throw new Error('LP_VOL_PAUSE_PCT_5M must be >= 0 (0 disables storm mode)');
   }
+  const trendConfirmMs = parseEnvNumber('TREND_CONFIRM_MS', 0);
+  if (trendConfirmMs < 0) {
+    throw new Error('TREND_CONFIRM_MS must be >= 0 (0 disables the confirmation delay)');
+  }
   const deltaThresholdSol = parseEnvNumber('DELTA_THRESHOLD_SOL', 2);
   const minCollateralRatio = parseEnvNumber('MIN_COLLATERAL_RATIO', 0.15);
   // Renamed from MAX_SHORT_NOTIONAL_USD when the hedge gained the long side;
@@ -453,6 +469,7 @@ function loadConfigFromEnv(): BotConfig {
     hedgeLpInput,
     hedgeIncludeWalletSol,
     lpVolPausePct5m,
+    trendConfirmMs,
     deltaThresholdSol,
     minCollateralRatio,
     maxHedgeNotionalUsd,

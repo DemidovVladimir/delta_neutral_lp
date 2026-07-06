@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeAutoNotionalCapUsd, computeLpHedgeDelta, computeLpMidpointSol, decideHedgeAction, type HedgeDecisionInput } from './hedgeController.js';
+import { computeAutoNotionalCapUsd, computeLpHedgeDelta, computeLpMidpointSol, decideHedgeAction, lpDeltaForRegime, type HedgeDecisionInput } from './hedgeController.js';
 
 /**
  * Table-driven tests over the pure hedge decision core (ADR-017).
@@ -343,5 +343,13 @@ describe('computeAutoNotionalCapUsd (ADR-022)', () => {
     expect(computeAutoNotionalCapUsd(0, 80.5, 1.25, 500)).toBe(500);
     expect(computeAutoNotionalCapUsd(0, 80.5, 1.25, 0)).toBe(0);
     expect(computeAutoNotionalCapUsd(2.63, NaN, 1.25, 500)).toBe(500);
+  });
+});
+
+describe('lpDeltaForRegime (ADR-023)', () => {
+  it('prices each regime independently of the hysteresis state', () => {
+    expect(lpDeltaForRegime('below', 1.22, 3, 82)).toBe(1.22);
+    expect(lpDeltaForRegime('above', 1.22, 3, 82)).toBe(0);
+    expect(lpDeltaForRegime('in', 0.61, 50.02, 82)).toBeCloseTo((0.61 + 50.02 / 82) / 2, 9);
   });
 });

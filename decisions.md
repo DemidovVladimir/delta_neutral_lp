@@ -1824,6 +1824,51 @@ config lines. bugs.md BUG-012; progress.md Session 18.
 
 ---
 
+## ADR-023: Trend confirmation window («выдержка») for recenters and clamp commits
+
+**Date:** 2026-07-06
+**Status:** Accepted (operator: «я не понимаю, почему мы не можем сделать это сейчас»; picked 5 minutes)
+
+### Context
+
+The Jul 5–6 whipsaw night measured the cost of reacting to the first sight
+of a move: 38 recenters (pairs 1–10 min apart — 21:28+21:31, 22:03+22:04),
+23 hedge trades ($966 churn, 73% direction flips), ≈ −2.2 USD like-for-like
+in one day. Both reaction points treat every range exit as the start of a
+crash; in chop the price comes right back and the bot sells low / buys high
+each crossing. The re-trigger dampener was queued for the Tuesday verdict;
+the operator pulled it forward.
+
+### Decision
+
+One knob, `TREND_CONFIRM_MS` (default 0 = off; production 300000 = 5 min,
+operator-picked): a move must persist that long before the bot believes it.
+
+1. **LP recenter:** composition ≥ threshold must hold CONTINUOUSLY for the
+   window (timestamp-based, resets the moment composition returns inside).
+2. **Hedge out-of-range clamp:** a candidate regime change (in/below/above)
+   commits only after persisting the window; until then the hedge input is
+   priced on the COMMITTED regime (`lpDeltaForRegime`). **Storm bypass:**
+   while `volStormActive` the clamp commits immediately — fast crashes
+   (>2%/5min) keep instant protection; the выдержка only filters the slow
+   whipsaw that storms never catch.
+
+### Trade-off
+
+A real slow drift now gets hedged/recentered up to 5 minutes late — at
+current size ≈ 0.6 SOL × drift over 5 min ≈ cents-to-quarters per event,
+versus 25–55 cents saved per filtered round trip and the trend tax
+(−0.22 USD/day, the uniformly-negative <15min lifetime bucket). Fast moves
+are unaffected (storm path). Revisit the window length with the simulator
+if it is ever built.
+
+**Implementation:** orchestrator `imbalanceSince` + `pendingLpRegime`/
+`pendingLpRegimeSince`; `lpDeltaForRegime` extracted from
+`computeLpHedgeDelta`; ⏳ log lines for detected/holding/self-resolved and
+pending-clamp states. 100 tests green. progress.md Session 18.
+
+---
+
 ## Decision Index
 
 - ADR-001: Use solana-agent-kit for Transaction Execution *(superseded — direct @solana/web3.js)*
@@ -1848,12 +1893,13 @@ config lines. bugs.md BUG-012; progress.md Session 18.
 - ADR-020: Kamino-inspired oracle gate for swaps + per-rebalance net-return decomposition (Accepted)
 - ADR-021: Crash-protection package — full-portfolio neutrality, storm mode, red button (Accepted)
 - ADR-022: Auto-sized hedge notional cap + headroom fill (BUG-012) (Accepted)
+- ADR-023: Trend confirmation window («выдержка») for recenters and clamp commits (Accepted)
 
 ---
 
 ## Decision Status
 
-- **Accepted:** 19 (incl. ADR-022 — auto-sized notional cap)
+- **Accepted:** 20 (incl. ADR-023 — trend confirmation window)
 - **Superseded:** 3 (ADR-001 by direct web3.js, ADR-010 by removal of Jito, ADR-014 as active venue by ADR-015)
 - **Proposed:** 0
 - **Deprecated:** 0

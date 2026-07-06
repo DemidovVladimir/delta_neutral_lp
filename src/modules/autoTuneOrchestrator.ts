@@ -61,7 +61,7 @@ import { getConfig } from '../config/env.js';
 import { log } from '../utils/logger.js';
 import { getConnection, getWalletKeypair } from '../utils/solana.js';
 import { closeEmptyTokenAccounts } from './walletJanitor.js';
-import { computeLpHedgeDelta, type LpHedgeRegime } from './hedgeController.js';
+import { computeLpHedgeDelta, lpDeltaForRegime, type LpHedgeRegime } from './hedgeController.js';
 import { DLMM } from '../utils/dlmm.js';
 import { DECIMALS } from '../config/constants.js';
 import { getSolPrice } from '../core/priceOracle.js';
@@ -358,6 +358,17 @@ export class AutoTuneOrchestrator {
   /** Sticky out-of-range clamp regime for the hedge input (ADR-021). */
   private lpHedgeRegime: LpHedgeRegime = 'in';
 
+  /**
+   * ADR-023 («выдержка»): when the composition first went out of threshold,
+   * or null while balanced. The recenter fires only after the imbalance has
+   * held continuously for TREND_CONFIRM_MS — a price that whipsaws back
+   * inside the window resets it and no position is churned.
+   */
+  private imbalanceSince: number | null = null;
+  /** ADR-023: candidate clamp regime waiting out its confirmation window. */
+  private pendingLpRegime: LpHedgeRegime | null = null;
+  private pendingLpRegimeSince = 0;
+
   private recordPriceSample(price: number): void {
     const now = Date.now();
     if (price > 0) this.priceSamples.push({ t: now, p: price });
@@ -549,6 +560,34 @@ export class AutoTuneOrchestrator {
       // storm we hold the one-sided position instead, and the hedge's
       // out-of-range clamp shorts the full SOL bag — a reversible synthetic
       // exit to USDC. Recentering resumes when the 5-minute move calms.
+      // ADR-023 («выдержка»): the imbalance must persist TREND_CONFIRM_MS
+      // before we act on it. A whipsaw that exits the range and comes back
+      // inside the window resets the clock — no recreate, no churn. A real
+      // move keeps the composition pinned and passes untouched (delayed by
+      // the window once).
+      if (balance.isImbalanced) {
+        if (this.imbalanceSince === null) {
+          this.imbalanceSince = Date.now();
+          if (this.config.trendConfirmMs > 0 && !this.watchMode) {
+            log.info('⏳ Imbalance detected — waiting for it to persist before recentering (ADR-023)', {
+              reason: balance.reason,
+              confirmMs: this.config.trendConfirmMs,
+            });
+          }
+        }
+      } else {
+        if (this.imbalanceSince !== null && this.config.trendConfirmMs > 0 && !this.watchMode) {
+          log.info('⏳ Imbalance resolved on its own within the confirmation window — recenter skipped (ADR-023)', {
+            heldMs: Date.now() - this.imbalanceSince,
+          });
+        }
+        this.imbalanceSince = null;
+      }
+      const imbalanceConfirmed =
+        balance.isImbalanced &&
+        this.imbalanceSince !== null &&
+        Date.now() - this.imbalanceSince >= this.config.trendConfirmMs;
+
       if (balance.isImbalanced && this.isVolStormActive(currentPrice)) {
         log.warn('🌩  Storm mode: LP recenter PAUSED, hedge clamps to full position delta', {
           move5mPct: this.lastMove5mPct,
@@ -556,6 +595,15 @@ export class AutoTuneOrchestrator {
           solPercent: balance.solPercent,
           usdcPercent: balance.usdcPercent,
         });
+      } else if (balance.isImbalanced && !imbalanceConfirmed) {
+        if (!this.watchMode) {
+          log.infoSampled('⏳ Imbalance holding — confirmation window running (ADR-023)', {
+            heldMs: this.imbalanceSince === null ? 0 : Date.now() - this.imbalanceSince,
+            confirmMs: this.config.trendConfirmMs,
+            solPercent: balance.solPercent,
+            usdcPercent: balance.usdcPercent,
+          });
+        }
       } else if (balance.isImbalanced) {
         if (!this.watchMode) {
           log.warn('⚠️  Position imbalanced - triggering rebalance', {
@@ -583,6 +631,7 @@ export class AutoTuneOrchestrator {
           this.state.lastRebalance = Date.now();
           this.state.currentPositionMint = result.newPositionMint;
           this.state.consecutiveErrors = 0;
+          this.imbalanceSince = null; // ADR-023: fresh position starts balanced
 
           // Accumulate claimed fees (for backward compatibility with auto-tune-state.json)
           this.state.totalClaimedFees.sol += result.claimedFees.sol;
@@ -848,19 +897,54 @@ export class AutoTuneOrchestrator {
             this.lpHedgeRegime,
           );
           if (clamp.regime !== this.lpHedgeRegime) {
-            log.warn('Hedge input regime changed (ADR-021 out-of-range clamp)', {
-              from: this.lpHedgeRegime,
-              to: clamp.regime,
-              deltaSol: clamp.deltaSol,
-              liveSol: exposure.solAmount,
-            });
-            this.lpHedgeRegime = clamp.regime;
+            // ADR-023 («выдержка»): a clamp regime change means a ±half-
+            // position jump in the hedge input — commit it only after the
+            // candidate regime persists TREND_CONFIRM_MS, so a whipsaw
+            // through the range edge stops trading a sell-low-buy-high round
+            // trip. EXCEPT in a storm: fast moves are exactly what the clamp
+            // exists for, it stays immediate there (and confirmMs=0 keeps
+            // the pre-ADR-023 behavior everywhere).
+            if (this.pendingLpRegime !== clamp.regime) {
+              this.pendingLpRegime = clamp.regime;
+              this.pendingLpRegimeSince = Date.now();
+            }
+            const heldMs = Date.now() - this.pendingLpRegimeSince;
+            if (this.volStormActive || heldMs >= this.config.trendConfirmMs) {
+              log.warn('Hedge input regime changed (ADR-021 out-of-range clamp)', {
+                from: this.lpHedgeRegime,
+                to: clamp.regime,
+                deltaSol: clamp.deltaSol,
+                liveSol: exposure.solAmount,
+                heldMs,
+                storm: this.volStormActive,
+              });
+              this.lpHedgeRegime = clamp.regime;
+              this.pendingLpRegime = null;
+            } else {
+              log.infoSampled('⏳ Hedge clamp regime change pending confirmation (ADR-023)', {
+                current: this.lpHedgeRegime,
+                candidate: clamp.regime,
+                heldMs,
+                confirmMs: this.config.trendConfirmMs,
+              });
+            }
+          } else {
+            this.pendingLpRegime = null;
           }
-          hedgeExposure = { ...exposure, solAmount: clamp.deltaSol };
+          // Price the COMMITTED regime — a pending candidate does not move
+          // the hedge input until it survives the window.
+          const hedgeDeltaSol = lpDeltaForRegime(
+            this.lpHedgeRegime,
+            exposure.solAmount,
+            exposure.usdcAmount,
+            price,
+          );
+          hedgeExposure = { ...exposure, solAmount: hedgeDeltaSol };
           log.debug('Hedge input: LP delta', {
             liveSol: exposure.solAmount,
-            hedgeSol: clamp.deltaSol,
-            regime: clamp.regime,
+            hedgeSol: hedgeDeltaSol,
+            regime: this.lpHedgeRegime,
+            pendingRegime: this.pendingLpRegime,
             price,
           });
         } catch (priceError) {
