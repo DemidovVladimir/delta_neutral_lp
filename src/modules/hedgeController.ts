@@ -24,6 +24,12 @@
 /** Epsilon in SOL below which a residual position is treated as fully closed. */
 const EPSILON_SOL = 1e-9;
 
+/**
+ * Smallest increase worth sending, USD. Below this the cap headroom is
+ * treated as exhausted (Jupiter fees + rent would eat a smaller fill).
+ */
+const MIN_HEDGE_INCREASE_USD = 10;
+
 export interface HedgeDecisionInput {
   /** SOL held long via the LP (LpExposure.solAmount). */
   lpSol: number;
@@ -159,7 +165,6 @@ function guardIncrease(
   adjustSol: number,
   price: number,
 ): HedgeDecision {
-  const sizeUsd = adjustSol * price;
   const carryCostBps = input.carryCostBps[side];
   if (input.carryCapBps > 0 && carryCostBps > input.carryCapBps) {
     return {
@@ -168,14 +173,24 @@ function guardIncrease(
     };
   }
 
+  // BUG-012: an increase that would overshoot the notional cap fills the
+  // remaining headroom instead of blocking outright — all-or-nothing blocking
+  // left the book pinned under-hedged for hours when the clamped full-bag
+  // target exceeded the cap by a few percent.
   const currentNotional = side === 'long' ? input.longNotionalUsd : input.shortNotionalUsd;
-  const projectedNotional = currentNotional + sizeUsd;
-  if (projectedNotional > input.maxHedgeNotionalUsd) {
-    return {
-      action: 'blocked',
-      reason: `projected ${side} notional $${projectedNotional.toFixed(2)} exceeds max $${input.maxHedgeNotionalUsd}`,
-    };
+  let sizeUsd = adjustSol * price;
+  const headroomUsd = input.maxHedgeNotionalUsd - currentNotional;
+  if (sizeUsd > headroomUsd) {
+    if (headroomUsd < MIN_HEDGE_INCREASE_USD) {
+      return {
+        action: 'blocked',
+        reason: `projected ${side} notional $${(currentNotional + sizeUsd).toFixed(2)} exceeds max $${input.maxHedgeNotionalUsd.toFixed(2)} and headroom $${Math.max(0, headroomUsd).toFixed(2)} is below the $${MIN_HEDGE_INCREASE_USD} minimum increase`,
+      };
+    }
+    sizeUsd = headroomUsd;
+    adjustSol = sizeUsd / price;
   }
+  const projectedNotional = currentNotional + sizeUsd;
 
   const collateralUsd = sizeUsd * input.targetCollateralRatio;
   const currentCollateral = side === 'long' ? input.longCollateralUsd : input.shortCollateralUsd;
@@ -273,4 +288,30 @@ export function computeLpHedgeDelta(
         ? 0
         : computeLpMidpointSol(lpSolAmount, lpUsdcAmount, solPriceUsd);
   return { deltaSol, regime };
+}
+
+/**
+ * ADR-022 (BUG-012): the per-side notional cap auto-derives from the measured
+ * portfolio instead of a hand-tuned constant, so adding/removing capital never
+ * requires the operator to re-size it. `capBagSol` is the largest SOL amount
+ * the controller could ever legitimately hedge: idle wallet SOL + the LP's
+ * full value in SOL (the below-range clamp shorts the whole bag) + any
+ * deliberate |target| tilt. `capMult` (HEDGE_NOTIONAL_CAP_MULT, default 1.25)
+ * is the blast-radius margin above that. `absoluteCapUsd` > 0 re-enables the
+ * old MAX_HEDGE_NOTIONAL_USD as an optional hard ceiling on top; 0 disables
+ * it. A runaway increase is independently bounded by physics regardless: the
+ * venue rejects any increase whose collateral (targetRatio × size) is not
+ * actually present in the wallet.
+ */
+export function computeAutoNotionalCapUsd(
+  capBagSol: number,
+  solPriceUsd: number,
+  capMult: number,
+  absoluteCapUsd: number,
+): number {
+  const autoUsd = capBagSol * solPriceUsd * capMult;
+  if (!Number.isFinite(autoUsd) || autoUsd <= 0) {
+    return absoluteCapUsd > 0 ? absoluteCapUsd : 0;
+  }
+  return absoluteCapUsd > 0 ? Math.min(autoUsd, absoluteCapUsd) : autoUsd;
 }

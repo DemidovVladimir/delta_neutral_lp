@@ -6,6 +6,33 @@
 
 ## Active Bugs
 
+### BUG-012: Silent multi-hour under-hedge when the desired short pins at MAX_HEDGE_NOTIONAL_USD
+**Status:** Fixed (2026-07-06, same day — ADR-022: auto-derived cap + headroom fill + blocked-streak banner; operator ordered the auto-scaling fix over a manual cap bump)
+**Severity:** Medium (neutrality hole, bounded by the cap gap; cost that night ≈ −0.5 USD, could be worse in a real dump)
+**Reported:** 2026-07-06
+**Related:** ADR-021 (full-portfolio input + out-of-range clamp), exit-trap rule in strategy-analyzer
+
+**Description:**
+During the 2026-07-05→06 whipsaw night the out-of-range clamp put the full
+bag into the hedge input (≈2.63 SOL ≈ $212 at $80.5), while
+`MAX_HEDGE_NOTIONAL_USD=200` — sized by ADR-021 against a smaller bag —
+blocked EVERY increase. The controller blocks the whole increase instead of
+filling the remaining headroom (short was $167, headroom $33, wanted +$46 →
+took $0), so netΔ sat at +0.42..+0.57 SOL (outside the 0.25 band) for ~5.5
+hours (02:04→07:37Z) with 990 `blocked` rows written to pnl.db and no
+escalation — an "unhedged and unpaused, silently" state the exit-trap rule
+classifies as a bug. SOL fell ~$1 over the window → ≈ −0.5 USD of exactly
+the exposure the hedge exists to remove.
+
+**Candidate fixes (for the Tuesday decision):**
+1. Controller: clamp increase size to remaining cap headroom instead of
+   all-or-nothing blocking (keeps netΔ as close to band as the cap allows).
+2. Size `MAX_HEDGE_NOTIONAL_USD` to the full bag with margin (≥250 for the
+   current ~$214 bag), and re-derive whenever capital is added.
+3. Loud escalation (banner/alert) after N consecutive blocked cycles.
+
+---
+
 ### BUG-011: Failed LP re-creation mid-crash would unwind the protective short
 **Status:** Fixed (2026-07-05) — 5-minute grace window before no-LP hedge decisions
 **Severity:** High (loss-prevention hole; never triggered live, found by drawdown review)

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeLpHedgeDelta, computeLpMidpointSol, decideHedgeAction, type HedgeDecisionInput } from './hedgeController.js';
+import { computeAutoNotionalCapUsd, computeLpHedgeDelta, computeLpMidpointSol, decideHedgeAction, type HedgeDecisionInput } from './hedgeController.js';
 
 /**
  * Table-driven tests over the pure hedge decision core (ADR-017).
@@ -191,11 +191,24 @@ describe('decideHedgeAction — increase guards', () => {
     expect(d.action).toBe('increase_short');
   });
 
-  it('blocks when projected notional exceeds the cap', () => {
-    // 130 SOL × $100 = $13,000 > $12,000 cap.
+  it('fills the remaining cap headroom instead of blocking outright (BUG-012)', () => {
+    // Wants 130 SOL × $100 = $13,000 > $12,000 cap → takes the $12,000 headroom.
     const d = decideHedgeAction(baseInput({ lpSol: 130 }));
+    expect(d.action).toBe('increase_short');
+    if (d.action === 'increase_short') {
+      expect(d.sizeUsd).toBeCloseTo(12_000, 6);
+      expect(d.adjustSol).toBeCloseTo(-120, 9);
+      expect(d.collateralTokens).toBeCloseTo(12_000, 6); // ratio 1.0, USDC
+    }
+  });
+
+  it('blocks when the cap headroom is below the minimum viable increase', () => {
+    // Short already $11,995 → headroom $5 < $10 minimum.
+    const d = decideHedgeAction(
+      baseInput({ lpSol: 130, shortSol: 119.95, shortNotionalUsd: 11_995, shortCollateralUsd: 11_995 })
+    );
     expect(d.action).toBe('blocked');
-    expect((d as { reason: string }).reason).toContain('notional');
+    expect((d as { reason: string }).reason).toContain('headroom');
   });
 
   it('blocks when the projected collateral ratio would sink below the floor', () => {
@@ -280,5 +293,23 @@ describe('computeLpHedgeDelta (ADR-021, HOLE-2 + storm mode)', () => {
   it('empty exposure → 0; bad price falls back to live amount', () => {
     expect(computeLpHedgeDelta(0, 0, 82).deltaSol).toBe(0);
     expect(computeLpHedgeDelta(0.7, 50, 0).deltaSol).toBe(0.7);
+  });
+});
+
+describe('computeAutoNotionalCapUsd (ADR-022)', () => {
+  it('derives the cap from the bag: mult × bagSol × price', () => {
+    // The BUG-012 night: bag 2.63 SOL @ $80.5 → auto cap ≈ $264.6 (old static 200 pinned it).
+    expect(computeAutoNotionalCapUsd(2.63, 80.5, 1.25, 0)).toBeCloseTo(264.64, 1);
+  });
+
+  it('an explicit absolute ceiling still wins when lower', () => {
+    expect(computeAutoNotionalCapUsd(2.63, 80.5, 1.25, 200)).toBe(200);
+    expect(computeAutoNotionalCapUsd(2.63, 80.5, 1.25, 10_000)).toBeCloseTo(264.64, 1);
+  });
+
+  it('degenerate bag/price falls back to the ceiling, else 0', () => {
+    expect(computeAutoNotionalCapUsd(0, 80.5, 1.25, 500)).toBe(500);
+    expect(computeAutoNotionalCapUsd(0, 80.5, 1.25, 0)).toBe(0);
+    expect(computeAutoNotionalCapUsd(2.63, NaN, 1.25, 500)).toBe(500);
   });
 });

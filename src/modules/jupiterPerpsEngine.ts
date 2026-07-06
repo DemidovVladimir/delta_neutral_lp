@@ -29,7 +29,7 @@ import type {
   MutationResult,
   SimResult,
 } from './hedgeEngine.js';
-import { decideHedgeAction } from './hedgeController.js';
+import { computeAutoNotionalCapUsd, decideHedgeAction } from './hedgeController.js';
 import { getConfig } from '../config/env.js';
 import { getWalletKeypair } from '../utils/solana.js';
 import { getSolPrice } from '../core/priceOracle.js';
@@ -665,6 +665,13 @@ export class JupiterPerpsEngine implements HedgeEngine {
       slippageBps?: number;
       lastActionAtMs?: number | null;
       targetDeltaSol?: number;
+      /**
+       * The UNCLAMPED LP exposure, for sizing the ADR-022 auto notional cap.
+       * `lpExposure.solAmount` may arrive midpoint/clamp-transformed (ADR-019/
+       * 021); the cap must see the LP's full value regardless of regime.
+       * Defaults to `lpExposure` (CLI paths).
+       */
+      rawLpExposure?: LpExposure;
     } = {},
   ): Promise<HedgeRebalanceResult> {
     this.assertInitialized();
@@ -685,6 +692,19 @@ export class JupiterPerpsEngine implements HedgeEngine {
       ? Math.max(0, sides.walletSol - (cfg.minimumWalletBalanceSol + cfg.rentReserveSol))
       : 0;
     const lpSolExposure = lpExposure.solAmount + idleWalletSol;
+
+    // ADR-022: per-side notional cap auto-derives from the measured bag —
+    // the largest exposure the controller could legitimately hedge — so the
+    // operator never re-sizes it when capital changes (BUG-012).
+    const rawLp = opts.rawLpExposure ?? lpExposure;
+    const lpFullValueSol = price > 0 ? rawLp.solAmount + rawLp.usdcAmount / price : rawLp.solAmount;
+    const capBagSol = idleWalletSol + lpFullValueSol + Math.abs(targetDeltaSol);
+    const effectiveMaxNotionalUsd = computeAutoNotionalCapUsd(
+      capBagSol,
+      price,
+      cfg.hedgeNotionalCapMult,
+      cfg.maxHedgeNotionalUsd,
+    );
     const netDeltaSol = lpSolExposure + longSol - shortSol;
     const deltaBefore: DeltaView = {
       lpSolExposure,
@@ -713,7 +733,7 @@ export class JupiterPerpsEngine implements HedgeEngine {
       targetDeltaSol,
       bandSol: cfg.deltaThresholdSol,
       carryCapBps: cfg.hedgeCarryCapBps,
-      maxHedgeNotionalUsd: cfg.maxHedgeNotionalUsd,
+      maxHedgeNotionalUsd: effectiveMaxNotionalUsd,
       minCollateralRatio: cfg.minCollateralRatio,
       targetCollateralRatio: cfg.hedgeTargetCollateralRatio,
       nowMs: Date.now(),

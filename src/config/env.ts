@@ -84,10 +84,18 @@ export interface BotConfig {
   /** Minimum collateral ratio (collateral / notional) on the side being grown. Env: MIN_COLLATERAL_RATIO */
   minCollateralRatio: number;
   /**
-   * Hard ceiling on hedge notional (per side) in USD.
+   * OPTIONAL absolute ceiling on hedge notional (per side) in USD; 0 disables
+   * it (default). Since ADR-022 the working cap auto-derives from portfolio
+   * size (see hedgeNotionalCapMult) — set this only as a paranoid hard bound.
    * Env: MAX_HEDGE_NOTIONAL_USD (legacy fallback: MAX_SHORT_NOTIONAL_USD).
    */
   maxHedgeNotionalUsd: number;
+  /**
+   * ADR-022: per-side notional cap = this × (idle wallet SOL + LP full value
+   * in SOL + |target tilt|) × price, recomputed from on-chain state every
+   * cycle — capital scales, the cap follows. Env: HEDGE_NOTIONAL_CAP_MULT
+   */
+  hedgeNotionalCapMult: number;
   /**
    * Minimum ms between LIVE hedge mutations. Jupiter fills requests via an
    * async keeper TX seconds after ours; acting again before the fill lands
@@ -345,10 +353,15 @@ function loadConfigFromEnv(): BotConfig {
   const minCollateralRatio = parseEnvNumber('MIN_COLLATERAL_RATIO', 0.15);
   // Renamed from MAX_SHORT_NOTIONAL_USD when the hedge gained the long side;
   // the legacy var still works so existing .env files don't silently lose it.
+  // ADR-022: 0 = no absolute ceiling (the auto-cap below governs instead).
   const maxHedgeNotionalUsd = parseEnvNumber(
     'MAX_HEDGE_NOTIONAL_USD',
-    parseEnvNumber('MAX_SHORT_NOTIONAL_USD', 12000)
+    parseEnvNumber('MAX_SHORT_NOTIONAL_USD', 0)
   );
+  const hedgeNotionalCapMult = parseEnvNumber('HEDGE_NOTIONAL_CAP_MULT', 1.25);
+  if (!(hedgeNotionalCapMult >= 1)) {
+    throw new Error('HEDGE_NOTIONAL_CAP_MULT must be >= 1 (margin above the measured hedge bag)');
+  }
 
   const hedgeTargetCollateralRatio = parseEnvNumber('HEDGE_TARGET_COLLATERAL_RATIO', 1.0);
   const hedgeCarryCapBps = parseEnvNumber('HEDGE_CARRY_CAP_BPS', 5000);
@@ -371,8 +384,8 @@ function loadConfigFromEnv(): BotConfig {
     if (minCollateralRatio <= 0 || minCollateralRatio >= 1) {
       throw new Error('MIN_COLLATERAL_RATIO must be between 0 and 1 (exclusive)');
     }
-    if (maxHedgeNotionalUsd <= 0) {
-      throw new Error('MAX_HEDGE_NOTIONAL_USD must be positive');
+    if (maxHedgeNotionalUsd < 0) {
+      throw new Error('MAX_HEDGE_NOTIONAL_USD must be >= 0 (0 = no absolute ceiling, ADR-022)');
     }
     if (hedgeCooldownMs < 0) {
       throw new Error('HEDGE_COOLDOWN_MS must be >= 0');
@@ -443,6 +456,7 @@ function loadConfigFromEnv(): BotConfig {
     deltaThresholdSol,
     minCollateralRatio,
     maxHedgeNotionalUsd,
+    hedgeNotionalCapMult,
     hedgeTargetCollateralRatio,
     hedgeCarryCapBps,
   };

@@ -110,6 +110,12 @@ export class AutoTuneOrchestrator {
    * At 5 consecutive hedge errors the hedge alone is disabled for the session.
    */
   private hedgeConsecutiveErrors = 0;
+  /**
+   * Consecutive cycles the controller WANTED to act but a guard refused
+   * (action 'blocked'). BUG-012 sat blocked-at-cap for 5.5h with nothing
+   * louder than debug-level rows in pnl.db — escalate to a banner instead.
+   */
+  private hedgeBlockedStreak = 0;
   private state: AutoTuneState;
   private intervalHandle?: NodeJS.Timeout;
   private watchMode: boolean;
@@ -193,7 +199,8 @@ export class AutoTuneOrchestrator {
           log.errorBanner('⚠️  HEDGE IS LIVE — perp mutations WILL be sent', {
             targetDeltaSol: this.config.hedgeTargetDeltaSol,
             bandSol: this.config.deltaThresholdSol,
-            maxHedgeNotionalUsd: this.config.maxHedgeNotionalUsd,
+            notionalCap: `auto: ${this.config.hedgeNotionalCapMult}× bag (ADR-022)`,
+            absoluteCeilingUsd: this.config.maxHedgeNotionalUsd || 'none',
             targetCollateralRatio: this.config.hedgeTargetCollateralRatio,
           });
         } else {
@@ -866,6 +873,7 @@ export class AutoTuneOrchestrator {
       const result = await this.hedgeEngine.rebalanceHedge(hedgeExposure, {
         dryRun,
         lastActionAtMs: this.state.hedge?.lastActionAt ?? null,
+        rawLpExposure: exposure, // ADR-022: auto-cap sizes off the unclamped LP value
       });
 
       if (result.action === 'none') {
@@ -904,6 +912,23 @@ export class AutoTuneOrchestrator {
           signature: result.signatures[0],
           detail: result.mutation?.detail,
         });
+      }
+
+      // Escalate a stuck guard: one blocked read is routine, a streak means
+      // netΔ is sitting out of band unhedged (BUG-012 was 5.5h of silence).
+      // Banner at ~10 min (40 cycles × 15s), then hourly (240).
+      if (result.action === 'blocked') {
+        this.hedgeBlockedStreak++;
+        if (this.hedgeBlockedStreak === 40 || this.hedgeBlockedStreak % 240 === 0) {
+          log.errorBanner('🚧 Hedge blocked for a sustained streak — netΔ is out of band and NOT being corrected', {
+            consecutiveBlockedCycles: this.hedgeBlockedStreak,
+            blockedReason: result.blockedReason,
+            netDeltaSol: result.deltaBefore.netDeltaSol,
+            targetDeltaSol: result.deltaBefore.targetDeltaSol,
+          });
+        }
+      } else {
+        this.hedgeBlockedStreak = 0;
       }
 
       // Start the keeper-fill cooldown ONLY after a real send.

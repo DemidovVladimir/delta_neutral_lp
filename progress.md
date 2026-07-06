@@ -5,6 +5,22 @@
 
 ---
 
+## 2026-07-06
+
+### Session 18 — срез #6 + health test: чоповая ночь вскрыла clamp-флаппинг и cap-pin (BUG-012)
+
+**Срез #6 (08:17Z, 2.49d):** vs as-is **+1.09 USD**, vs USDC −4.70, vs SOL +3.62 (beats-sol-only). Like-for-like day (Jul 5 00:17Z px 81.54 → Jul 6 00:17Z px 81.53, same price): edge fell +1.12 → −1.06 = **−2.2 USD за сутки чопа** — the night's cost, not price drift.
+
+**The night (14:47Z deploy → 08:00Z):** SOL chopped 80.26–82.31 across the 0.76%-wide range dozens of times. LP: **38 recenters** (~52/day, red line 40); LP-side damage contained — last 15 closed positions: fees $0.95, IL −$0.99, swap −$0.18, network −$0.03 = **−$0.25**. Perp side is where it leaked: every ≥98% composition excursion engaged the ADR-021 clamp (±0.61 SOL input step ≫ 0.25 band) → **23 live hedge trades, $966 churn, 73% flapping** — systematically shorting after the drop, covering after the bounce (~−$2/night incl. 6bps fees ≈ $0.58). Cooldown 600s capped it at ~1 trade/10min. Storm mode never fired (0 events — chop never hit 2%/5min). Expected single ~0.24 SOL catch-up trade dissolved into the flapping (first trade 15:43Z was already 0.726 SOL).
+
+**BUG-012 found:** 02:04→07:37Z the clamped full-bag input (~2.63 SOL ≈ $212) exceeded MAX_HEDGE_NOTIONAL_USD=200 → all-or-nothing block (990 rows), netΔ +0.42..0.57 unhedged for 5.5h, silently. Filed with 3 candidate fixes (headroom-fill, cap ≥250, escalation).
+
+**Health test:** liveness ✓ (RestartCount 0, up since 14:46:57Z, pnl.db advancing, cron row 00:17Z on baseline 372.69, cron.err clean); errors benign (65× ws-429, 1 self-healed blockhash expiry); BUG-010 fix confirmed live (fee_sol populating, 0.001287 SOL/night). Mirror-check: vs-USDC still breathes — decomposed into design residual (~0.30 SOL reserves constant + ±0.33 LP live-vs-midpoint) + the BUG-012 pin; no unknown leak. Hedge-economics: carry $0.02/d, collateral $61.83 locked = 63% of LP value (full-portfolio short 1.63 SOL doubled the notional — strengthens the 0.33-ratio decision). Liq 1.49× ✓.
+
+**No parameter changes (Sunday freeze).** Offered an early cap raise to 250; operator rejected the manual-constant approach on principle («если вложу 3000 — я что, сам буду высчитывать все кэпы?») → BUG-012 fix direction is an AUTO-DERIVED cap (k × full-bag notional from on-chain holdings, .env demoted to absolute ceiling), plus headroom-fill and blocked-cycles escalation. Added to the Tuesday queue together with clamp-toggle dampening (the clamp is an un-dampened ±0.61 SOL input step; the recenter dampener alone won't fix it). Hole stays open until Tuesday — accepted.
+
+---
+
 ## 2026-07-05
 
 ### Session 17h — срез #5 with the new tools + full doc/skill sync

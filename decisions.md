@@ -1764,6 +1764,66 @@ Session 17e/f.
 
 ---
 
+## ADR-022: Auto-sized hedge notional cap + headroom fill (BUG-012)
+
+**Date:** 2026-07-06
+**Status:** Accepted (operator ordered the auto-scaling approach and same-day deploy)
+
+### Context
+
+Срез #6 found the machine pinned for 5.5h (02:04→07:37Z) on the Jul 5–6
+whipsaw night: the ADR-021 out-of-range clamp put the full bag (~2.63 SOL ≈
+$212) into the hedge input, the hand-set `MAX_HEDGE_NOTIONAL_USD=200` —
+sized by ADR-021 against a smaller bag — refused every increase, and the
+all-or-nothing guard took $0 of the $33 headroom it did have. netΔ sat at
++0.42..0.57 SOL out of band, silently (990 `blocked` rows, no escalation),
+while SOL fell ~$1 (≈ −0.5 USD of exactly the exposure the hedge exists to
+remove). When offered a manual bump to 250, the operator rejected the whole
+class: «если вложу 3000 — я что, сам буду высчитывать все кэпы?» — risk
+params must follow portfolio size automatically.
+
+### Decision
+
+1. **Auto-cap:** per-side notional cap = `HEDGE_NOTIONAL_CAP_MULT` (default
+   1.25) × (idle wallet SOL + LP FULL value in SOL + |target tilt|) × oracle
+   price, recomputed from on-chain state every cycle
+   (`computeAutoNotionalCapUsd`; the engine sizes it off the UNCLAMPED
+   exposure via `rawLpExposure` — the cap must not shrink when the clamp
+   halves the input). Deposit or withdraw capital and the cap follows.
+   `MAX_HEDGE_NOTIONAL_USD` is demoted to an OPTIONAL absolute ceiling
+   (0/unset = off, new default) and removed from the production .env.
+2. **Headroom fill:** an increase that overshoots the cap takes the
+   remaining headroom (min viable fill $10) instead of blocking outright.
+3. **Blocked-streak escalation:** the orchestrator banners after 40
+   consecutive blocked cycles (~10 min), then hourly — no more silent pins.
+
+### Why the blast radius survives
+
+The static cap's job was bounding a runaway increase. That bound still
+exists twice over: the auto-cap is 1.25× the measured bag (a logic bug
+demanding 10× the bag is still refused), and physics — the venue cannot
+open size whose collateral (`targetRatio` × size) is not actually sitting
+in the wallet. What the auto-cap deliberately gives up is protection
+against corrupted *holdings/price reads* inflating both input and cap
+together; the optional absolute ceiling remains for anyone wanting it.
+
+### Consequences
+
+Full-bag clamp shorts now execute instead of pinning (that night: cap would
+have been ≈ $264 vs the $212 target). The cap guard goes dormant in normal
+operation — it is a backstop, not a tuning knob. Does NOT address the clamp
+flapping itself (±0.61 SOL input steps trading sell-low-buy-high on every
+fast range crossing, ~−2 USD/chop-night) — that is the Tuesday Jul 7 agenda
+(re-trigger dampener / clamp policy).
+
+**Implementation:** `hedgeController.guardIncrease` headroom fill +
+`computeAutoNotionalCapUsd` (tests: fill, min-headroom block, cap formula,
+ceiling precedence); `jupiterPerpsEngine.rebalanceHedge` effective-cap
+computation + `rawLpExposure` opt; orchestrator escalation counter + banner
+config lines. bugs.md BUG-012; progress.md Session 18.
+
+---
+
 ## Decision Index
 
 - ADR-001: Use solana-agent-kit for Transaction Execution *(superseded — direct @solana/web3.js)*
@@ -1787,12 +1847,13 @@ Session 17e/f.
 - ADR-019: Hedge targets the LP range midpoint, not the live composition (Accepted)
 - ADR-020: Kamino-inspired oracle gate for swaps + per-rebalance net-return decomposition (Accepted)
 - ADR-021: Crash-protection package — full-portfolio neutrality, storm mode, red button (Accepted)
+- ADR-022: Auto-sized hedge notional cap + headroom fill (BUG-012) (Accepted)
 
 ---
 
 ## Decision Status
 
-- **Accepted:** 18 (incl. ADR-021 — crash-protection package)
+- **Accepted:** 19 (incl. ADR-022 — auto-sized notional cap)
 - **Superseded:** 3 (ADR-001 by direct web3.js, ADR-010 by removal of Jito, ADR-014 as active venue by ADR-015)
 - **Proposed:** 0
 - **Deprecated:** 0

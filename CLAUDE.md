@@ -83,7 +83,7 @@ Hedge (ADR-017):
 - `HEDGE_TARGET_DELTA_SOL` (0 = delta-neutral; positive = deliberate long tilt, can exceed LP exposure → perp long)
 - `DELTA_THRESHOLD_SOL` (band; size to ≥3–4 bins' worth of LP delta ≈ maxLpSol/binCount × 3..4 — a smaller band trades on per-bin composition noise, ADR-018)
 - `HEDGE_LP_INPUT` (`live`|`midpoint`; ADR-019 — `midpoint` feeds the controller the SOL half of LP value, ~constant per position, so LP recenters stop forcing hedge corrections; production runs `midpoint`)
-- `MAX_HEDGE_NOTIONAL_USD` (per-side blast-radius cap; legacy `MAX_SHORT_NOTIONAL_USD` still parses)
+- `HEDGE_NOTIONAL_CAP_MULT` (ADR-022: the per-side cap auto-derives = mult × (idle SOL + LP full value in SOL + |target|) × price, every cycle; increases fill remaining headroom instead of all-or-nothing blocking; `MAX_HEDGE_NOTIONAL_USD` is now only an OPTIONAL absolute ceiling, 0/unset = off, legacy `MAX_SHORT_NOTIONAL_USD` still parses)
 - `HEDGE_TARGET_COLLATERAL_RATIO` (1.0 = 1×; ADR-016 runs 0.33 ≈ 3×), `MIN_COLLATERAL_RATIO` (hard floor)
 - `HEDGE_CARRY_CAP_BPS` (refuse increases above this borrow APR), `HEDGE_COOLDOWN_MS` (keeper-fill guard)
 - `HEDGE_INCLUDE_WALLET_SOL` (ADR-021: idle wallet SOL joins the hedge target — full-portfolio neutrality), `LP_VOL_PAUSE_PCT_5M` (ADR-021 storm mode: pause recenters + short the full bag when |5-min move| exceeds it; `pnpm derisk` is the manual red button)
