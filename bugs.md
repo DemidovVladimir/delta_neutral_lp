@@ -6,6 +6,35 @@
 
 ## Active Bugs
 
+### BUG-013: Increases sized beyond the collateral actually in the wallet → 5 failed simulations → hedge self-disables
+**Status:** Fixed in code (2026-07-06, commit `7e518d3`) — awaiting operator-approved redeploy; the server hedge is DISABLED until the container restarts
+**Severity:** High (the 5-error kill switch turns a sizing problem into a fully unhedged LP session)
+**Reported:** 2026-07-06 (first cycles under ADR-022, ~10:24Z)
+**Related:** ADR-022 (removed the static cap that had accidentally masked this), BUG-012
+
+**Description:**
+The controller never checked that the collateral for an increase physically
+exists: shorts post `targetCollateralRatio × size` USDC from the wallet, but
+no guard read the wallet USDC balance (longs did have a reserve check —
+all-or-nothing). The static MAX_HEDGE_NOTIONAL_USD=200 kept sizes small
+enough that this never fired. Minutes after ADR-022 deployed, the whipsaw
+continued, the desired short grew past what wallet USDC (drained to ~$38 by
+LP deposits + earlier collateral posts) could back, and every cycle died in
+send-side simulation ("insufficient funds") — 5 consecutive errors tripped
+the kill switch and the hedge disabled itself for the session while the LP
+kept running.
+
+**Fix (`7e518d3`):** `readSides()` also fetches the wallet USDC ATA balance;
+`guardIncrease` gained a collateral-availability FILL for both sides (USDC
+for shorts, SOL above reserves for longs) — take the affordable size, block
+only below the $10 minimum. Verified on live state dry-run: the same
+situation now sizes +$77.29 notional / 38.65 USDC collateral and simulates
+clean. Known tradeoff: the fill can take wallet USDC down to ~0 — the LP
+recenter flow does not strictly need wallet USDC (swaps cover shortfalls),
+but watch the first recenters after deploy.
+
+---
+
 ### BUG-012: Silent multi-hour under-hedge when the desired short pins at MAX_HEDGE_NOTIONAL_USD
 **Status:** Fixed (2026-07-06, same day — ADR-022: auto-derived cap + headroom fill + blocked-streak banner; operator ordered the auto-scaling fix over a manual cap bump)
 **Severity:** Medium (neutrality hole, bounded by the cap gap; cost that night ≈ −0.5 USD, could be worse in a real dump)
