@@ -352,3 +352,24 @@ export function computeAutoNotionalCapUsd(
   }
   return absoluteCapUsd > 0 ? Math.min(autoUsd, absoluteCapUsd) : autoUsd;
 }
+
+/**
+ * ADR-025: the hedge dead-band auto-derives from the LP size the same way the
+ * notional cap does (ADR-022) — `bandBins` bins' worth of LP delta, i.e.
+ * (LP full value in SOL / binCount) × bandBins — so scaling the deposit can
+ * never silently turn the band into a bin-noise trader again (the ADR-018
+ * sizing rule, made automatic). `floorSol` (DELTA_THRESHOLD_SOL) bounds it
+ * from below and covers the degenerate no-LP / no-price states; with
+ * `bandBins` = 0 the floor IS the band (pre-ADR-025 fixed behavior).
+ */
+export function computeAutoBandSol(
+  lpFullValueSol: number,
+  binCount: number,
+  bandBins: number,
+  floorSol: number,
+): number {
+  if (!(bandBins > 0) || !(binCount > 0) || !Number.isFinite(lpFullValueSol) || lpFullValueSol <= 0) {
+    return floorSol;
+  }
+  return Math.max(floorSol, (lpFullValueSol / binCount) * bandBins);
+}

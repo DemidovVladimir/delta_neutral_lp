@@ -1,6 +1,35 @@
 # HANDOVER — Delta-Neutral Bot (LP + Jupiter Perps hedge, both sides)
 
-**Last updated:** 2026-07-07 (Session 19)
+**Last updated:** 2026-07-07 (Session 20)
+
+## Session 20 delta (read this first, then the Session 19 context below)
+
+**ADR-025 deployed** (operator-approved): BUG-015 fix (the hedge used to be
+silently skipped on EVERY imbalanced cycle — storm clamp was dead code;
+evidence in bugs.md) + clamp-commit freeze while the healthy recenter
+pipeline owns the imbalance + auto-band `HEDGE_BAND_BINS=4`
+(DELTA_THRESHOLD_SOL=0.25 is now the floor; today auto 0.244 → no-op) +
+`HEDGE_TARGET_COLLATERAL_RATIO` 0.5→0.33 (new increases only; projected
+full-migration liq ≈ spot +32%). 103 vitest + 17 cargo green; vectors
+regenerated (decide() unchanged). Simulator defaults now mirror production;
+`--no-clamp-freeze` = the pre-ADR-025 machine.
+
+**Queue leftovers:** pool switch — operator undecided. Sim says any fat pool
+≈ 2× edge; the on-chain activity check killed the 0.2% candidate (58 tx/h)
+and strengthened the 0.1% one:
+`BGm1tav58oGcsQJehL9WXBFXF7D27vZsKefj4xJKD5Y` (bin step 10, base fee 0.1%,
+7,772 successful tx/h vs our 1,120; TVL ≈ 20,112 SOL + $1.21M USDC).
+Switching = new campaign (baseline re-init). Scaling 130→300+: auto-band
+was the missing piece, now in — the conversation can resume after a clean
+срез on ADR-025.
+
+**Watch-fors after this deploy:** first `🧊 Clamp regime commit frozen`
+line; first storm with a LIVE clamp trade (never happened before — the
+clamp path is now reachable); collateral blend drifting 0.466→0.33 on new
+increases (liq price will drift closer to spot accordingly — alarm only
+below 1.3× spot); `pnpm test` is vitest WATCH mode, use `npx vitest run`.
+RULE #1 (operator, standing): explain every number step-by-step, mechanism
+first — see memory `explain-step-by-step-rule-one`.
 **Branch:** `main` (github.com:DemidovVladimir/delta_neutral_lp) — feature/hedge-jupiter-perps-pivot merged in and deleted 2026-07-07 along with feature/ID-2-auto-tune (both were fully merged); the old multipool experiment survives as tag `archive/multipool-bkp` (commit `e100c9a`), its branch deleted. Work directly on `main` until a new feature branch is warranted.
 **Status:** **LIVE, recovered from BUG-014.** Helius quota died 2026-07-06T17:27Z → bot
 crash-looped 15h (959 restarts), LP out of range, +0.41 SOL unhedged. Operator upgraded the

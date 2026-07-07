@@ -6,6 +6,45 @@
 
 ## Active Bugs
 
+### BUG-015: Stale `isImbalanced` flag silently disabled the hedge on every imbalanced cycle — the ADR-021 storm clamp was dead code
+**Status:** Fixed (2026-07-07, Session 20) — deployed together with ADR-025 (the freeze that makes the fix safe)
+**Severity:** High (the crash-protection feature could never fire in exactly its designed scenario; the hedge was blind through every storm, every выдержка window, and every out-of-range stretch)
+**Reported:** 2026-07-07 (found while implementing the ADR-025 clamp freeze)
+**Related:** ADR-021 (the clamp this disabled), ADR-023 (the выдержка that widened the blind window), ADR-025 (the fix pair)
+
+**Description:**
+`runCheckCycleInner` passed `balance.isImbalanced` as `maybeRebalanceHedge`'s
+`lpMutatedThisCycle` parameter — a leftover from the original ADR-017 wiring,
+when "imbalanced" implied "a rebalance just executed this cycle" (pre-выдержка,
+pre-storm, rebalances were immediate). After ADR-021 (storm pause) and ADR-023
+(5-min confirmation window) that equivalence broke, and the parameter silently
+skipped the hedge (debug-level log, invisible in production) on every cycle
+where the position was imbalanced but NOT rebalanced:
+- **every storm cycle** — the ADR-021 clamp ("short the full bag while
+  recenters are paused") is only reachable through the hedge path, so the
+  flagship crash protection could NEVER trade. 0 storm events have fired to
+  date, which is why this never surfaced;
+- **every выдержка window** (~5 min × every recenter) and every out-of-range
+  stretch — the hedge went blind for minutes at a time, then fired one big
+  catch-up trade on the first cycle after the recenter.
+
+**Evidence:** pnl.db `hedge_actions` for 2026-07-06T12:04→12:20Z contains NO
+`none` rows — only two trades at 12:07:16 (33s after the 12:06:43 recenter)
+and 12:17:26 (28s after the 12:16:58 recenter). The hedge simply did not run
+on the ~60 cycles in between. The "clamp flapping" narrative from Sessions
+18–19 was actually this: blind windows + post-recenter catch-up trades whose
+input swings (±0.61 SOL between consecutive runs) were recenter wallet flows,
+not regime commits ("Hedge input regime changed" appears 0 times in retained
+logs).
+
+**Fix:** `lpMutatedThisCycle` is now set only by actual LP mutations (create,
+or an executeRebalance attempt — success OR failure, since Phase 1 can land
+even when Phase 2 fails). Deployed as a pair with the ADR-025 clamp-commit
+freeze: un-blinding the hedge alone would have enabled the regime-flap churn
+the simulator measured (65h replay: 13 trades without the freeze, 1 with it).
+
+---
+
 ### BUG-014: RPC quota exhaustion killed the bot silently for ~15 hours — nobody was told
 **Status:** Mitigated (2026-07-07): operator upgraded the Helius subscription; host-level watchdog + push alerts installed (ADR-024). Residual risks below are OPEN.
 **Severity:** High (the whole machine — LP recentering AND hedge — was down unattended with live funds; only luck kept the damage small)

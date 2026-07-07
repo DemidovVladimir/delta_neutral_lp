@@ -70,11 +70,12 @@ pub struct StrategyParams {
     /// long instead of `trend_confirm_ms`. Entering the clamp keeps the
     /// regular (fast, storm-bypassed) window. <0 = same as trend_confirm_ms.
     pub regime_exit_confirm_ms: i64,
-    /// Clamp-dampening candidate: while a recenter is confirmed and in
-    /// flight, freeze the clamp regime — the recenter is about to normalize
-    /// the composition, so the extreme reading is transient by construction.
-    /// The clamp's documented purpose is rebalancing PAUSED (storm) or
-    /// FAILING, not mid-execution. false = production behaviour.
+    /// ADR-025 (production since Jul 7): while the healthy recenter pipeline
+    /// owns the imbalance signal (counting its выдержка or in flight, no
+    /// storm), clamp regime commits are frozen — the recenter is about to
+    /// normalize the composition, and co-trading it is the measured
+    /// sell-low-buy-high round trip. Storms lift the freeze (recenters are
+    /// paused there — the clamp IS the response). false = pre-ADR-025.
     pub clamp_skip_inflight: bool,
 }
 
@@ -111,7 +112,7 @@ impl Default for StrategyParams {
             recenter_latency_ticks: 1,
             clamp_ramp_lo: 0.0,
             regime_exit_confirm_ms: -1,
-            clamp_skip_inflight: false,
+            clamp_skip_inflight: true,
         }
     }
 }
@@ -276,7 +277,11 @@ pub fn run(params: &StrategyParams, points: &[(i64, f64)]) -> SimReport {
                 params.clamp_ramp_lo,
             )
         } else {
-            let regime_frozen = params.clamp_skip_inflight && pending_recenter.is_some();
+            // Mirrors production's `recenterOwnsSignal` (ADR-025): imbalance
+            // pending-or-executing, and no storm (recenters paused there).
+            let regime_frozen = params.clamp_skip_inflight
+                && !storm_active
+                && (imbalance_since.is_some() || pending_recenter.is_some());
             let candidate = lp_hedge_regime(lp.total_sol(), lp.total_usdc(), pool_price, lp_regime);
             if candidate != lp_regime && !regime_frozen {
                 let since = match pending_regime {

@@ -79,8 +79,21 @@ export interface BotConfig {
    * negative = deliberate net short. Env: HEDGE_TARGET_DELTA_SOL
    */
   hedgeTargetDeltaSol: number;
-  /** Max |netΔ − target| tolerated before a rebalance fires (band, ADR-002). Env: DELTA_THRESHOLD_SOL */
+  /**
+   * Max |netΔ − target| tolerated before a rebalance fires. Since ADR-025 this
+   * is the FLOOR under the auto-derived band (see hedgeBandBins); with
+   * HEDGE_BAND_BINS=0 it is the whole fixed band (pre-ADR-025 behavior).
+   * Env: DELTA_THRESHOLD_SOL
+   */
   deltaThresholdSol: number;
+  /**
+   * ADR-025: the hedge dead-band auto-derives = this many bins' worth of LP
+   * delta (LP full value in SOL / AUTO_TUNE_BIN_COUNT × bins), recomputed
+   * every cycle, floored by DELTA_THRESHOLD_SOL — capital scales, the band
+   * follows (ADR-018 sizing rule made automatic). 0 disables (fixed band).
+   * Env: HEDGE_BAND_BINS
+   */
+  hedgeBandBins: number;
   /** Minimum collateral ratio (collateral / notional) on the side being grown. Env: MIN_COLLATERAL_RATIO */
   minCollateralRatio: number;
   /**
@@ -378,6 +391,10 @@ function loadConfigFromEnv(): BotConfig {
   if (!(hedgeNotionalCapMult >= 1)) {
     throw new Error('HEDGE_NOTIONAL_CAP_MULT must be >= 1 (margin above the measured hedge bag)');
   }
+  const hedgeBandBins = parseEnvNumber('HEDGE_BAND_BINS', 4);
+  if (!(hedgeBandBins >= 0)) {
+    throw new Error('HEDGE_BAND_BINS must be >= 0 (0 disables the auto-derived band)');
+  }
 
   const hedgeTargetCollateralRatio = parseEnvNumber('HEDGE_TARGET_COLLATERAL_RATIO', 1.0);
   const hedgeCarryCapBps = parseEnvNumber('HEDGE_CARRY_CAP_BPS', 5000);
@@ -471,6 +488,7 @@ function loadConfigFromEnv(): BotConfig {
     lpVolPausePct5m,
     trendConfirmMs,
     deltaThresholdSol,
+    hedgeBandBins,
     minCollateralRatio,
     maxHedgeNotionalUsd,
     hedgeNotionalCapMult,

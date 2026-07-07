@@ -368,6 +368,15 @@ export class AutoTuneOrchestrator {
   /** ADR-023: candidate clamp regime waiting out its confirmation window. */
   private pendingLpRegime: LpHedgeRegime | null = null;
   private pendingLpRegimeSince = 0;
+  /**
+   * ADR-025: when the last executeRebalance attempt failed (null after a
+   * success). While the recenter pipeline is healthy and owns the current
+   * imbalance, clamp regime commits are frozen — the recenter is about to
+   * normalize the composition, so co-trading it is a guaranteed round trip
+   * (the measured sell-low-buy-high flap). A failure lifts the freeze: the
+   * clamp is the designed backstop for exactly a rebalance that cannot run.
+   */
+  private lastRebalanceFailedAt: number | null = null;
 
   private recordPriceSample(price: number): void {
     const now = Date.now();
@@ -455,6 +464,14 @@ export class AutoTuneOrchestrator {
       this.recordPriceSample(currentPrice);
       log.debug('Using SOL price for check cycle', { price: currentPrice, source: solPriceData.source });
 
+      // True only when THIS cycle actually mutated the LP (create/rebalance
+      // attempt) — then `exposure` predates the mutation and the hedge sits
+      // the cycle out. BUG-015: this used to be approximated by
+      // `balance.isImbalanced`, which since ADR-021/023 also covered every
+      // storm and confirmation-window cycle — silently blinding the hedge
+      // exactly when the out-of-range clamp was supposed to protect us.
+      let lpMutatedThisCycle = false;
+
       // 1. Check position balance (also yields the LpExposure the hedge needs)
       const { balance, exposure } = await this.checkPositionBalance();
 
@@ -464,7 +481,6 @@ export class AutoTuneOrchestrator {
         // No LP position. The hedge must still see this (exposure ≈ 0): a
         // leftover perp with no LP is naked directional risk to unwind. Skip
         // only when we create a position below (exposure would be stale).
-        let lpMutatedThisCycle = false;
 
         // Auto-create initial position if enabled
         if (this.config.autoCreatePositions && this.config.meteoraPoolAddress) {
@@ -614,6 +630,13 @@ export class AutoTuneOrchestrator {
         }
 
         const result = await this.executeRebalance(currentPrice, balance);
+        // Success or failure, on-chain state may have moved (Phase 1 can land
+        // even when Phase 2 fails) — `exposure` is stale either way, so the
+        // hedge must sit this cycle out (BUG-015 fix: this used to be inferred
+        // from `isImbalanced`, which silently skipped the hedge on every
+        // imbalanced-but-not-rebalanced cycle too — storms included).
+        lpMutatedThisCycle = true;
+        this.lastRebalanceFailedAt = result.success ? null : Date.now();
 
         if (result.success) {
           if (!this.watchMode) {
@@ -700,9 +723,11 @@ export class AutoTuneOrchestrator {
       }
 
       // 3. Hedge controller (ADR-017). Runs every cycle EXCEPT when the LP was
-      // rebalanced above — then `exposure` predates the new position and the
-      // next 30s cycle will see fresh on-chain state instead.
-      await this.maybeRebalanceHedge(exposure, balance.isImbalanced);
+      // actually mutated above — then `exposure` predates the new position and
+      // the next cycle will see fresh on-chain state instead. (BUG-015: passing
+      // `balance.isImbalanced` here skipped the hedge on every storm and
+      // confirmation-window cycle too — the ADR-021 clamp could never fire.)
+      await this.maybeRebalanceHedge(exposure, lpMutatedThisCycle);
 
       saveAutoTuneState(this.state);
 
@@ -909,7 +934,21 @@ export class AutoTuneOrchestrator {
               this.pendingLpRegimeSince = Date.now();
             }
             const heldMs = Date.now() - this.pendingLpRegimeSince;
-            if (this.volStormActive || heldMs >= this.config.trendConfirmMs) {
+            const confirmed = this.volStormActive || heldMs >= this.config.trendConfirmMs;
+            // ADR-025: while the healthy recenter pipeline owns this same
+            // signal (imbalance counting its выдержка, no storm, last
+            // rebalance did not fail), a regime commit is frozen — the
+            // recenter is about to normalize the composition, and co-trading
+            // it is the measured sell-low-buy-high round trip (replay: 65h
+            // perp trades 13→1). A storm (recenters paused) or a failed
+            // rebalance lifts the freeze: there the clamp IS the response.
+            // The candidate keeps aging meanwhile, so a lifted freeze commits
+            // immediately instead of restarting the 5-minute clock.
+            const recenterOwnsSignal =
+              this.imbalanceSince !== null &&
+              !this.volStormActive &&
+              this.lastRebalanceFailedAt === null;
+            if (confirmed && !recenterOwnsSignal) {
               log.warn('Hedge input regime changed (ADR-021 out-of-range clamp)', {
                 from: this.lpHedgeRegime,
                 to: clamp.regime,
@@ -920,6 +959,12 @@ export class AutoTuneOrchestrator {
               });
               this.lpHedgeRegime = clamp.regime;
               this.pendingLpRegime = null;
+            } else if (confirmed) {
+              log.infoSampled('🧊 Clamp regime commit frozen — recenter pipeline owns the imbalance (ADR-025)', {
+                current: this.lpHedgeRegime,
+                candidate: clamp.regime,
+                heldMs,
+              });
             } else {
               log.infoSampled('⏳ Hedge clamp regime change pending confirmation (ADR-023)', {
                 current: this.lpHedgeRegime,

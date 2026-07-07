@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeAutoNotionalCapUsd, computeLpHedgeDelta, computeLpMidpointSol, decideHedgeAction, lpDeltaForRegime, type HedgeDecisionInput } from './hedgeController.js';
+import { computeAutoBandSol, computeAutoNotionalCapUsd, computeLpHedgeDelta, computeLpMidpointSol, decideHedgeAction, lpDeltaForRegime, type HedgeDecisionInput } from './hedgeController.js';
 
 /**
  * Table-driven tests over the pure hedge decision core (ADR-017).
@@ -343,6 +343,27 @@ describe('computeAutoNotionalCapUsd (ADR-022)', () => {
     expect(computeAutoNotionalCapUsd(0, 80.5, 1.25, 500)).toBe(500);
     expect(computeAutoNotionalCapUsd(0, 80.5, 1.25, 0)).toBe(0);
     expect(computeAutoNotionalCapUsd(2.63, NaN, 1.25, 500)).toBe(500);
+  });
+});
+
+describe('computeAutoBandSol (ADR-025)', () => {
+  it('reproduces the deployed 0.25 band on the live Jul-7 state (floor binds)', () => {
+    // LP $99.23 @ $81.32 → full value 1.2202 SOL; /20 bins × 4 = 0.244 —
+    // just under the 0.25 floor, so enabling auto changes nothing today.
+    expect(computeAutoBandSol(99.23 / 81.32, 20, 4, 0.25)).toBe(0.25);
+  });
+
+  it('scales with the LP once it outgrows the floor (the ADR-018 rule, automated)', () => {
+    // LP $300 @ $81.32 → 3.6903 SOL /20 × 4 = 0.738: a 3× deposit stops
+    // being 1.3 bins of noise against a fixed 0.25 band.
+    expect(computeAutoBandSol(300 / 81.32, 20, 4, 0.25)).toBeCloseTo(0.7379, 3);
+  });
+
+  it('bandBins=0 and degenerate inputs fall back to the fixed floor', () => {
+    expect(computeAutoBandSol(1.22, 20, 0, 0.25)).toBe(0.25);
+    expect(computeAutoBandSol(0, 20, 4, 0.25)).toBe(0.25);
+    expect(computeAutoBandSol(NaN, 20, 4, 0.25)).toBe(0.25);
+    expect(computeAutoBandSol(1.22, 0, 4, 0.25)).toBe(0.25);
   });
 });
 

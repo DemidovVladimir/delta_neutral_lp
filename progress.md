@@ -7,6 +7,22 @@
 
 ## 2026-07-07
 
+### Session 20 (addendum) — BUG-015 found (hedge blind on every imbalanced cycle), ADR-025 package built + deployed; pool-activity answer
+
+**Operator reviewed the queue:** approved collateral 0.33, the clamp freeze, and auto-band («даю согласие их имплементировать и запушить и задеплоить»); questioned the pool switch («мне кажется там меньше транзакций»). Also issued standing RULE #1: always explain numbers step-by-step, mechanism first (saved to memory).
+
+**Pool-activity answer (on-chain, `scripts/pool-activity.ts`):** the operator's intuition was half right. Candidate `BGm1tav58oGcsQJehL9WXBFXF7D27vZsKefj4xJKD5Y` (0.1%): **7,772 successful tx/h — 7× MORE than our pool's 1,120**, price tracks market, newest tx seconds old. Candidate `BVRbyLjjfSBcoyiYFuxbgKYnWuiFaF9CSXEa5vdSZ9Hh` (0.2%): 58 tx/h — 19× less, crossed off. Pool switch decision (to BGm1tav…) remains with the operator.
+
+**BUG-015 (found while porting the freeze):** `runCheckCycleInner` passed `balance.isImbalanced` as `maybeRebalanceHedge`'s `lpMutatedThisCycle` — an ADR-017 leftover from when imbalance implied same-cycle rebalance. Since ADR-021/023 it silently skipped the hedge on EVERY imbalanced-but-not-rebalanced cycle: all выдержка windows, all out-of-range stretches, **all storm cycles — the ADR-021 storm clamp was unreachable code**. Proof from pnl.db: 2026-07-06T12:04→12:20Z has zero `none` rows — the hedge did not run for ~60 cycles; the two trades sit 33s/28s after recenters. The Session 18/19 "clamp flapping" was actually hedge blindness + post-recenter catch-up trades on recenter wallet flows ("Hedge input regime changed" appears 0× in logs). Watched it live during the smoke run: server went 100% SOL at 13:24Z and its `Hedge:` lines stopped.
+
+**ADR-025 package (built, tested, deployed):**
+1. BUG-015 fix — `lpMutatedThisCycle` now set only by actual mutations (create / executeRebalance attempt, success or failure).
+2. Clamp-commit freeze — regime commits held while the healthy recenter pipeline owns the imbalance (`imbalanceSince` set, no storm, last rebalance didn't fail); pending candidate keeps aging so a lifted freeze commits instantly. Deploying the fix WITHOUT the freeze would enable the regime flap the simulator measured (65h: 13 trades bare vs 1 frozen). Sim default flipped to match production; `--no-clamp-freeze` reproduces the old machine bit-for-bit (+2.6052/13 trades).
+3. Auto-band — `HEDGE_BAND_BINS=4`: band = 4 bins' worth of LP delta each cycle (ADR-018 rule automated, ADR-022 pattern), `DELTA_THRESHOLD_SOL=0.25` demoted to floor. Today auto=0.244 < floor → deploy is a no-op; at LP $300 → 0.74. Engine + dashboard both show the effective band.
+4. Collateral 0.5→0.33 in .env (projected full-migration liq ≈ spot +32%, above the 1.3× floor; −34% USDC per clamp increase — BUG-013 relief).
+
+Validation: tsc clean, **103 vitest green** (+3 auto-band), vectors regenerated (1027, decide() unchanged — file identical), Rust port green, 17 cargo tests green. Live smoke (dry-run loop, janitor off) caught a real out-of-range dip and showed both new behaviors: hedge ran at 94.5% composition (was skipped pre-fix) and the `below` candidate aged on выдержка without a flip trade. Gotcha discovered: `pnpm test` = vitest WATCH mode (never exits in background shells) — use `npx vitest run`.
+
 ### Session 20 (afternoon) — the operator queue worked through the simulator: pool switch pays 2×, clamp dampener found (skip-inflight), collateral 0.33 checked
 
 Worked the four queued operator decisions from Session 19; all analysis, no production changes (every item awaits operator approve/reject).

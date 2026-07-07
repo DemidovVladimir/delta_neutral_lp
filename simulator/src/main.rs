@@ -62,7 +62,10 @@ fn main() {
                 m.parse::<i64>().expect("--exit-confirm-min <minutes>") * 60_000;
         }
         if args.iter().any(|a| a == "--clamp-skip-inflight") {
-            params.clamp_skip_inflight = true;
+            params.clamp_skip_inflight = true; // already the default (ADR-025)
+        }
+        if args.iter().any(|a| a == "--no-clamp-freeze") {
+            params.clamp_skip_inflight = false; // pre-ADR-025 behaviour
         }
         if let Some(l) = flag(&args, "--latency-ticks") {
             params.recenter_latency_ticks = l.parse().expect("--latency-ticks <n>");

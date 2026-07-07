@@ -29,7 +29,7 @@ import type {
   MutationResult,
   SimResult,
 } from './hedgeEngine.js';
-import { computeAutoNotionalCapUsd, decideHedgeAction } from './hedgeController.js';
+import { computeAutoBandSol, computeAutoNotionalCapUsd, decideHedgeAction } from './hedgeController.js';
 import { getConfig } from '../config/env.js';
 import { getWalletKeypair } from '../utils/solana.js';
 import { getSolPrice } from '../core/priceOracle.js';
@@ -712,6 +712,14 @@ export class JupiterPerpsEngine implements HedgeEngine {
       cfg.hedgeNotionalCapMult,
       cfg.maxHedgeNotionalUsd,
     );
+    // ADR-025: the dead-band scales with the LP the same way the cap does —
+    // DELTA_THRESHOLD_SOL is only the floor (and the fallback with no LP).
+    const effectiveBandSol = computeAutoBandSol(
+      lpFullValueSol,
+      cfg.autoTuneBinCount,
+      cfg.hedgeBandBins,
+      cfg.deltaThresholdSol,
+    );
     const netDeltaSol = lpSolExposure + longSol - shortSol;
     const deltaBefore: DeltaView = {
       lpSolExposure,
@@ -719,7 +727,7 @@ export class JupiterPerpsEngine implements HedgeEngine {
       longSol,
       netDeltaSol,
       targetDeltaSol,
-      outOfBand: Math.abs(netDeltaSol - targetDeltaSol) > cfg.deltaThresholdSol,
+      outOfBand: Math.abs(netDeltaSol - targetDeltaSol) > effectiveBandSol,
     };
 
     const decision = decideHedgeAction({
@@ -739,7 +747,7 @@ export class JupiterPerpsEngine implements HedgeEngine {
       walletReserveSol: cfg.minimumWalletBalanceSol + cfg.rentReserveSol,
       walletUsdc: sides.walletUsdc,
       targetDeltaSol,
-      bandSol: cfg.deltaThresholdSol,
+      bandSol: effectiveBandSol,
       carryCapBps: cfg.hedgeCarryCapBps,
       maxHedgeNotionalUsd: effectiveMaxNotionalUsd,
       minCollateralRatio: cfg.minCollateralRatio,

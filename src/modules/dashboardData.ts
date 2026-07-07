@@ -16,7 +16,7 @@ import { Connection, PublicKey } from '@solana/web3.js';
 import { getAssociatedTokenAddress } from '@solana/spl-token';
 import { getSolPrice } from '../core/priceOracle.js';
 import { getConfig } from '../config/env.js';
-import { computeLpHedgeDelta } from './hedgeController.js';
+import { computeAutoBandSol, computeLpHedgeDelta } from './hedgeController.js';
 import type { MeteoraAdapter } from './meteoraAdapter.js';
 import type { JupiterPerpsEngine } from './jupiterPerpsEngine.js';
 
@@ -193,6 +193,17 @@ export async function collectSnapshot(sources: SnapshotSources): Promise<Dashboa
     : 0;
   const netDeltaSol = lpSolForDelta + idleWalletSol + hedge.perpBaseSol;
   const shortSol = Math.max(0, -hedge.perpBaseSol);
+  // ADR-025: show the band the engine actually trades with (auto-derived from
+  // LP size, floored by DELTA_THRESHOLD_SOL) — a fixed display band would
+  // false-alarm once the LP outgrows the floor.
+  const lpFullValueSol =
+    lp.available && solUsd > 0 ? lp.solAmount + lp.usdcAmount / solUsd : 0;
+  const effectiveBandSol = computeAutoBandSol(
+    lpFullValueSol,
+    config.autoTuneBinCount,
+    config.hedgeBandBins,
+    deltaThresholdSol,
+  );
 
   return {
     timestamp: Date.now(),
@@ -206,8 +217,8 @@ export async function collectSnapshot(sources: SnapshotSources): Promise<Dashboa
       hedgeLpInput: config.hedgeLpInput,
       shortSol,
       netDeltaSol,
-      bandSol: deltaThresholdSol,
-      outOfBand: Math.abs(netDeltaSol) > deltaThresholdSol,
+      bandSol: effectiveBandSol,
+      outOfBand: Math.abs(netDeltaSol) > effectiveBandSol,
     },
   };
 }

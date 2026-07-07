@@ -1909,6 +1909,79 @@ every 5 minutes (+ a daily 08:05 UTC heartbeat run):
 
 ---
 
+## ADR-025: Hedge liveness during imbalance (BUG-015 fix) + clamp-commit freeze + auto-derived band + 3× collateral
+
+**Date:** 2026-07-07
+**Status:** Accepted (operator approved the queue items «даю согласие их имплементировать и запушить и задеплоить»; BUG-015 discovered during implementation and folded in — the fix and the freeze are only safe as a pair)
+
+### Context
+
+Session 19 left four operator decisions queued. While designing the
+clamp-dampening item, three candidates were replayed on the real 65h
+campaign path in the simulator: a continuous midpoint→bag ramp (REJECTED:
+re-couples the hedge to composition noise, 13→78 trades), a slow clamp exit
+(REJECTED: worse at every setting), and freezing regime commits while a
+recenter is in flight (trades 13→1, churn $574→$120, edge +2.61→+2.98).
+
+Porting the freeze exposed **BUG-015**: production passed
+`balance.isImbalanced` as `maybeRebalanceHedge`'s `lpMutatedThisCycle`
+(pre-ADR-021/023 leftover), silently skipping the hedge on every
+imbalanced-but-not-rebalanced cycle. The ADR-021 storm clamp — shorting the
+bag while recenters are paused — was unreachable code, and the measured
+"clamp flapping" was really hedge blindness + post-recenter catch-up trades
+(pnl.db: zero `none` rows 12:04→12:20Z Jul 6; trades land 20–35s after each
+recenter).
+
+Separately: `DELTA_THRESHOLD_SOL=0.25` was the last hand-tuned risk
+constant (= 4 bins of LP delta at today's size, per ADR-018); tripling the
+deposit would silently shrink it to ~1.3 bins and resurrect bin-noise
+churn. And the collateral ratio decision (0.5→0.33) had passed its
+liquidation check (projected full-migration liq ≈ spot +32% ≥ the 1.3×
+floor; frees ~34% of USDC per clamp increase — BUG-013 relief).
+
+### Decision
+
+Deployed as one package:
+
+1. **BUG-015 fix:** `lpMutatedThisCycle` is set only by actual LP mutations
+   (position create, or an executeRebalance attempt — success or failure,
+   since Phase 1 can land even when Phase 2 fails). The hedge now runs on
+   storm cycles and выдержка-window cycles.
+2. **Clamp-commit freeze:** while the healthy recenter pipeline owns the
+   imbalance signal (`imbalanceSince` set, no storm, last rebalance did not
+   fail), clamp regime COMMITS are frozen — the recenter is about to
+   normalize the composition; co-trading it is a guaranteed
+   sell-low-buy-high round trip. A storm (recenters paused) or a failed
+   rebalance lifts the freeze — there the clamp IS the designed response.
+   The pending candidate keeps aging during the freeze, so a lifted freeze
+   commits immediately instead of restarting the 5-minute clock. Without
+   this, the BUG-015 fix alone would enable exactly the regime-flap churn
+   the simulator measured (13 trades vs 1 on the 65h path).
+3. **Auto-derived band (`HEDGE_BAND_BINS=4`):** the hedge dead-band derives
+   every cycle = bandBins × (LP full value in SOL / AUTO_TUNE_BIN_COUNT) —
+   the ADR-018 sizing rule made automatic, ADR-022 pattern.
+   `DELTA_THRESHOLD_SOL` is demoted to the floor (and the no-LP fallback).
+   At today's size auto = 0.244 < floor 0.25 → deploy is a no-op; at LP
+   $300 the band self-scales to ~0.74. Dashboard shows the effective band.
+4. **`HEDGE_TARGET_COLLATERAL_RATIO` 0.5 → 0.33** (ADR-016's 3×): applies
+   to new increases; decreases withdraw at the same ratio; the blended
+   ratio migrates gradually. Liquidation distance shrinks from spot +45%
+   to +32% (still above the 1.3× floor); rising prices shrink the short
+   organically, and the ADR-024 watchdog covers the dead-bot+rally tail.
+
+The simulator's default now mirrors production (`clamp_skip_inflight:
+true`, freeze window = imbalance-pending ∪ in-flight, minus storms);
+`--no-clamp-freeze` reproduces the pre-ADR-025 machine bit-for-bit.
+
+### Alternatives rejected
+
+- Continuous clamp ramp and slow clamp exit: both lost to the step +
+  freeze on the real path (see simulator SKILL.md grid records).
+- Keeping the band fixed and re-tuning by hand at each scale step:
+  violates the operator's standing auto-scaling principle.
+
+---
+
 ## Decision Index
 
 - ADR-001: Use solana-agent-kit for Transaction Execution *(superseded — direct @solana/web3.js)*
@@ -1935,12 +2008,13 @@ every 5 minutes (+ a daily 08:05 UTC heartbeat run):
 - ADR-022: Auto-sized hedge notional cap + headroom fill (BUG-012) (Accepted)
 - ADR-023: Trend confirmation window («выдержка») for recenters and clamp commits (Accepted)
 - ADR-024: Host-level watchdog with push alerts (ntfy.sh) (Accepted)
+- ADR-025: Hedge liveness during imbalance (BUG-015) + clamp-commit freeze + auto-band + 3× collateral (Accepted)
 
 ---
 
 ## Decision Status
 
-- **Accepted:** 21 (incl. ADR-024 — host watchdog + push alerts)
+- **Accepted:** 22 (incl. ADR-025 — BUG-015 fix + clamp freeze + auto-band + 3× collateral)
 - **Superseded:** 3 (ADR-001 by direct web3.js, ADR-010 by removal of Jito, ADR-014 as active venue by ADR-015)
 - **Proposed:** 0
 - **Deprecated:** 0

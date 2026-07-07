@@ -23,18 +23,26 @@ cargo run --release -- --from 2026-07-05T14:47:00Z --hours 20 --strategy \
                                                                # pool-switch question (fee-bps also rescales
                                                                # arb_deadband to fee/2 — the calibrated ratio;
                                                                # --deadband-bps after it overrides)
-# Clamp-dampening candidates (Jul 7, NOT in production):
+# Clamp dampening (Jul 7): the freeze is PRODUCTION since ADR-025 and the
+# sim DEFAULT (clamp regime commits frozen while the recenter pipeline owns
+# the imbalance, storms excepted; 65h: trades 13→1, churn $574→$120, edge
+# +2.61→+2.98).
+#   --no-clamp-freeze         pre-ADR-025 machine, reproduces +2.6052/13 trades exactly
 #   --clamp-ramp 0.9          continuous midpoint→bag ramp — REJECTED (13→78 trades on 65h)
 #   --exit-confirm-min 30     slow clamp exit — REJECTED (worse on 65h path)
-#   --clamp-skip-inflight     freeze regime while a recenter is in flight — the live candidate
-#                             (65h: trades 13→1, churn $574→$120, edge +2.61→+2.98)
 ```
 
 `--strategy` prints the ledger: `EDGE vs hold-as-is` (the срез metric —
 strategy equity minus doing nothing with the same starting mix), LP fees,
 perp fees, carry, swap/network costs, recenter count + how many the выдержка
 skipped, perp churn, final netΔ. Defaults = production params as deployed
-2026-07-06 (`StrategyParams::default()` in `src/strategy.rs`).
+2026-07-07 incl. the ADR-025 clamp-commit freeze (`StrategyParams::default()`
+in `src/strategy.rs`); NOTE the default `target_collateral_ratio: 0.5`
+predates the production 0.33 (collateral only affects wallet-USDC pressure
+in the sim, not the edge — update if simulating collateral starvation).
+CAUTION: the pre-recorded grids in this file were run pre-ADR-025
+(`--no-clamp-freeze` equivalent) — re-run baselines before comparing new
+numbers against them.
 
 Binance 1m candles are cached in `simulator/data/*.csv` (gitignored) — the
 first run of a window needs network, repeats don't.
