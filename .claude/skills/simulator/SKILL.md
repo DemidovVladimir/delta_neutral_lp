@@ -18,7 +18,16 @@ cargo test            # 17 tests: unit + golden (live on-chain fixtures) + 1027 
 cargo run --release -- --demo                                  # synthetic whipsaw, static position
 cargo run --release -- --from 2026-07-05T14:47:00Z --hours 20  # real Binance SOLUSDC path, static position
 cargo run --release -- --from 2026-07-05T14:47:00Z --hours 20 --strategy \
-    [--confirm-min 5] [--bins 20] [--band 0.25]                # FULL strategy loop
+    [--confirm-min 5] [--bins 20] [--band 0.25] \
+    [--bin-step 4] [--fee-bps 4]                               # FULL strategy loop; pool params for the
+                                                               # pool-switch question (fee-bps also rescales
+                                                               # arb_deadband to fee/2 — the calibrated ratio;
+                                                               # --deadband-bps after it overrides)
+# Clamp-dampening candidates (Jul 7, NOT in production):
+#   --clamp-ramp 0.9          continuous midpoint→bag ramp — REJECTED (13→78 trades on 65h)
+#   --exit-confirm-min 30     slow clamp exit — REJECTED (worse on 65h path)
+#   --clamp-skip-inflight     freeze regime while a recenter is in flight — the live candidate
+#                             (65h: trades 13→1, churn $574→$120, edge +2.61→+2.98)
 ```
 
 `--strategy` prints the ledger: `EDGE vs hold-as-is` (the срез metric —
@@ -75,8 +84,17 @@ bins=10 is catastrophic (edge −17.6 at confirm=0, 364 recenters); top tier
 within noise: bins20/confirm10 (+4.07), bins40/confirm10 (+4.59),
 bins40/confirm5 (+3.78), bins30/confirm3 (+3.51) — vs deployed
 bins20/confirm5 (+2.61). Widening beyond 20 bins interacts with the
-pool-switch decision (different bin step / base fee — needs a --fee flag
-before simulating other pools).
+pool-switch decision (different bin step / base fee — simulate with
+--bin-step/--fee-bps).
+
+Pool grid (Jul 7, 65h campaign path, deadband extrapolated = fee/2):
+every fat-fee config beat prod (4bps/20bins = +2.61). Conservative winner
+**step 10 bps / fee 10 bps / 20 bins (2% width): +5.98, recenters 50→12,
+perp trades 13→1** (pro-wide/pro-slow = the trustworthy direction);
+step20/fee20/bins4 scored +6.60 but is pro-narrow (54 recenters, 28
+trades) — do not trust without extra scrutiny. CAVEAT: fee model counts
+only our own bin-sweep conversions; the deadband=fee/2 scaling is an
+extrapolation validated only at 4 bps.
 
 ## Interpretation rules
 

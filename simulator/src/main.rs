@@ -39,19 +39,44 @@ fn main() {
         if let Some(b) = flag(&args, "--band") {
             params.band_sol = b.parse().expect("--band <sol>");
         }
+        if let Some(s) = flag(&args, "--bin-step") {
+            params.bin_step_bps = s.parse::<f64>().expect("--bin-step <bps>");
+        }
+        if let Some(f) = flag(&args, "--fee-bps") {
+            let fee_bps = f.parse::<f64>().expect("--fee-bps <bps>");
+            params.fee_rate_net = fee_bps / 10_000.0 * 0.9; // 10% protocol fee
+            // The dead-band is the arb-profitability threshold, physically
+            // tied to the pool fee (calibrated: 2 bps on the 4 bps prod
+            // pool). A fatter pool moves lazily in proportion — scale it,
+            // unless --deadband-bps explicitly overrides below.
+            params.arb_deadband = fee_bps / 2.0 / 10_000.0;
+        }
         if let Some(d) = flag(&args, "--deadband-bps") {
             params.arb_deadband = d.parse::<f64>().expect("--deadband-bps <bps>") / 10_000.0;
+        }
+        if let Some(r) = flag(&args, "--clamp-ramp") {
+            params.clamp_ramp_lo = r.parse::<f64>().expect("--clamp-ramp <sol-share, e.g. 0.9>");
+        }
+        if let Some(m) = flag(&args, "--exit-confirm-min") {
+            params.regime_exit_confirm_ms =
+                m.parse::<i64>().expect("--exit-confirm-min <minutes>") * 60_000;
+        }
+        if args.iter().any(|a| a == "--clamp-skip-inflight") {
+            params.clamp_skip_inflight = true;
         }
         if let Some(l) = flag(&args, "--latency-ticks") {
             params.recenter_latency_ticks = l.parse().expect("--latency-ticks <n>");
         }
         let r = run_strategy(&params, &points);
         println!(
-            "strategy replay: {} candles, confirm {}m, {} bins, band {}",
+            "strategy replay: {} candles, confirm {}m, {} bins, band {} | pool: step {} bps, fee(net) {:.1} bps, deadband {:.1} bps",
             candles.len(),
             params.trend_confirm_ms / 60_000,
             params.n_bins,
-            params.band_sol
+            params.band_sol,
+            params.bin_step_bps,
+            params.fee_rate_net * 10_000.0,
+            params.arb_deadband * 10_000.0
         );
         println!("equity: {:.2} → {:.2} | hold-as-is: {:.2}", r.equity_start, r.equity_end, r.hold_as_is_end);
         println!("EDGE vs hold-as-is:  {:+.4} USD   <- the срез metric", r.edge_vs_hold);

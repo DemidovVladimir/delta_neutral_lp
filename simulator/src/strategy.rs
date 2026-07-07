@@ -60,6 +60,22 @@ pub struct StrategyParams {
     /// that gap the hedge sees the one-sided composition (this is what let
     /// the 98% clamp engage on the real whipsaw night). 0 = instant.
     pub recenter_latency_ticks: u32,
+    /// Clamp-dampening candidate: replace the 98/90 step regime with a
+    /// continuous midpoint→bag ramp starting at this SOL share. 0 = off
+    /// (production step behaviour). REJECTED by replay Jul 7 — re-couples
+    /// the hedge to composition noise (13→78 trades on the 65h path).
+    pub clamp_ramp_lo: f64,
+    /// Clamp-dampening candidate: commits BACK toward 'in' (covering the
+    /// clamp short after a bounce — the sell-low-buy-high leg) wait this
+    /// long instead of `trend_confirm_ms`. Entering the clamp keeps the
+    /// regular (fast, storm-bypassed) window. <0 = same as trend_confirm_ms.
+    pub regime_exit_confirm_ms: i64,
+    /// Clamp-dampening candidate: while a recenter is confirmed and in
+    /// flight, freeze the clamp regime — the recenter is about to normalize
+    /// the composition, so the extreme reading is transient by construction.
+    /// The clamp's documented purpose is rebalancing PAUSED (storm) or
+    /// FAILING, not mid-execution. false = production behaviour.
+    pub clamp_skip_inflight: bool,
 }
 
 impl Default for StrategyParams {
@@ -93,6 +109,9 @@ impl Default for StrategyParams {
             // churn +5%, fees +11%.
             arb_deadband: 0.0002,
             recenter_latency_ticks: 1,
+            clamp_ramp_lo: 0.0,
+            regime_exit_confirm_ms: -1,
+            clamp_skip_inflight: false,
         }
     }
 }
@@ -246,23 +265,48 @@ pub fn run(params: &StrategyParams, points: &[(i64, f64)]) -> SimReport {
             continue;
         }
         // Clamp regime with выдержка; storms commit immediately (ADR-023).
-        let candidate = lp_hedge_regime(lp.total_sol(), lp.total_usdc(), pool_price, lp_regime);
-        if candidate != lp_regime {
-            let since = match pending_regime {
-                Some((pend, s)) if pend == candidate => s,
-                _ => {
-                    pending_regime = Some((candidate, t));
-                    t
+        // With the ramp candidate active the input is a continuous function
+        // of composition — no regime flip exists, so no hysteresis and no
+        // confirm window apply (band + cooldown remain the throttles).
+        let lp_delta = if params.clamp_ramp_lo > 0.0 {
+            crate::hedge::lp_ramp_delta(
+                lp.total_sol(),
+                lp.total_usdc(),
+                pool_price,
+                params.clamp_ramp_lo,
+            )
+        } else {
+            let regime_frozen = params.clamp_skip_inflight && pending_recenter.is_some();
+            let candidate = lp_hedge_regime(lp.total_sol(), lp.total_usdc(), pool_price, lp_regime);
+            if candidate != lp_regime && !regime_frozen {
+                let since = match pending_regime {
+                    Some((pend, s)) if pend == candidate => s,
+                    _ => {
+                        pending_regime = Some((candidate, t));
+                        t
+                    }
+                };
+                // Covering back toward 'in' is the buy-high leg of the flap —
+                // it may carry its own (longer) confirm window; entering the
+                // clamp keeps the fast, storm-bypassed one.
+                let exit_override = candidate == LpRegime::In && params.regime_exit_confirm_ms >= 0;
+                let confirm_ms = if exit_override {
+                    params.regime_exit_confirm_ms
+                } else {
+                    params.trend_confirm_ms
+                };
+                // Storms bypass the confirm — except a deliberate slow-exit
+                // window: never rush to cover the clamp short mid-storm.
+                let bypass = storm_active && !exit_override;
+                if bypass || t - since >= confirm_ms {
+                    lp_regime = candidate;
+                    pending_regime = None;
                 }
-            };
-            if storm_active || t - since >= params.trend_confirm_ms {
-                lp_regime = candidate;
+            } else {
                 pending_regime = None;
             }
-        } else {
-            pending_regime = None;
-        }
-        let lp_delta = lp_delta_for_regime(lp_regime, lp.total_sol(), lp.total_usdc(), pool_price);
+            lp_delta_for_regime(lp_regime, lp.total_sol(), lp.total_usdc(), pool_price)
+        };
         let lp_full_value_sol = lp.total_sol() + lp.total_usdc() / pool_price;
         let cap = auto_notional_cap_usd(
             params.idle_wallet_sol + lp_full_value_sol,
@@ -349,10 +393,12 @@ pub fn run(params: &StrategyParams, points: &[(i64, f64)]) -> SimReport {
         + short_unrealized;
     report.hold_as_is_end = deposit_sol0 * p_end + deposit_usdc0;
     report.edge_vs_hold = report.equity_end - report.hold_as_is_end;
-    report.final_net_delta_sol =
+    let final_lp_delta = if params.clamp_ramp_lo > 0.0 {
+        crate::hedge::lp_ramp_delta(lp.total_sol(), lp.total_usdc(), pool_price, params.clamp_ramp_lo)
+    } else {
         lp_delta_for_regime(lp_regime, lp.total_sol(), lp.total_usdc(), pool_price)
-            + params.idle_wallet_sol
-            - short.sol;
+    };
+    report.final_net_delta_sol = final_lp_delta + params.idle_wallet_sol - short.sol;
     report
 }
 

@@ -258,6 +258,37 @@ pub fn lp_hedge_regime(lp_sol: f64, lp_usdc: f64, price: f64, sticky: LpRegime) 
     }
 }
 
+/// Clamp-dampening CANDIDATE (Jul 7, not in production): the hedge input
+/// interpolates CONTINUOUSLY between the midpoint and the true bag as the
+/// composition leaves the healthy middle, instead of the 98/90 step regime.
+/// Below `ramp_lo` SOL-share the input is the midpoint (unchanged from
+/// ADR-019); from `ramp_lo` to 1.0 it ramps linearly to the full bag
+/// (mirror side ramps to 0). A continuous function has no regime flip to
+/// damp — no hysteresis, no выдержка commit needed — and at share 1.0
+/// (out of range = pure SOL) it equals the ADR-021 clamp exactly, so crash
+/// protection is preserved.
+pub fn lp_ramp_delta(lp_sol: f64, lp_usdc: f64, price: f64, ramp_lo: f64) -> f64 {
+    if !(price > 0.0) {
+        return lp_sol;
+    }
+    let sol_value = lp_sol * price;
+    let total = sol_value + lp_usdc;
+    if total <= 0.0 {
+        return 0.0;
+    }
+    let share = sol_value / total;
+    let mid = lp_midpoint_sol(lp_sol, lp_usdc, price);
+    if share >= ramp_lo {
+        let w = (share - ramp_lo) / (1.0 - ramp_lo);
+        mid + w * (lp_sol - mid)
+    } else if share <= 1.0 - ramp_lo {
+        let w = ((1.0 - ramp_lo) - share) / (1.0 - ramp_lo);
+        mid * (1.0 - w)
+    } else {
+        mid
+    }
+}
+
 /// ADR-022 auto notional cap.
 pub fn auto_notional_cap_usd(cap_bag_sol: f64, price: f64, cap_mult: f64, absolute_cap_usd: f64) -> f64 {
     let auto = cap_bag_sol * price * cap_mult;
