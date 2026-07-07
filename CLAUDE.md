@@ -37,9 +37,16 @@ pnpm hedge:emergency                                      # full close of ALL si
 pnpm derisk [--live] [--no-gate] [--keep-hedge]           # RED BUTTON: LP + perps + all SOL → USDC (stop the server loop first!)
 tsx src/cli/jupiter-hedge.ts --unwrap                     # fold idle wSOL back to native SOL
 
+# Ops / incident response (operator standing orders 2026-07-07; runbooks in .claude/skills/alert-response)
+bash scripts/triage.sh [--chain]                     # one-command read-only incident snapshot
+npx tsx scripts/tx-audit.ts --since <ISO> [--db …]   # EVERY wallet tx: full signature, fees, ΔSOL/ΔUSDC, db cross-check (MANDATORY at every срез)
+npx tsx scripts/close-lp.ts --mint <mint> [--live]   # close ONE LP position (pool migrations), dry-run default
+npx tsx scripts/find-pools-fast.ts                   # SOL/USDC DLMM pools in ~4 RPC calls
+npx tsx scripts/pool-activity.ts <pools…>            # tx/h + price staleness per pool
+
 # Dev
-pnpm test | pnpm build | pnpm lint | pnpm format
-pnpm find-pools          # discover SOL/USDC DLMM pools
+pnpm test | pnpm build | pnpm lint | pnpm format     # NOTE: pnpm test = vitest WATCH mode; single run = npx vitest run
+pnpm find-pools          # LEGACY pool discovery — 300k RPC calls (BUG-014 pattern), use find-pools-fast.ts
 
 # Docker / deploy
 docker compose up -d && docker compose logs -f

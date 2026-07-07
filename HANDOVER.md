@@ -33,6 +33,22 @@ increases (liq price will drift closer to spot accordingly — alarm only
 below 1.3× spot); `pnpm test` is vitest WATCH mode, use `npx vitest run`.
 RULE #1 (operator, standing): explain every number step-by-step, mechanism
 first — see memory `explain-step-by-step-rule-one`.
+
+**Trust-revocation layer (Session 20 evening, operator: «доверие
+утеряно»):** every срез MUST run the hodl-check MANDATORY verification
+block (log check + full tx list via `scripts/tx-audit.ts` + formulas with
+numbers + norms). 10 `🚨 VITALS BREACH` alerts live in the bot (notional >
+1.1× cap; churn24h > 3× cap; НАША позиция >5% below its own deposit; netΔ
+out of band ≥15 мин; liq < 1.25× spot; wallet < reserves; fees24h > 0.05
+SOL; recenters > 12/6h; hedge disabled; blocked streak) — the watchdog
+greps them → ntfy topic `delta-bot-7eac27128488` + Telegram
+`@healthchecks_delta_neutral_bot` (both channels test-delivered). **BUG-016
+fixed:** deploys used to rsync-delete the watchdog + its secrets — cron now
+runs the repo copy `deploy/hetzner/watchdog.sh`, `watchdog.env` is
+rsync-excluded. Incident runbooks: `.claude/skills/alert-response` +
+`bash scripts/triage.sh`. Terminology for operator text: «пул» = the
+shared Meteora pool ONLY, ours = «наша позиция»; never bare «пуш/алерт» —
+«тревожное сообщение на телефон».
 **Branch:** `main` (github.com:DemidovVladimir/delta_neutral_lp) — feature/hedge-jupiter-perps-pivot merged in and deleted 2026-07-07 along with feature/ID-2-auto-tune (both were fully merged); the old multipool experiment survives as tag `archive/multipool-bkp` (commit `e100c9a`), its branch deleted. Work directly on `main` until a new feature branch is warranted.
 **Status:** **LIVE, recovered from BUG-014.** Helius quota died 2026-07-06T17:27Z → bot
 crash-looped 15h (959 restarts), LP out of range, +0.41 SOL unhedged. Operator upgraded the
