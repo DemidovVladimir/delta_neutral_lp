@@ -1211,6 +1211,27 @@ export function getLiveHedgeChurn24hUsd(): number {
   );
 }
 
+/**
+ * Wallet-paid network fees over the trailing 24h (vitals alert input). Norm
+ * is ~0.001–0.005 SOL/day; an order of magnitude above that means runaway
+ * transaction churn. Fail-safe: 0 on db errors.
+ */
+export function getWalletFees24hSol(): number {
+  return (
+    safe(() => {
+      const db = openDb();
+      const row = db
+        .prepare(
+          `SELECT COALESCE(SUM(fee_sol), 0) AS fees
+           FROM transactions
+           WHERE timestamp >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 day')`,
+        )
+        .get() as { fees: number };
+      return row.fees;
+    }, 'getWalletFees24hSol') ?? 0
+  );
+}
+
 export interface LatestSnapshotForPosition {
   positionId: number;
   takenAt: string;

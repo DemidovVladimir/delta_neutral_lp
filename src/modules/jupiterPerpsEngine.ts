@@ -30,7 +30,7 @@ import type {
   SimResult,
 } from './hedgeEngine.js';
 import { computeAutoBandSol, computeAutoNotionalCapUsd, decideHedgeAction } from './hedgeController.js';
-import { getLiveHedgeChurn24hUsd } from './pnlDb.js';
+import { getLiveHedgeChurn24hUsd, getWalletFees24hSol } from './pnlDb.js';
 import { getConfig } from '../config/env.js';
 import { getWalletKeypair } from '../utils/solana.js';
 import { getSolPrice } from '../core/priceOracle.js';
@@ -117,24 +117,75 @@ export class JupiterPerpsEngine implements HedgeEngine {
   }
 
   private checkVitals(
-    sides: { long: { notionalUsd: number } | null; short: { notionalUsd: number } | null },
+    sides: {
+      long: { notionalUsd: number; liquidationPrice?: number | null } | null;
+      short: { notionalUsd: number; liquidationPrice?: number | null } | null;
+      walletSol: number;
+    },
     effectiveMaxNotionalUsd: number,
+    oraclePriceUsd: number,
+    walletReserveSol: number,
   ): void {
-    if (!(effectiveMaxNotionalUsd > 0)) return;
-    const grossNotionalUsd = (sides.long?.notionalUsd ?? 0) + (sides.short?.notionalUsd ?? 0);
-    if (grossNotionalUsd > effectiveMaxNotionalUsd * 1.1) {
-      this.vitalsBreach('notional', 'perp notional above the ADR-022 auto-cap', {
-        grossNotionalUsd,
-        capUsd: effectiveMaxNotionalUsd,
-        rule: 'gross perp notional ≤ 1.1 × auto-cap; above it the cap enforcement is broken',
+    if (effectiveMaxNotionalUsd > 0) {
+      const grossNotionalUsd = (sides.long?.notionalUsd ?? 0) + (sides.short?.notionalUsd ?? 0);
+      if (grossNotionalUsd > effectiveMaxNotionalUsd * 1.1) {
+        this.vitalsBreach('notional', 'perp notional above the ADR-022 auto-cap', {
+          grossNotionalUsd,
+          capUsd: effectiveMaxNotionalUsd,
+          rule: 'gross perp notional ≤ 1.1 × auto-cap; above it the cap enforcement is broken',
+        });
+      }
+      const churn24hUsd = getLiveHedgeChurn24hUsd();
+      if (churn24hUsd > 3 * effectiveMaxNotionalUsd) {
+        this.vitalsBreach('churn', '24h live hedge churn above 3× the auto-cap', {
+          churn24hUsd,
+          capUsd: effectiveMaxNotionalUsd,
+          rule: 'Σ|size_usd| live over 24h ≤ 3 × auto-cap (the Jul-5 whipsaw night, $966 vs cap $200, would have fired this)',
+        });
+      }
+    }
+
+    // Liquidation distance: the operator's floor is 1.3× — alert at 1.25
+    // so there is still room to act. Shorts liquidate ABOVE the price,
+    // longs BELOW (mirrored ratio).
+    if (oraclePriceUsd > 0) {
+      const shortLiq = sides.short?.liquidationPrice;
+      if (shortLiq && shortLiq > 0 && shortLiq / oraclePriceUsd < 1.25) {
+        this.vitalsBreach('liq-short', 'short liquidation price too close to spot', {
+          liquidationPrice: shortLiq,
+          oraclePriceUsd,
+          ratio: shortLiq / oraclePriceUsd,
+          rule: 'short liq / spot must stay ≥ 1.25 (operator floor 1.3 + margin) — top up collateral or reduce the short',
+        });
+      }
+      const longLiq = sides.long?.liquidationPrice;
+      if (longLiq && longLiq > 0 && oraclePriceUsd / longLiq < 1.25) {
+        this.vitalsBreach('liq-long', 'long liquidation price too close to spot', {
+          liquidationPrice: longLiq,
+          oraclePriceUsd,
+          ratio: oraclePriceUsd / longLiq,
+          rule: 'spot / long liq must stay ≥ 1.25 — top up collateral or reduce the long',
+        });
+      }
+    }
+
+    // Wallet below its own reserves: rent + network fees stop being payable,
+    // LP recenters and long collateral posts start failing quietly.
+    if (walletReserveSol > 0 && sides.walletSol < walletReserveSol) {
+      this.vitalsBreach('reserves', 'wallet SOL below the configured reserves', {
+        walletSol: sides.walletSol,
+        walletReserveSol,
+        rule: 'wallet SOL ≥ MINIMUM_WALLET_BALANCE_SOL + RENT_RESERVE_SOL — below it recenters/rent/fees fail',
       });
     }
-    const churn24hUsd = getLiveHedgeChurn24hUsd();
-    if (churn24hUsd > 3 * effectiveMaxNotionalUsd) {
-      this.vitalsBreach('churn', '24h live hedge churn above 3× the auto-cap', {
-        churn24hUsd,
-        capUsd: effectiveMaxNotionalUsd,
-        rule: 'Σ|size_usd| live over 24h ≤ 3 × auto-cap (the Jul-5 whipsaw night, $966 vs cap $200, would have fired this)',
+
+    // Runaway network-fee burn: norm is ~0.001–0.005 SOL/day; 10× that means
+    // something is spamming transactions.
+    const fees24hSol = getWalletFees24hSol();
+    if (fees24hSol > 0.05) {
+      this.vitalsBreach('feeburn', 'wallet-paid network fees over 24h far above norm', {
+        fees24hSol,
+        rule: 'Σ fee_sol over 24h ≤ 0.05 SOL (norm 0.001–0.005) — runaway tx churn',
       });
     }
   }
@@ -771,9 +822,14 @@ export class JupiterPerpsEngine implements HedgeEngine {
 
     // Vitals breaches (operator standing order 2026-07-07): loud, greppable
     // lines the host watchdog pushes to ntfy/Telegram within 5 minutes.
-    // Thresholds derive from the portfolio via the ADR-022 cap — no hand
-    // constants. Throttled to one line per 10 min per breach type.
-    this.checkVitals(sides, effectiveMaxNotionalUsd);
+    // Thresholds derive from the portfolio where possible — no hand-tuned
+    // risk constants. Throttled to one line per 10 min per breach type.
+    this.checkVitals(
+      sides,
+      effectiveMaxNotionalUsd,
+      price,
+      cfg.minimumWalletBalanceSol + cfg.rentReserveSol,
+    );
 
     const decision = decideHedgeAction({
       lpSol: lpSolExposure,

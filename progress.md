@@ -7,6 +7,10 @@
 
 ## 2026-07-07
 
+### Session 20 (addendum 4) — Telegram restored; alert set expanded to 10 (operator: «этих алертов слишком мало», LP-порог 50%→5%)
+
+Operator supplied the new Telegram token → installed in `/opt/delta-bot/watchdog.env` (600), test message delivered (`"ok":true`). LP-value alert tightened 50%→**5%** below creation deposit (operator: «Я не готов ждать до потери половины» — physically right: in-range IL is bounded ≈ V·w/8 ≪ 1%; a >5% gap = tokens missing OR deep out-of-range mid-crash, both push-worthy). New alerts (all `🚨 VITALS BREACH`, watchdog→ntfy+Telegram ≤5 мин, per-type throttles): sustained netΔ out of band ≥15 мин (the machine's one job); short/long liquidation distance < 1.25× spot (floor 1.3 + margin); wallet SOL below reserves; 24h wallet-paid fees > 0.05 SOL (norm ×10); recenter rate > 12/6h (whipsaw red line); hedge-disabled and blocked-streak banners upgraded to VITALS (now push, not just log). Watchdog additionally checks hodl-history.jsonl staleness > 25h (the BUG-014 silent-cron hole; mtime seeded at deploy to skip the known past gap). New pnlDb readers: `getLiveHedgeChurn24hUsd`, `getWalletFees24hSol` (fail-safe). 103 tests green; deployed; **watchdog.env survived the deploy** (BUG-016 exclude verified in production).
+
 ### Session 20 (addendum 3) — trust-revocation package: tx-audit, vitals alerts, mandatory verification; BUG-016 found by its own discipline
 
 **Operator standing order («доверие утеряно»):** every срез must include verified logs, the full per-transaction list with fees and amounts, formulas with numbers substituted, and norm alerts. Delivered:

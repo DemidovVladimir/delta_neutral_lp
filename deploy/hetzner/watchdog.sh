@@ -88,6 +88,14 @@ if [ -f "$BOT_DIR/data/auto-tune-state.json" ]; then
   [ "$age" -gt 600 ] && problems="${problems}auto-tune-state.json не обновлялся ${age}с;"
 fi
 
+# the daily hodl cron (00:17Z) must append a row — it shares the bot's RPC
+# key and died silently with it in BUG-014; 25h staleness = the срез series
+# has a hole RIGHT NOW.
+if [ -f "$BOT_DIR/data/hodl-history.jsonl" ]; then
+  hodl_age=$(( NOW - $(stat -c %Y "$BOT_DIR/data/hodl-history.jsonl" 2>/dev/null || echo 0) ))
+  [ "$hodl_age" -gt 90000 ] && problems="${problems}hodl-history.jsonl не обновлялся $((hodl_age/3600))ч — дневной срез не пишется;"
+fi
+
 # ── heartbeat mode: one quiet daily "still alive" push ──────────────────────
 if [ "${1:-}" = "--heartbeat" ]; then
   if [ -z "$problems" ]; then

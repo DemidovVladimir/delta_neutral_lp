@@ -379,6 +379,11 @@ export class AutoTuneOrchestrator {
   private lastRebalanceFailedAt: number | null = null;
   /** Throttle for the LP-value 🚨 VITALS BREACH line (10 min). */
   private lastLpVitalsLogAt = 0;
+  /** Consecutive cycles with netΔ outside the band (vitals alert at ~15 min). */
+  private outOfBandStreak = 0;
+  /** Successful-recenter timestamps, trailing 6h (recenter-rate vitals alert). */
+  private recenterTimesMs: number[] = [];
+  private lastRecenterRateLogAt = 0;
 
   private recordPriceSample(price: number): void {
     const now = Date.now();
@@ -477,24 +482,28 @@ export class AutoTuneOrchestrator {
       // 1. Check position balance (also yields the LpExposure the hedge needs)
       const { balance, exposure } = await this.checkPositionBalance();
 
-      // Vitals breach (operator standing order 2026-07-07): an in-range DLMM
-      // position cannot lose half its deposit to IL (max ≈ V·w/8) — LP value
-      // under 50% of its own creation deposit (SOL half valued at the CURRENT
-      // price, so price moves don't false-alarm) means tokens are missing.
-      // The watchdog greps 🚨 and pushes within 5 minutes.
+      // Vitals breach (operator standing order 2026-07-07, tightened same
+      // day — «Я не готов ждать до потери половины»): an in-range DLMM
+      // position can legitimately lose only IL ≈ V·w/8 (fractions of a
+      // percent). The creation deposit is valued at the CURRENT price, so
+      // price moves largely cancel; the residual legit gap grows to a few
+      // percent only when the position sits far OUT of range mid-crash —
+      // which is itself worth a push. Alert at 5% below.
       const created = this.state.lastPositionCreated;
       if (exposure && created && exposure.totalUsd > 0) {
         const creationValueUsd =
           created.initialDeposit.sol * currentPrice + created.initialDeposit.usdc;
-        if (creationValueUsd > 0 && exposure.totalUsd < creationValueUsd * 0.5) {
+        if (creationValueUsd > 0 && exposure.totalUsd < creationValueUsd * 0.95) {
           const now = Date.now();
           if (now - this.lastLpVitalsLogAt > 10 * 60 * 1000) {
             this.lastLpVitalsLogAt = now;
-            log.error('🚨 VITALS BREACH — LP value below 50% of its creation deposit', {
+            log.error('🚨 VITALS BREACH — LP value more than 5% below its creation deposit', {
               lpTotalUsd: exposure.totalUsd,
               creationValueUsd,
+              gapPct: (1 - exposure.totalUsd / creationValueUsd) * 100,
               positionMint: created.positionMint,
-              rule: 'in-range IL is bounded ≈ V×w/8 — a 50% drop means tokens left the position',
+              rule:
+                'in-range IL is bounded ≈ V×w/8 (≪1%) — a >5% gap means tokens missing, or the position is deep out of range in a crash (either way: look NOW)',
             });
           }
         }
@@ -680,6 +689,20 @@ export class AutoTuneOrchestrator {
           this.state.currentPositionMint = result.newPositionMint;
           this.state.consecutiveErrors = 0;
           this.imbalanceSince = null; // ADR-023: fresh position starts balanced
+
+          // Recenter-rate vitals: the measured red line is ~40 recenters/day
+          // (the Jul-5 whipsaw night ran ~52/day and bled $2/night in churn).
+          // 12 in a trailing 6h ≈ 48/day — alert once an hour while it lasts.
+          const nowMs = Date.now();
+          this.recenterTimesMs.push(nowMs);
+          this.recenterTimesMs = this.recenterTimesMs.filter((t) => nowMs - t <= 6 * 3600_000);
+          if (this.recenterTimesMs.length > 12 && nowMs - this.lastRecenterRateLogAt > 3600_000) {
+            this.lastRecenterRateLogAt = nowMs;
+            log.error('🚨 VITALS BREACH — recenter rate above the churn red line', {
+              recentersIn6h: this.recenterTimesMs.length,
+              rule: '≤12 recenters per 6h (≈48/day; whipsaw-night rate) — above it the machine is paying the trend tax repeatedly',
+            });
+          }
 
           // Accumulate claimed fees (for backward compatibility with auto-tune-state.json)
           this.state.totalClaimedFees.sol += result.claimedFees.sol;
@@ -1070,11 +1093,12 @@ export class AutoTuneOrchestrator {
 
       // Escalate a stuck guard: one blocked read is routine, a streak means
       // netΔ is sitting out of band unhedged (BUG-012 was 5.5h of silence).
-      // Banner at ~10 min (40 cycles × 15s), then hourly (240).
+      // Banner at ~10 min (40 cycles × 15s), then hourly (240). The VITALS
+      // marker makes the watchdog push it (operator standing order).
       if (result.action === 'blocked') {
         this.hedgeBlockedStreak++;
         if (this.hedgeBlockedStreak === 40 || this.hedgeBlockedStreak % 240 === 0) {
-          log.errorBanner('🚧 Hedge blocked for a sustained streak — netΔ is out of band and NOT being corrected', {
+          log.errorBanner('🚨 VITALS BREACH — hedge blocked for a sustained streak, netΔ out of band and NOT being corrected', {
             consecutiveBlockedCycles: this.hedgeBlockedStreak,
             blockedReason: result.blockedReason,
             netDeltaSol: result.deltaBefore.netDeltaSol,
@@ -1083,6 +1107,26 @@ export class AutoTuneOrchestrator {
         }
       } else {
         this.hedgeBlockedStreak = 0;
+      }
+
+      // Sustained out-of-band WITHOUT a block reason (cooldown loops, repeated
+      // partial fills, anything else that quietly fails to converge): the
+      // machine's one job is keeping netΔ in band — 15 min outside it is an
+      // incident, whatever the cause. Alert at ~15 min, then hourly.
+      if (result.deltaBefore.outOfBand) {
+        this.outOfBandStreak++;
+        if (this.outOfBandStreak === 60 || this.outOfBandStreak % 240 === 0) {
+          log.error('🚨 VITALS BREACH — netΔ out of band for a sustained period', {
+            consecutiveOutOfBandCycles: this.outOfBandStreak,
+            netDeltaSol: result.deltaBefore.netDeltaSol,
+            targetDeltaSol: result.deltaBefore.targetDeltaSol,
+            lastAction: result.action,
+            blockedReason: result.blockedReason,
+            rule: 'netΔ must return to band within ~15 min — sustained excursion = the correction loop is failing',
+          });
+        }
+      } else {
+        this.outOfBandStreak = 0;
       }
 
       // Start the keeper-fill cooldown ONLY after a real send.
@@ -1113,7 +1157,7 @@ export class AutoTuneOrchestrator {
         hedgeConsecutiveErrors: this.hedgeConsecutiveErrors,
       });
       if (this.hedgeConsecutiveErrors >= 5) {
-        log.errorBanner('🛑 Hedge disabled for this session after 5 consecutive failures', {
+        log.errorBanner('🚨 VITALS BREACH — hedge disabled for this session after 5 consecutive failures', {
           hint: 'LP loop continues WITHOUT a hedge — directional SOL exposure is unhedged. Investigate and restart.',
         });
         await this.hedgeEngine.shutdown().catch(() => {});
