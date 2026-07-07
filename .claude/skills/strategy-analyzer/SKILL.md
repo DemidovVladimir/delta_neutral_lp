@@ -68,8 +68,20 @@ adjustments» ниже) — a deposit shows up as fake strategy profit.
 
 ## Step 4 — Parameter invariants (ADR-018 and friends)
 
-- `DELTA_THRESHOLD_SOL ≥ 3 × (maxLpSol / binCount)` — smaller trades on
-  per-bin composition noise (sell low / buy back high, systematically).
+- **Hedge liveness — NO silent gaps (BUG-015 lesson, MANDATORY every срез):**
+  `hedge_actions` must have a row (any action incl. `none`) at least every
+  ~3 cycle intervals while `HEDGE_ENABLED=true` and the bot is up. Check:
+  `SELECT taken_at FROM hedge_actions WHERE taken_at >= '<window>' ORDER BY
+  taken_at` → scan for gaps > 60s that do NOT coincide with bot downtime.
+  A gap = the hedge silently not running (BUG-015 hid exactly this for days
+  behind a debug-level skip; trades clustering 20–40s after recenters is
+  the same signature). NEVER infer the hedge mechanism from trade patterns
+  alone — row DENSITY first, then trades.
+- The effective band is AUTO-derived since ADR-025 (`HEDGE_BAND_BINS` ×
+  lpFullValueSol / binCount, floored by `DELTA_THRESHOLD_SOL`) — verify the
+  floor still ≥ 3 bins' worth if the operator changed bin count or pool
+  (per-bin delta = lpFullValueSol / binCount; on a fatter pool the bins are
+  wider in PRICE but per-bin SOL delta only depends on value/binCount).
 - `HEDGE_COOLDOWN_MS ≥ 600000` — the cooldown is the churn throttle.
 - netΔ within band in ≥95% of hodl-history / snapshot samples.
 - Projected collateral ratio ≥ `MIN_COLLATERAL_RATIO` + 0.1; liquidation
@@ -78,7 +90,9 @@ adjustments» ниже) — a deposit shows up as fake strategy profit.
   rebalances/day → range wastefully wide; >40/day → too narrow.
 - ADR-021 protections armed: `LP_VOL_PAUSE_PCT_5M` > 0 (storm mode),
   `HEDGE_INCLUDE_WALLET_SOL=true` (idle hedged), `HEDGE_LP_INPUT=midpoint`;
-  storm/clamp log lines (🌩 / "regime changed") reviewed for the window.
+  storm/clamp log lines (🌩 / "regime changed" / 🧊 frozen) reviewed for the
+  window. NOTE: before 2026-07-07 (~13:31Z) "regime changed" could never
+  appear (BUG-015) — do not treat its historical absence as calm.
 - Combined hedge input can jump up to ~reserves (0.3 SOL) around the
   reserves floor and the above-range clamp — the band must stay ≥ that
   (0.25 is at the edge; a persistent netΔ near the band boundary right

@@ -98,7 +98,8 @@ Hedge (ADR-017):
 - JLP pool: `5BUwFW4nRbftYTDMbgxykoFWqWHPzahFSNAaaaJtVKsq`
 - SOL custody: `7xS2gz2bTp3fwCC7knJvUWTEU9Tycczu6VhJYKgi1wdz` / USDC custody: `G18jKKXQwBbrHeiK3C9MRXhkHsLHf7XgCSisykV46EZa`
 - Short SOL position PDA: `6HFhuYzQGcqdj4NGwC6vfVETRvMA3pXaVeZnHgWSKsJK` / Long: `FqymRcB92t63jpwh7om4RLbxMNUGoHnZPQMkkAA8ksVY`
-- Meteora SOL/USDC pool: `5rCf1DM8LjKTw4YqhnoLcngyZYeNnQqztScTogYHAS6`
+- Meteora SOL/USDC pool (Campaign 3, bin step 10, base fee 0.1%): `BGm1tav58oGcsQJehL9WXBFXF7D27vZsKefj4xJKD5Y`
+- Old Meteora pool (Campaigns 1–2, bin step 4, base fee 0.04%): `5rCf1DM8LjKTw4YqhnoLcngyZYeNnQqztScTogYHAS6`
 
 ## Gotchas
 

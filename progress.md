@@ -7,6 +7,16 @@
 
 ## 2026-07-07
 
+### Session 20 (addendum 2) — Campaign 3: migrated to the 0.1% pool (operator: «Да, переезжаем»)
+
+**Campaign 2 closed** with a final срез at 13:42Z (3.72d): vs HODL-as-is **−$0.70**, vs HODL-SOL +$1.67, vs HODL-USDC −$6.14 — MIXED; window carried BUG-014's 15h outage and the pre-BUG-015 hedge blindness. History + baseline archived to `data/archive/campaign-2/` (server copies).
+
+**Migration (13:44–13:47Z, bot down ~1 min):** final срез → `docker compose down` → archive → `scripts/close-lp.ts --live` closed `DBZwmTWjj5LWTVwBLdUtMqKeqm81ugXvufDbvzmh1fTH` (sig `RVHGJvjdNqupefhL9zoPPsKYVUSyswmnEAG2F3WrugjTujmXAVdfTixSnfmpDbdQE5tCvtyvEqdq9viWJjjRryU`, fees claimed 0.001023348 SOL + 0.081466 USDC) → .env `METEORA_POOL_ADDRESS=BGm1tav58oGcsQJehL9WXBFXF7D27vZsKefj4xJKD5Y` + `STRATEGY_LABEL=campaign-3-fatpool-2026-07-07` → deploy → bot auto-created `D7aMwzzU7BHVXKzTvD82DxnR2RBvZzoUqa6KFYtgjn2K` (0.61 SOL + 49.34 USDC, **no swap needed**, sig `2F2KwYgDvXMskyn9t3gEWx7VeuzJGG1FEjpqiFAcTCJbp3WoqdLYjqXp7LNhEki7L14T8XNj241G3d97HZ2UXCGK`), range $80.16–$81.61 (~1.8%, 2.5× wider), composition 50.2/49.8. **The hedge did not trade through the whole migration** (netΔ +0.058 in band) — the midpoint invariant across LP moves held exactly as designed.
+
+**Campaign 3 baseline: $366.7102143406818** (2026-07-07T13:47:08.417Z, SOL $81.22549567; sides 2.0499698609999997 SOL + 200.2003962723958 USDC) — server + local synced; do NOT re-init. Same working slice (~$99 LP), deposit 0.61 SOL; auto-band/auto-cap adapt to the new pool automatically (per-bin SOL delta depends on value/binCount, not bin step). Expected per the simulator grid: ~2× edge, recenters ~50→12 per 65h, but on 2.5× fee per conversion + measured 7× tx flow.
+
+**strategy-analyzer got the BUG-015 lesson as a MANDATORY invariant:** hedge_actions row-density check (no gaps >60s while enabled that don't match downtime), never infer hedge mechanism from trade patterns without checking density; historical absence of "regime changed" lines before Jul 7 13:31Z ≠ calm.
+
 ### Session 20 (addendum) — BUG-015 found (hedge blind on every imbalanced cycle), ADR-025 package built + deployed; pool-activity answer
 
 **Operator reviewed the queue:** approved collateral 0.33, the clamp freeze, and auto-band («даю согласие их имплементировать и запушить и задеплоить»); questioned the pool switch («мне кажется там меньше транзакций»). Also issued standing RULE #1: always explain numbers step-by-step, mechanism first (saved to memory).

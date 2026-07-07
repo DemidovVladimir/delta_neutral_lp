@@ -14,14 +14,17 @@ full-migration liq ≈ spot +32%). 103 vitest + 17 cargo green; vectors
 regenerated (decide() unchanged). Simulator defaults now mirror production;
 `--no-clamp-freeze` = the pre-ADR-025 machine.
 
-**Queue leftovers:** pool switch — operator undecided. Sim says any fat pool
-≈ 2× edge; the on-chain activity check killed the 0.2% candidate (58 tx/h)
-and strengthened the 0.1% one:
-`BGm1tav58oGcsQJehL9WXBFXF7D27vZsKefj4xJKD5Y` (bin step 10, base fee 0.1%,
-7,772 successful tx/h vs our 1,120; TVL ≈ 20,112 SOL + $1.21M USDC).
-Switching = new campaign (baseline re-init). Scaling 130→300+: auto-band
-was the missing piece, now in — the conversation can resume after a clean
-срез on ADR-025.
+**CAMPAIGN 3 LIVE since 2026-07-07 ~13:45Z (operator: «Да, переезжаем»):**
+pool `BGm1tav58oGcsQJehL9WXBFXF7D27vZsKefj4xJKD5Y` (bin step 10, base fee
+0.1%, 7,772 tx/h vs old pool's 1,120), position
+`D7aMwzzU7BHVXKzTvD82DxnR2RBvZzoUqa6KFYtgjn2K` (0.61 SOL + 49.34 USDC,
+range $80.16–$81.61, no swap at creation), hedge did NOT trade through the
+migration. **Baseline $366.7102143406818** (2026-07-07T13:47:08.417Z) —
+do NOT re-init; Campaign 2 archived in `data/archive/campaign-2/` (closing
+срез: −$0.70 vs as-is over 3.72d, MIXED). Old pool (Campaigns 1–2):
+`5rCf1DM8LjKTw4YqhnoLcngyZYeNnQqztScTogYHAS6`. STRATEGY_LABEL
+`campaign-3-fatpool-2026-07-07`. Expected vs Campaign 2 (sim): ~2× edge,
+recenters ~4× rarer. Scaling 130→300+ can resume after a clean срез here.
 
 **Watch-fors after this deploy:** first `🧊 Clamp regime commit frozen`
 line; first storm with a LIVE clamp trade (never happened before — the
