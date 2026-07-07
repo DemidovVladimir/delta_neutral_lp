@@ -21,6 +21,14 @@ Read-only, safe while the bot is live. Reads everything on-chain (RPC), so it
 works from this machine — it does NOT need the Hetzner pnl.db. Requires a
 populated `.env` (`RPC_URL`, `PRIVATE_KEY`).
 
+If the Helius key answers `429 max usage reached` (credits exhausted — the
+BUG-014 failure mode; local runs share the server's key), the срез still
+works through the public endpoint:
+
+```bash
+RPC_URL=https://api.mainnet-beta.solana.com pnpm hodl
+```
+
 Every compare run also appends one JSONL row (full breakdown included) to
 `data/hodl-history.jsonl` — the experiment's time series. The CANONICAL
 history lives on the Hetzner server (`/opt/delta-bot/data/hodl-history.jsonl`),

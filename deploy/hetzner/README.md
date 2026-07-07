@@ -67,6 +67,37 @@ The dashboard needs no server access at all — it reads the chain directly, so
 LP exposure, hedge state, net-ΔSOL band and liquidation price are all visible
 from your laptop while the bot runs on the server.
 
+## Watchdog / alerting (ADR-024, born from BUG-014)
+
+The bot once crash-looped for 15 hours on an exhausted RPC quota and nobody
+was told. A host-level watchdog now runs OUTSIDE the container so it survives
+anything that kills the bot process:
+
+```bash
+# install / update (script lives in the repo, secrets do NOT):
+scp deploy/hetzner/watchdog.sh root@<ip>:/opt/delta-bot/watchdog.sh
+ssh root@<ip> 'chmod 755 /opt/delta-bot/watchdog.sh'
+# root crontab (idempotent — re-check with `crontab -l`):
+#   */5 * * * * /opt/delta-bot/watchdog.sh
+#   5 8 * * *   /opt/delta-bot/watchdog.sh --heartbeat
+```
+
+Channels are configured in `/opt/delta-bot/watchdog.env` (chmod 600,
+server-only — the script refuses to run without at least one):
+
+```bash
+NTFY_TOPIC=<secret-random-topic>      # subscribe: https://ntfy.sh/<topic>
+TELEGRAM_BOT_TOKEN=<botfather token>  # optional second channel
+TELEGRAM_CHAT_ID=<numeric chat id>    # bot can't message first: /start it, then getUpdates
+```
+
+Checks every 5 min: container running, RestartCount not growing, ≥1 completed
+loop cycle in 10 min, `data/auto-tune-state.json` mtime fresh, the literal
+`max usage reached` (RPC credits gone), error-line bursts. First alert
+immediately, then hourly while broken, «✅ восстановился» on recovery, and a
+daily 08:05 UTC «💚 живой» heartbeat proves the watchdog itself is alive.
+State/log: `/opt/delta-bot/data/watchdog.state` / `watchdog.log`.
+
 ## Go-live checklist (Stage B)
 
 1. Wallet funded: SOL for LP + fees, USDC for short collateral.

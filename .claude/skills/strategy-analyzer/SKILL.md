@@ -34,12 +34,18 @@ DLMM SDK (`pool.getFeeInfo()`, `pool.lbPair.binStep`) if the pool ever changes.
 
 ## Step 2 — Liveness (BUG-008 lesson: logs lie, data doesn't)
 
-- Container `delta-neutral-bot` Up, RestartCount not climbing.
+- Container `delta-neutral-bot` Up, RestartCount not climbing. A huge
+  RestartCount + 1-cycle lifetimes = the BUG-014 signature (RPC quota dead;
+  the loop's 5-error kill switch + Docker restart policy = crash loop).
 - `hedge_actions`/`position_snapshots` MAX(taken_at) is recent; `pnl.db`
   advancing. Silence with a "✅ started successfully" log is the brick-loop
   signature.
 - `data/hodl-cron.err` on the server holds only the benign bigint warning;
-  history rows appear daily (00:17 UTC).
+  history rows appear daily (00:17 UTC). The cron shares the bot's RPC key —
+  a missing row right after an RPC incident is expected, not a new bug.
+- Watchdog (ADR-024) alive: `/opt/delta-bot/data/watchdog.state` says
+  `status=ok` and its mtime is < 10 min old (root cron */5 runs it); the
+  operator got the daily 08:05 UTC «💚 живой» heartbeat.
 
 ## Step 3 — Fee & flow ledger since the last review (normalize to $/day)
 

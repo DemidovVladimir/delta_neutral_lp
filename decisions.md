@@ -1869,6 +1869,46 @@ pending-clamp states. 100 tests green. progress.md Session 18.
 
 ---
 
+## ADR-024: Host-level watchdog with push alerts (ntfy.sh)
+
+**Date:** 2026-07-07
+**Status:** Accepted (operator, after BUG-014: «Что нет никаких алертов … не приемлемо»; channel choice ntfy.sh approved explicitly)
+
+### Context
+
+BUG-014: the Helius quota died at 2026-07-06T17:27Z and the bot crash-looped
+for ~15 hours (959 container restarts) with live funds — LP out of range,
++0.41 SOL unhedged — and no human was told. Observation relied entirely on
+someone running `pnpm logs:hetzner` or the dashboard by hand. Any alerting
+that lives INSIDE the bot process dies with it, and redeploying the bot
+mid-campaign for an ops feature would dirty the ADR-023 experiment window
+(operator kept выдержка at 5 мин for exactly that reason).
+
+### Decision
+
+A standalone `deploy/hetzner/watchdog.sh` on the HOST, run by root cron
+every 5 minutes (+ a daily 08:05 UTC heartbeat run):
+
+- Checks: container exists and is `running`; RestartCount did not grow;
+  ≥1 `check cycle completed` log line in the last 10 min;
+  `data/auto-tune-state.json` mtime ≤ 10 min (independent liveness signal);
+  `max usage reached` named explicitly (RPC quota); >20 error lines/10 min.
+- Alerts: ntfy.sh push to a secret random topic. Dedup: first alert
+  immediately, then at most hourly while broken; a recovery message when
+  healthy again; daily «💚 живой» heartbeat proves the watchdog itself works.
+- The topic is a password: it lives ONLY in `/opt/delta-bot/watchdog.env`
+  (chmod 600, not in the repo); the repo script refuses to run without it.
+  Channel swap (e.g. Telegram later) = edit `watchdog.env` / `notify()`.
+
+### Alternatives rejected
+
+- In-bot alerting: dies with the process — the exact failure mode observed.
+- Telegram-first: needs an operator-created bot token; ntfy.sh works with
+  zero registration (subscribe = open the topic URL), chosen for same-day
+  coverage. Telegram can be added later without redeploying the bot.
+
+---
+
 ## Decision Index
 
 - ADR-001: Use solana-agent-kit for Transaction Execution *(superseded — direct @solana/web3.js)*
@@ -1894,12 +1934,13 @@ pending-clamp states. 100 tests green. progress.md Session 18.
 - ADR-021: Crash-protection package — full-portfolio neutrality, storm mode, red button (Accepted)
 - ADR-022: Auto-sized hedge notional cap + headroom fill (BUG-012) (Accepted)
 - ADR-023: Trend confirmation window («выдержка») for recenters and clamp commits (Accepted)
+- ADR-024: Host-level watchdog with push alerts (ntfy.sh) (Accepted)
 
 ---
 
 ## Decision Status
 
-- **Accepted:** 20 (incl. ADR-023 — trend confirmation window)
+- **Accepted:** 21 (incl. ADR-024 — host watchdog + push alerts)
 - **Superseded:** 3 (ADR-001 by direct web3.js, ADR-010 by removal of Jito, ADR-014 as active venue by ADR-015)
 - **Proposed:** 0
 - **Deprecated:** 0

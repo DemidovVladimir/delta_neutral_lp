@@ -6,6 +6,24 @@
 
 ## Active Bugs
 
+### BUG-014: RPC quota exhaustion killed the bot silently for ~15 hours — nobody was told
+**Status:** Mitigated (2026-07-07): operator upgraded the Helius subscription; host-level watchdog + push alerts installed (ADR-024). Residual risks below are OPEN.
+**Severity:** High (the whole machine — LP recentering AND hedge — was down unattended with live funds; only luck kept the damage small)
+**Reported:** 2026-07-07
+**Related:** ADR-024 (watchdog), BUG-008 (previous silent-death incident, different cause)
+
+**Description:**
+2026-07-06T17:27:17Z the Helius RPC began returning `429 {"code":-32429,"message":"max usage reached"}` — the plan's credits were exhausted ~3.5 days into the campaign (15s cycle cadence; every cycle does position discovery `getProgramAccounts` + LP exposure + both perp PDAs + custodies). The loop counted 5 consecutive errors, stopped itself, the container exited, Docker restarted it, the first cycle failed again — **959 restarts over ~15 hours**. Consequences: LP drifted out of range below (100% SOL — zero fees earned all night), net delta sat at **+0.41 SOL unhedged** (clamped input 1.224 vs short 0.818), the 00:17Z hodl cron row never happened, and срез #7's window is contaminated. Price only moved 82.03→81.39 over the outage, so the realized cost was small (≈ −0.3 USD on the tilt + a night of forgone fees) — luck, not design.
+
+**Recovery timeline (2026-07-07):** operator upgraded the subscription (~08:35Z) → clean restart 08:40Z → first cycle green immediately (`consecutiveErrors` resets on success) → выдержка window 5 мин → LP recentered 08:45:44Z (Phase 1 tx `4bg1BZpkhugLssZrsGkgGYUcWfjfFs9nouVc8KQP4kQ4hHT9xdn9qW3Nui9AxsaXwxgs4y87Gm8zW5pJnHdN3KkZ`; Phase 2 first attempt failed on a stale balance read — "Have 0.2529 SOL" — and self-healed next cycle by design, creating position mint `3WuvvKnQo8iJHBGAEZYmNBEaZXNNjGBL7uUoBj2nz5Fc`, tx `4bG3xFrUxC66GTZyBmqYsX1fvvor7GGjGS4TaZbGmhLrSnHg2LfXDydKGB9obR1RxH9T3ydA1FiVU4EMJ2Cznj9M`) → hedge `increase_short` +0.366 SOL (request `ZvoKxZeAW7ThztfMWBVfsnU3z8VTtp1qcjJshBH32BG`, TX1 `5W7QtvLJPTkwsngQwM8RY6jVByqFH7st5MTERvQAy4swVJcAg2yhFngN3Hmw83KBSYgG8pu1eH31AiKs3zhFHY1A`) → netΔ −0.0000048 SOL at 08:46:28Z.
+
+**Open residual risks:**
+1. No RPC-budget awareness in the bot: nothing throttles or degrades gracefully as credits run low; the same cliff exists on the upgraded plan, just further away. Consider a cheaper cycle (skip rediscovery when state is fresh) and/or interval backoff on 429.
+2. The 5-consecutive-errors kill switch turns any sustained RPC outage into a crash-restart loop. Docker's restart policy accidentally makes this "retry forever", which is the desired behavior — but each restart re-runs full init. An explicit in-loop backoff would be cleaner.
+3. The daily hodl cron shares the same RPC key — it died with the bot, leaving a hole in the history series exactly when it mattered.
+
+---
+
 ### BUG-013: Increases sized beyond the collateral actually in the wallet → 5 failed simulations → hedge self-disables
 **Status:** Fixed in code (2026-07-06, commit `7e518d3`) — awaiting operator-approved redeploy; the server hedge is DISABLED until the container restarts
 **Severity:** High (the 5-error kill switch turns a sizing problem into a fully unhedged LP session)

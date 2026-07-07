@@ -1,13 +1,19 @@
 # HANDOVER — Delta-Neutral Bot (LP + Jupiter Perps hedge, both sides)
 
-**Last updated:** 2026-07-06 (end of Session 18)
-**Branch:** `feature/hedge-jupiter-perps-pivot` — pushed to `origin` (github.com:DemidovVladimir/delta_neutral_lp) at `0df7bf4`, 2026-07-06
-**Status:** **LIVE at `0df7bf4`** (three same-day deploys Jul 6: ADR-022 auto-cap 10:23Z → BUG-013
-collateral-fill 10:46Z → ADR-023 выдержка 5 мин ~11:26Z). RestartCount 0, hedge in band
-(netΔ +0.0017 on the first ADR-023 cycle). **Campaign 2 baseline $372.69253481882396**
-(twice-adjusted; do NOT re-init). Full Jul-6 story: progress.md Session 18, ADR-022/023,
-BUG-012/013. Срез #6: vs as-is +1.09 / vs USDC −4.70 / vs SOL +3.62; the Jul 5–6 whipsaw
-night cost −2.2 USD like-for-like (clamp churn, now dampened).
+**Last updated:** 2026-07-07 (Session 19)
+**Branch:** `main` (github.com:DemidovVladimir/delta_neutral_lp) — feature/hedge-jupiter-perps-pivot merged in and deleted 2026-07-07 along with feature/ID-2-auto-tune (both were fully merged); the old multipool experiment survives as tag `archive/multipool-bkp` (commit `e100c9a`), its branch deleted. Work directly on `main` until a new feature branch is warranted.
+**Status:** **LIVE, recovered from BUG-014.** Helius quota died 2026-07-06T17:27Z → bot
+crash-looped 15h (959 restarts), LP out of range, +0.41 SOL unhedged. Operator upgraded the
+Helius subscription 08:35Z Jul 7 → restart 08:40Z → recenter (new position mint
+`3WuvvKnQo8iJHBGAEZYmNBEaZXNNjGBL7uUoBj2nz5Fc`) → increase_short +0.366 SOL →
+**netΔ −0.0000048 at 08:46:28Z**. Host watchdog live (ADR-024) with ntfy.sh + Telegram
+(`@healthchecks_delta_neutral_bot`) push alerts; all channel secrets in server-only
+`/opt/delta-bot/watchdog.env`. **Срез #7 (3.50d): FIRST loses-to-both** —
+vs as-is −1.71 / vs USDC −5.32 / vs SOL −0.14 (window contaminated by the outage).
+Выдержка verdict: recenters tamed (~40/day, 22 filtered), clamp flapping NOT cured
+(3 sell-low-buy-high round trips ≈ −1.2 USD in 6h). Operator kept выдержка at 5 мин.
+**Campaign 2 baseline $372.69253481882396** (twice-adjusted; do NOT re-init).
+Full story: progress.md Session 19, BUG-014, ADR-024.
 
 ---
 
@@ -71,6 +77,19 @@ it; utilization spikes in carry; the first live long-close/unwrap if a long ever
   for `KS1p61P3g5Rub8Ar9TXWp8rbu2Wxi1jpQQLDJVtaMrA` — per-tick snapshots are silently skipped (by
   design) until the FIRST rebalance creates the next position; from then on stats are complete.
   `hedge_actions` records fine regardless.
+
+## Jul 7 checklist — DONE (Session 19). Outcome summary
+
+Executed 2026-07-07 morning, derailed-then-recovered by BUG-014 (see progress.md Session 19):
+срез #7 done (first loses-to-both, −1.71 vs as-is); выдержка = half-win (recenters ~40/day,
+clamp flap survives); campaign verdict = fees ≈ $9.7 vs $3,580 hedge churn + 4 incidents/4 days —
+binding constraint is survivability + clamp churn, not parameters. Decisions taken: Helius
+subscription upgraded; выдержка stays 5 мин; ntfy watchdog approved + installed (ADR-024).
+**Still queued for the operator:** collateral ratio 0.5→0.33; fatter-fee pool switch (needs
+simulator `--fee` flag); clamp-toggle dampening design; scaling 130→300+.
+Next срез: watch that the 00:17Z cron row returns (it shares the bot's RPC key).
+
+The original checklist follows for reference.
 
 ## Jul 7 checklist — ВЕРДИКТ дня (operator-approved plan; commands inline, no re-derivation needed)
 

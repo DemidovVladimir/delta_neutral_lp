@@ -45,6 +45,8 @@ pnpm find-pools          # discover SOL/USDC DLMM pools
 docker compose up -d && docker compose logs -f
 pnpm deploy:hetzner      # rsync + .env upload + compose up (see deploy/hetzner/README.md)
 pnpm logs:hetzner | pnpm ssh:hetzner
+# Host watchdog (ADR-024): deploy/hetzner/watchdog.sh via root cron */5 on the server,
+# pushes to ntfy.sh + Telegram; secrets ONLY in server-side /opt/delta-bot/watchdog.env
 ```
 
 ## Architecture
@@ -106,7 +108,8 @@ Hedge (ADR-017):
 - Jupiter fills are asynchronous (TX2). Never act on position state within `HEDGE_COOLDOWN_MS` of a live mutation.
 - Meteora SDK + Jupiter APIs handle priority fees internally; `SEND_OPTIMIZED=true` opts LP sends into simulated CU limits + Helius fee estimates.
 - NEVER write `$<digit>` literals in `.claude/skills/*/SKILL.md` — the skill engine substitutes them with invocation args (write `N USD`); check with `rg '\$[0-9]' .claude/skills/`.
-- When pulling `data/pnl.db` for analysis, ALWAYS copy `pnl.db-wal` too (hours of rows live only in the WAL).
+- When pulling `data/pnl.db` for analysis, ALWAYS copy `pnl.db-wal` too (hours of rows live only in the WAL). Exception: a bot that is down/crash-looping checkpoints the WAL on every shutdown, so no `-wal` file then is normal.
+- Helius answering `429 {"code":-32429,"message":"max usage reached"}` = the plan's credits are EXHAUSTED (BUG-014 killed the bot for 15h this way), not rate limiting — retries won't help. Read-only CLIs (`pnpm hodl`, `pnpm dashboard --json`) work with a public-endpoint override: `RPC_URL=https://api.mainnet-beta.solana.com pnpm hodl`.
 
 ## Documentation duties
 

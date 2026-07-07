@@ -5,6 +5,26 @@
 
 ---
 
+## 2026-07-07
+
+### Session 19 — день вердикта превратился в разбор аварии: BUG-014 (RPC-квота, 15ч тишины), срез #7, сторож (ADR-024)
+
+**The plan was the Jul 7 campaign verdict; the morning found the bot dead.** Helius started returning `max usage reached` at 2026-07-06T17:27:17Z (credits exhausted ~3.5 days into the campaign at 15s cadence); the loop's 5-error kill switch + Docker restart policy produced a 959-restart crash loop until ~08:40Z Jul 7. LP sat out of range below (100% SOL, zero fees all night), netΔ +0.41 SOL unhedged; price only moved 82.03→81.39 so realized damage ≈ −0.3 USD — luck. The 00:17Z hodl cron died with it (same RPC key). Filed as **BUG-014** with residual risks (no RPC-budget awareness; kill-switch-as-retry; cron shares the key).
+
+**Срез #7 (08:25Z, 3.50d, via public RPC while Helius was still dead): first loses-to-both.** vs as-is **−1.71** (срез #6: +1.09 → −2.80 за сутки), vs USDC −5.32, vs SOL −0.14. The degradation decomposes into the Jul-6 afternoon clamp flapping + the outage night, not a strategy-alpha change.
+
+**Выдержка (ADR-023) verdict on its only clean window (11:26Z→17:27Z Jul 6, incl. a real 81.5→79.2→82.3 V-move): half a win.** Recenters 10/6h (~40/day vs ~52 whipsaw night), 22 «recenter skipped» filtered, 0 storms. But the **clamp still flaps**: 7 live hedge trades / $345 churn in 6h — three full sell-low-buy-high round trips (increase_short @ 79.7–79.9 → decrease @ 80.3–80.4) ≈ −1.2 USD. Выдержка slows the toggles; it does not dampen the ±0.6 SOL clamp input step. Also a 27-min blocked streak (84 rows, 13:05–13:32Z): wallet USDC was $0.27 — BUG-013's known collateral-starvation tradeoff in the wild (resolved by the price recovering, i.e. luck again).
+
+**Campaign verdict (3.5d):** LP fees collected ≈ $9.7 (≈100% APR on the ~$100 LP slice — the идея works) vs **$3,580 hedge churn** (210 live trades) + four incidents in four days (BUG-008 brick, whipsaw night, BUG-013 gap, BUG-014 RPC death). The machine accrues +0.5..1.0 USD/day in calm in-range regimes and gives it all back in every incident. The binding constraint is now **operational survivability + clamp churn**, not parameter tuning.
+
+**Recovery (all verified live):** operator upgraded the Helius subscription → restart 08:40Z → first cycle green (`consecutiveErrors` resets on success) → выдержка held 5 мин → recenter 08:45:44Z (Phase 2 first attempt hit the documented stale-balance race, self-healed next cycle; new position mint `3WuvvKnQo8iJHBGAEZYmNBEaZXNNjGBL7uUoBj2nz5Fc`) → hedge `increase_short` +0.366 SOL → **netΔ −0.0000048 SOL** at 08:46:28Z. Machine fully neutral again.
+
+**ADR-024 shipped the same hour:** host-level `deploy/hetzner/watchdog.sh` (root cron */5 + daily 08:05Z heartbeat) — container/RestartCount/cycle-liveness/state-mtime/quota-pattern/error-burst checks, ntfy.sh push with 1h dedup + recovery message; secret topic only in `/opt/delta-bot/watchdog.env` (600, not in repo). Test push delivered.
+
+**Operator decisions today:** Helius subscription upgraded (RPC restored); **выдержка stays 5 мин** (rejected the simulator-suggested 10м — keep the ADR-023 window clean); ntfy.sh alert channel approved. Still queued: `HEDGE_TARGET_COLLATERAL_RATIO` 0.5→0.33, fatter-fee pool switch (needs the simulator `--fee` flag), clamp-toggle dampening design, the 130→300+ scaling conversation.
+
+---
+
 ## 2026-07-06
 
 ### Session 18 (addendum 3, late night) — simulator stage 3: authenticity gate PASSED, first grid
