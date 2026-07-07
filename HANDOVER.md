@@ -1,6 +1,6 @@
 # HANDOVER — Delta-Neutral Bot (LP + Jupiter Perps hedge, both sides)
 
-**Last updated:** 2026-07-07 (Session 20, evening — operator signed off for the day)
+**Last updated:** 2026-07-07 (Session 20, night — срез #1 done early by operator order (−$0.18, progress.md addendum 7), BUG-017 found+fixed in `ee26f02`, **DEPLOY OF ee26f02 PENDING** (auto-mode gate blocked `pnpm deploy:hetzner`; if the operator didn't run it tonight, deploy FIRST thing Jul 8, then verify the banner + first cycles). Двойной-порог alert item queued as item 6.)
 
 ## NEXT SESSION (Jul 8) — checklist, in order
 
@@ -32,7 +32,21 @@
    drifts 0.466→0.33 only via new increases; liq/spot will drift from
    ~1.45× toward ~1.32×. Alarm only below 1.3× (the vitals alert fires at
    1.25×).
-6. **If the срез is clean → the scaling conversation (130→300+):**
+6. **VITALS hysteresis (operator-approved Jul 7 evening, ~30 min):** the
+   churn alert flapped on the boundary the night of Jul 7 — churn frozen at
+   $441.83 (no new trades) while 3×auto-cap breathed around $441.8 with
+   price → repeat pushes for zero new information (incident: progress.md
+   Session 20 addendum 6; expected to self-clear at Jul 8 08:46Z roll-off).
+   Add a latch to `vitalsBreach()` in `src/modules/jupiterPerpsEngine.ts`:
+   fire on crossing the threshold (churn > 3× cap), then stay SILENT until
+   the metric clears below a release level with a ~10% gap (< 2.7× cap),
+   log one «✅ VITALS recovered» line on release, and only re-arm after it.
+   Apply the same latch to the other floating-threshold vitals (gross
+   notional 1.1× cap, liq distance 1.25×) — same breathing risk; keep the
+   10-min throttle as a backstop. Unit-test the latch (fire → silent inside
+   the gap → recover line → re-arm). Watchdog needs no change — it greps
+   new lines only.
+7. **If the срез is clean → the scaling conversation (130→300+):**
    everything auto-scales now (cap ADR-022, band ADR-025, collateral =
    ratio); the operator decision is the deposit size itself
    (`AUTO_TUNE_DEPOSIT_AMOUNT`, currently 0.61 SOL) and whether to move
@@ -40,7 +54,7 @@
    params before proposing numbers (recorded grids are pre-ADR-025 — the
    SKILL.md caution applies; also update `StrategyParams::default()`
    target_collateral_ratio 0.5→0.33 while touching it).
-7. **Housekeeping (cheap):** server STRATEGY_VERSION stamp is `8679a38`,
+8. **Housekeeping (cheap):** server STRATEGY_VERSION stamp is `8679a38`,
    HEAD is one docs-only commit ahead — the next real deploy restamps;
    BUG-014 residual risks remain open (no RPC-budget awareness in the bot,
    kill-switch-as-retry, hodl cron shares the bot's RPC key).

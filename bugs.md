@@ -7,7 +7,7 @@
 ## Active Bugs
 
 ### BUG-017: Rebalance swap planner reads wallet balances before the Phase-1 withdraw is visible — plans an unnecessary swap
-**Status:** Open (found 2026-07-07 during срез #1 of Campaign 3, evidence below)
+**Status:** Fixed in `ee26f02` (2026-07-07, same evening — operator chose «чинить сегодня же»): `waitForBalanceCredit` (`src/utils/balanceBarrier.ts`) polls after Phase-1 confirmation until the wallet shows a rent-sized SOL credit (plus the USDC principal when the closed position was USDC-heavy), 500ms polls / 12s budget, fail-OPEN with a `⚠️ Phase-1 credit NOT visible` errorBanner so a slow node can degrade to the old behavior but never silently. 6 unit tests; 109 vitest green. **Field verification pending: watch the next out-of-range recenter for the `✅ Phase-1 credit visible in wallet` line and NO wrong-direction swap.**
 **Severity:** Medium (wrong-direction swap on out-of-range recenters → surplus wallet SOL → oversized follow-up hedge trade + extra collateral lock; self-neutralized by ADR-021 accounting, but each occurrence costs a swap fee + a larger perp round trip, and it inflates the ADR-022 auto-cap so the churn vitals rule silently loosens)
 **Reported:** 2026-07-07 (Session 20 addendum 6)
 

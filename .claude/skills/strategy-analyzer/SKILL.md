@@ -74,14 +74,18 @@ adjustments» ниже) — a deposit shows up as fake strategy profit.
   ΔUSDC, class, and db cross-check; unexplained perps/meteora/jupiter rows
   are findings, not noise. Totals come with formulas spelled out.
 - **Hedge liveness — NO silent gaps (BUG-015 lesson, MANDATORY every срез):**
-  `hedge_actions` must have a row (any action incl. `none`) at least every
-  ~3 cycle intervals while `HEDGE_ENABLED=true` and the bot is up. Check:
-  `SELECT taken_at FROM hedge_actions WHERE taken_at >= '<window>' ORDER BY
-  taken_at` → scan for gaps > 60s that do NOT coincide with bot downtime.
-  A gap = the hedge silently not running (BUG-015 hid exactly this for days
-  behind a debug-level skip; trades clustering 20–40s after recenters is
-  the same signature). NEVER infer the hedge mechanism from trade patterns
-  alone — row DENSITY first, then trades.
+  `hedge_actions` records ONLY non-`none` decisions (verified in code
+  2026-07-07: `autoTuneOrchestrator.ts:1056` logs `none` as a sampled
+  1-in-10 heartbeat, records everything else to db) — so db-row gaps are
+  NORMAL and liveness must be checked in the persistent log
+  `data/logs/bot.log`: (a) `Auto-tune check cycle completed` iterations
+  contiguous at ~15s cadence over the window, and (b) `Hedge:` lines (the
+  sampled «no action» heartbeat plus every 🎯 action) present throughout —
+  a stretch of many cycles with NO Hedge lines = BUG-015 class silence.
+  Trades landing 20–40s after recenters WITH the heartbeat present is the
+  ADR-021 wallet-flow design, not blindness. NEVER infer the hedge
+  mechanism from trade patterns alone — heartbeat DENSITY first, then
+  trades.
 - The effective band is AUTO-derived since ADR-025 (`HEDGE_BAND_BINS` ×
   lpFullValueSol / binCount, floored by `DELTA_THRESHOLD_SOL`) — verify the
   floor still ≥ 3 bins' worth if the operator changed bin count or pool
