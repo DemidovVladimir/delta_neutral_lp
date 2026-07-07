@@ -1,6 +1,6 @@
 # HANDOVER — Delta-Neutral Bot (LP + Jupiter Perps hedge, both sides)
 
-**Last updated:** 2026-07-07 (Session 20, night — срез #1 done early by operator order (−$0.18, progress.md addendum 7), BUG-017 found+fixed in `ee26f02`, **DEPLOY OF ee26f02 PENDING** (auto-mode gate blocked `pnpm deploy:hetzner`; if the operator didn't run it tonight, deploy FIRST thing Jul 8, then verify the banner + first cycles). Двойной-порог alert item queued as item 6.)
+**Last updated:** 2026-07-07 (Session 20, night — срез #1 done early by operator order (−$0.18, progress.md addendum 7), BUG-017 found+fixed (`ee26f02`) and **DEPLOYED same evening** (operator ran deploy 19:52Z; server STRATEGY_VERSION `98bac75`, restarts 0, cycles in band, watchdog.env survived). **Field verification still pending:** on the next out-of-range recenter grep bot.log for `✅ Phase-1 credit visible in wallet` and confirm NO wrong-direction swap. Двойной-порог alert item queued as item 6.)
 
 ## NEXT SESSION (Jul 8) — checklist, in order
 
