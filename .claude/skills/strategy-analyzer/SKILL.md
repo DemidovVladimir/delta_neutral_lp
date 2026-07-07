@@ -68,6 +68,11 @@ adjustments» ниже) — a deposit shows up as fake strategy profit.
 
 ## Step 4 — Parameter invariants (ADR-018 and friends)
 
+- **Transaction audit (operator standing order 2026-07-07, MANDATORY):**
+  `npx tsx scripts/tx-audit.ts --since <window> --db <pulled pnl.db>` — every
+  wallet transaction listed with full signature, fee payer + amount, ΔSOL /
+  ΔUSDC, class, and db cross-check; unexplained perps/meteora/jupiter rows
+  are findings, not noise. Totals come with formulas spelled out.
 - **Hedge liveness — NO silent gaps (BUG-015 lesson, MANDATORY every срез):**
   `hedge_actions` must have a row (any action incl. `none`) at least every
   ~3 cycle intervals while `HEDGE_ENABLED=true` and the bot is up. Check:

@@ -30,6 +30,7 @@ import type {
   SimResult,
 } from './hedgeEngine.js';
 import { computeAutoBandSol, computeAutoNotionalCapUsd, decideHedgeAction } from './hedgeController.js';
+import { getLiveHedgeChurn24hUsd } from './pnlDb.js';
 import { getConfig } from '../config/env.js';
 import { getWalletKeypair } from '../utils/solana.js';
 import { getSolPrice } from '../core/priceOracle.js';
@@ -99,6 +100,44 @@ export class JupiterPerpsEngine implements HedgeEngine {
   private walletPubkey: any;
   private positionPdas!: { long: any; short: any };
   private initialized = false;
+  /** Per-breach-type throttle for the 🚨 VITALS BREACH lines (10 min). */
+  private lastVitalsLogAt: Record<string, number> = {};
+
+  /**
+   * Vitals breaches (operator standing order 2026-07-07): conditions that
+   * must NEVER hold on a healthy machine, logged as loud greppable lines the
+   * host watchdog (ADR-024) pushes to ntfy/Telegram. Thresholds derive from
+   * the ADR-022 auto-cap — they scale with the portfolio, no hand constants.
+   */
+  private vitalsBreach(kind: string, message: string, ctx: Record<string, unknown>): void {
+    const now = Date.now();
+    if (now - (this.lastVitalsLogAt[kind] ?? 0) < 10 * 60 * 1000) return;
+    this.lastVitalsLogAt[kind] = now;
+    log.error(`🚨 VITALS BREACH — ${message}`, ctx);
+  }
+
+  private checkVitals(
+    sides: { long: { notionalUsd: number } | null; short: { notionalUsd: number } | null },
+    effectiveMaxNotionalUsd: number,
+  ): void {
+    if (!(effectiveMaxNotionalUsd > 0)) return;
+    const grossNotionalUsd = (sides.long?.notionalUsd ?? 0) + (sides.short?.notionalUsd ?? 0);
+    if (grossNotionalUsd > effectiveMaxNotionalUsd * 1.1) {
+      this.vitalsBreach('notional', 'perp notional above the ADR-022 auto-cap', {
+        grossNotionalUsd,
+        capUsd: effectiveMaxNotionalUsd,
+        rule: 'gross perp notional ≤ 1.1 × auto-cap; above it the cap enforcement is broken',
+      });
+    }
+    const churn24hUsd = getLiveHedgeChurn24hUsd();
+    if (churn24hUsd > 3 * effectiveMaxNotionalUsd) {
+      this.vitalsBreach('churn', '24h live hedge churn above 3× the auto-cap', {
+        churn24hUsd,
+        capUsd: effectiveMaxNotionalUsd,
+        rule: 'Σ|size_usd| live over 24h ≤ 3 × auto-cap (the Jul-5 whipsaw night, $966 vs cap $200, would have fired this)',
+      });
+    }
+  }
 
   async initialize(): Promise<void> {
     if (this.initialized) return;
@@ -729,6 +768,12 @@ export class JupiterPerpsEngine implements HedgeEngine {
       targetDeltaSol,
       outOfBand: Math.abs(netDeltaSol - targetDeltaSol) > effectiveBandSol,
     };
+
+    // Vitals breaches (operator standing order 2026-07-07): loud, greppable
+    // lines the host watchdog pushes to ntfy/Telegram within 5 minutes.
+    // Thresholds derive from the portfolio via the ADR-022 cap — no hand
+    // constants. Throttled to one line per 10 min per breach type.
+    this.checkVitals(sides, effectiveMaxNotionalUsd);
 
     const decision = decideHedgeAction({
       lpSol: lpSolExposure,

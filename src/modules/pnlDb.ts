@@ -1185,6 +1185,32 @@ export function getPositionLifetimeBuckets(sinceIso?: string): PositionLifetimeB
   );
 }
 
+/**
+ * Total LIVE hedge notional traded (Σ|size_usd|, increases + decreases) over
+ * the trailing 24h — the vitals-alert input (operator standing order
+ * 2026-07-07): churn above a few multiples of the ADR-022 auto-cap means the
+ * machine is bleeding fees the way the Jul-5 whipsaw night did. Fail-safe:
+ * returns 0 when the db is unreadable (the loop must never die here; the
+ * watchdog's other checks cover a broken db).
+ */
+export function getLiveHedgeChurn24hUsd(): number {
+  return (
+    safe(() => {
+      const db = openDb();
+      const row = db
+        .prepare(
+          `SELECT COALESCE(SUM(ABS(size_usd)), 0) AS churn
+           FROM hedge_actions
+           WHERE dry_run = 0
+             AND action IN ('increase_short','decrease_short','increase_long','decrease_long')
+             AND taken_at >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 day')`,
+        )
+        .get() as { churn: number };
+      return row.churn;
+    }, 'getLiveHedgeChurn24hUsd') ?? 0
+  );
+}
+
 export interface LatestSnapshotForPosition {
   positionId: number;
   takenAt: string;

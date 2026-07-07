@@ -6,6 +6,29 @@
 
 ## Active Bugs
 
+### BUG-016: `deploy.sh` rsync --delete silently wiped the watchdog script AND its alert secrets
+**Status:** Fixed (2026-07-07): cron repointed to the repo copy `deploy/hetzner/watchdog.sh` (self-updates on deploy), `--exclude 'watchdog.env'` added to rsync, `watchdog.env` recreated (ntfy topic restored from memory; **TELEGRAM_BOT_TOKEN must be re-entered by the operator** — it lived only in the deleted file, by design). Restoration test push delivered via ntfy.
+**Severity:** High (the ADR-024 alert layer — built specifically so failures can't be silent — was itself silently dead for ~35 min; root cron 127'd every 5 min)
+**Reported:** 2026-07-07 (found minutes after deploying the vitals alerts, by running the watchdog by hand — the exact «проверь что всё отработало» discipline the operator had just ordered)
+
+**Description:**
+ADR-024 installed `/opt/delta-bot/watchdog.sh` + `/opt/delta-bot/watchdog.env`
+(secrets, not in repo) manually at the rsync TARGET root. `deploy.sh` runs
+`rsync --delete` of the repo tree over that root; neither file matched an
+exclude (`.env*` does not match `watchdog.env` — no leading dot), so the
+first ADR-025 deploy (2026-07-07 ~13:31Z) deleted both. Every deploy would
+have re-deleted any manual restore — which is exactly what happened to the
+first re-upload at 14:03Z, wiped by the 14:04Z deploy seconds later.
+
+**Lessons:** anything manually installed inside an rsync --delete target is
+one deploy away from deletion — either exclude it or make the repo the
+source of truth (chosen for the script; the secrets file got an exclude).
+The alert layer needs its own liveness proof: the daily 08:05Z «💚 живой»
+heartbeat is that proof — a missing morning heartbeat now means the watchdog
+itself died.
+
+---
+
 ### BUG-015: Stale `isImbalanced` flag silently disabled the hedge on every imbalanced cycle — the ADR-021 storm clamp was dead code
 **Status:** Fixed (2026-07-07, Session 20) — deployed together with ADR-025 (the freeze that makes the fix safe)
 **Severity:** High (the crash-protection feature could never fire in exactly its designed scenario; the hedge was blind through every storm, every выдержка window, and every out-of-range stretch)

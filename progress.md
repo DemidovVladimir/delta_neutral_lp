@@ -7,6 +7,17 @@
 
 ## 2026-07-07
 
+### Session 20 (addendum 3) — trust-revocation package: tx-audit, vitals alerts, mandatory verification; BUG-016 found by its own discipline
+
+**Operator standing order («доверие утеряно»):** every срез must include verified logs, the full per-transaction list with fees and amounts, formulas with numbers substituted, and norm alerts. Delivered:
+
+1. **`scripts/tx-audit.ts`** — every wallet tx in a window: FULL signature, fee payer + amount, ΔSOL/ΔUSDC from chain balances, classification, pnl.db cross-check (db:* tags; untagged venue txs = findings). Totals with formulas spelled out. Validated on the migration window: all 8 txs reconciled; the whole migration + a recenter + a hedge trade cost 0.000042622 SOL in wallet-paid fees.
+2. **Vitals alerts** (thresholds DERIVED, no hand constants): bot logs `🚨 VITALS BREACH` when gross perp notional > 1.1× ADR-022 auto-cap, 24h live churn > 3× auto-cap (`getLiveHedgeChurn24hUsd` in pnlDb; the Jul-5 whipsaw night would have fired it), or LP value < 50% of its creation deposit (in-range IL can't do that — tokens missing). 10-min per-type throttle; watchdog greps the line and pushes the first occurrence verbatim to ntfy/Telegram within ≤5 min.
+3. **Skills:** hodl-check got a MANDATORY non-skippable verification block (log check + tx list + formulas + norms); strategy-analyzer Step 4 got the tx-audit tool. Memory: `mandatory-srez-verification` standing order.
+4. **BUG-016 found by running the restored discipline:** `deploy.sh` rsync `--delete` had silently wiped `/opt/delta-bot/watchdog.sh` AND `watchdog.env` (secrets; `.env*` exclude doesn't match the name) on the first ADR-025 deploy — **the alert layer was dead 13:31→14:06Z** and every deploy would re-kill it. Fixed: root cron repointed to the repo copy (self-updates on deploy), `--exclude 'watchdog.env'` added, env recreated with the ntfy topic (test push delivered). **Telegram token lived only in the deleted file — operator must re-enter it.** Lesson recorded: a missing 08:05Z heartbeat now means the watchdog itself died.
+
+103 vitest green, tsc clean. Bot redeployed with vitals checks (RestartCount 0, in band, no breach lines — correctly quiet).
+
 ### Session 20 (addendum 2) — Campaign 3: migrated to the 0.1% pool (operator: «Да, переезжаем»)
 
 **Campaign 2 closed** with a final срез at 13:42Z (3.72d): vs HODL-as-is **−$0.70**, vs HODL-SOL +$1.67, vs HODL-USDC −$6.14 — MIXED; window carried BUG-014's 15h outage and the pre-BUG-015 hedge blindness. History + baseline archived to `data/archive/campaign-2/` (server copies).

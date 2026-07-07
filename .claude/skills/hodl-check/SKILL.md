@@ -104,6 +104,39 @@ Interpretation rules for the block:
 - Never write a dollar sign followed by a digit in this file (skill-engine
   arg substitution) — use `N USD`.
 
+## MANDATORY verification block (operator standing order 2026-07-07 — «доверие утеряно»)
+
+Trust in self-reported numbers is REVOKED. Every срез MUST include, in the
+report, all four of the following — no exceptions, no summaries-without-data:
+
+1. **Log check — everything fired when it should have.** Pull the window's
+   server logs and pnl.db (+WAL). Verify: hedge_actions row density has NO
+   gaps >60s that don't match documented downtime (BUG-015 class); every
+   recenter in `rebalances` has its ⚠️→✅ log pair; grep the window for
+   `🚨 VITALS BREACH` (must be none — each one found goes in the report
+   verbatim) and for ⏳/🧊/🌩/regime lines, and say what they show.
+2. **Full transaction list.** Run
+   `npx tsx scripts/tx-audit.ts --since <window start> --db <pulled pnl.db>`
+   and include its per-transaction output in the report: FULL signature,
+   who paid the fee and how much, ΔSOL / ΔUSDC per transaction,
+   classification, db:* cross-check tags. Any perps/meteora/jupiter
+   transaction WITHOUT a db:* tag must be explained or flagged as
+   unexplained — never silently dropped.
+3. **Totals with formulas.** The audit's totals section (fees = Σ tx.meta.fee
+   where wallet paid; SOL/USDC in/out = Σ balance deltas) plus the equity
+   formula WITH the actual numbers substituted:
+   `equity = walletSOL×P + walletUSDC + (lpSOL×P + lpUSDC + unclaimed) +
+   (collateral + perpUPnL − accruedBorrow)` — each term printed, then each
+   benchmark edge as `equity − benchmark` with both numbers shown.
+4. **Norms check.** State explicitly, with numbers: network fees in window
+   vs norm (≈0.001–0.005 SOL/day); live hedge churn vs 3× auto-cap; LP value
+   vs creation deposit; liquidation price ≥ 1.3× spot. Any breach = lead
+   with it, not bury it.
+
+Recall rule: never infer a MECHANISM from trade patterns alone — check row
+density and the exact log lines first (BUG-015 was mis-narrated for two days
+this way).
+
 ## After every срез: run the strategy analyzer
 
 Once the срез is reported, invoke the `strategy-analyzer` project skill
@@ -111,4 +144,4 @@ Once the срез is reported, invoke the `strategy-analyzer` project skill
 ledger, and parameter invariants against fresh pnl.db + on-chain data, and
 either confirms the current strategy or proposes a change for the operator
 to approve/reject. Skip only if the operator explicitly asked for the срез
-number alone.
+number alone — the verification block above is NOT skippable even then.

@@ -32,6 +32,12 @@ echo "→ Syncing source to ${HETZNER_USER}@${HETZNER_HOST}:${REMOTE_DIR}"
 # The container runs as the unprivileged `node` user (uid 1000); the
 # bind-mounted data dir must be writable by it or every state save EACCESes.
 remote "mkdir -p ${REMOTE_DIR}/data && chown -R 1000:1000 ${REMOTE_DIR}/data"
+# --exclude 'watchdog.env': the server-only alert secrets sit at the target
+# root and are NOT in the repo — without this exclude, --delete removes them
+# (BUG-016: the 2026-07-07 deploys silently wiped the watchdog script + env,
+# alerts were dead ~35 min). The watchdog SCRIPT is no longer copied to the
+# root: root cron runs the repo copy deploy/hetzner/watchdog.sh directly, so
+# every deploy refreshes it.
 rsync -az --delete \
   -e "ssh ${ssh_args[*]:-}" \
   --exclude node_modules \
@@ -39,6 +45,7 @@ rsync -az --delete \
   --exclude data \
   --exclude target \
   --exclude '.env*' \
+  --exclude 'watchdog.env' \
   --exclude 'deploy/hetzner/host.env' \
   "${REPO_ROOT}/" "${HETZNER_USER}@${HETZNER_HOST}:${REMOTE_DIR}/"
 

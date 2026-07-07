@@ -377,6 +377,8 @@ export class AutoTuneOrchestrator {
    * clamp is the designed backstop for exactly a rebalance that cannot run.
    */
   private lastRebalanceFailedAt: number | null = null;
+  /** Throttle for the LP-value 🚨 VITALS BREACH line (10 min). */
+  private lastLpVitalsLogAt = 0;
 
   private recordPriceSample(price: number): void {
     const now = Date.now();
@@ -474,6 +476,29 @@ export class AutoTuneOrchestrator {
 
       // 1. Check position balance (also yields the LpExposure the hedge needs)
       const { balance, exposure } = await this.checkPositionBalance();
+
+      // Vitals breach (operator standing order 2026-07-07): an in-range DLMM
+      // position cannot lose half its deposit to IL (max ≈ V·w/8) — LP value
+      // under 50% of its own creation deposit (SOL half valued at the CURRENT
+      // price, so price moves don't false-alarm) means tokens are missing.
+      // The watchdog greps 🚨 and pushes within 5 minutes.
+      const created = this.state.lastPositionCreated;
+      if (exposure && created && exposure.totalUsd > 0) {
+        const creationValueUsd =
+          created.initialDeposit.sol * currentPrice + created.initialDeposit.usdc;
+        if (creationValueUsd > 0 && exposure.totalUsd < creationValueUsd * 0.5) {
+          const now = Date.now();
+          if (now - this.lastLpVitalsLogAt > 10 * 60 * 1000) {
+            this.lastLpVitalsLogAt = now;
+            log.error('🚨 VITALS BREACH — LP value below 50% of its creation deposit', {
+              lpTotalUsd: exposure.totalUsd,
+              creationValueUsd,
+              positionMint: created.positionMint,
+              rule: 'in-range IL is bounded ≈ V×w/8 — a 50% drop means tokens left the position',
+            });
+          }
+        }
+      }
 
       if (!balance) {
         const elapsed = Date.now() - startTime;

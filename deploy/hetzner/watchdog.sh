@@ -70,10 +70,16 @@ else
   cycles=$(printf '%s' "$logs10m" | grep -c "check cycle completed")
   errors=$(printf '%s' "$logs10m" | grep -c "error")
   quota=$(printf '%s' "$logs10m" | grep -c "max usage reached")
+  # Vitals breaches (operator standing order 2026-07-07): the bot logs
+  # 🚨 VITALS BREACH when perp notional exceeds the auto-cap, 24h hedge churn
+  # exceeds 3× the cap, or LP value drops below half its creation deposit.
+  # The first line of any breach is pushed verbatim.
+  vitals=$(printf '%s' "$logs10m" | grep "VITALS BREACH" | head -1)
 
   [ "$cycles" -eq 0 ] && problems="${problems}0 завершённых циклов за 10 мин — бот стоит;"
   [ "$quota" -gt 0 ] && problems="${problems}RPC отвечает 'max usage reached' (квота исчерпана!);"
   [ "$errors" -gt 20 ] && [ "$quota" -eq 0 ] && problems="${problems}${errors} строк с error за 10 мин;"
+  [ -n "$vitals" ] && problems="${problems}${vitals};"
 fi
 
 # independent signal: the loop persists state every cycle
