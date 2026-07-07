@@ -6,6 +6,40 @@
 
 ## Active Bugs
 
+### BUG-017: Rebalance swap planner reads wallet balances before the Phase-1 withdraw is visible — plans an unnecessary swap
+**Status:** Open (found 2026-07-07 during срез #1 of Campaign 3, evidence below)
+**Severity:** Medium (wrong-direction swap on out-of-range recenters → surplus wallet SOL → oversized follow-up hedge trade + extra collateral lock; self-neutralized by ADR-021 accounting, but each occurrence costs a swap fee + a larger perp round trip, and it inflates the ADR-022 auto-cap so the churn vitals rule silently loosens)
+**Reported:** 2026-07-07 (Session 20 addendum 6)
+
+**Description:**
+In the 18:56:23Z recenter (below-range, position 100% SOL = 1.226996752 SOL):
+Phase 1 withdraw+claim+close confirmed at 18:56:25.130Z
+(sig `3PYxraki5CWsiHj4q134vUHnAM9fK2atD6Mggq6yGeMTvgCdKJNVcW8rF2mAiADvoMpmxhYbxFzHkYnhvtT3WK2c`,
+ΔSOL +1.285328515). The swap planner read balances 0.28s later
+(18:56:25.412Z) and got the PRE-withdraw wallet: 0.5104 SOL / 184.21 USDC
+(post-withdraw truth: 1.7377 SOL — reconstruction from tx-audit matches the
+final wallet 1.539541 to 6 decimals). It concluded «Insufficient SOL (need
+0.4005 more)» and swapped 33.613122 USDC → 0.412249 SOL
+(sig `2FCBdBF61BtcN8NCfj1GtnimFeajJ2qUHTWu7Xwo9w8mgiGthdJtyt4c1JTEsFrtryCSAJVZQf8Mpbt8WzpXJitB`)
+— a swap that correct balances would have skipped entirely (both deposit
+branches were already covered). The surplus 0.41 SOL then joined idle
+wallet SOL (ADR-021) and the next cycle's hedge shorted $83.01 instead of
+~$50 (sig `126qXysYvUo3M146UGAV2kFZAoqxhazypEcMGThcz2RB9QgPmydvmp8UvyX1qoHXHYdrserWW961XYLegwQ4XUEA`,
++$27.39 collateral locked at the 0.33 ratio).
+
+Likely mechanism: the balance fetch runs at a commitment level (or against
+a replica) that had not yet applied the just-confirmed withdraw. Phase-2
+retries re-fetch balances (per design), but the FIRST pass has no
+read-your-write guard.
+
+**Fix direction:** after Phase-1 confirmation, poll balances until they
+reflect the known expected delta (withdrawn amounts are known from the tx)
+or pass the expected post-withdraw balances into the swap planner; add a
+sanity guard «planned swap direction must not fight the just-withdrawn
+token» (we withdrew 1.23 SOL and immediately bought MORE SOL).
+
+---
+
 ### BUG-016: `deploy.sh` rsync --delete silently wiped the watchdog script AND its alert secrets
 **Status:** Fixed (2026-07-07): cron repointed to the repo copy `deploy/hetzner/watchdog.sh` (self-updates on deploy), `--exclude 'watchdog.env'` added to rsync, `watchdog.env` recreated (ntfy topic restored from memory; **TELEGRAM_BOT_TOKEN must be re-entered by the operator** — it lived only in the deleted file, by design). Restoration test push delivered via ntfy.
 **Severity:** High (the ADR-024 alert layer — built specifically so failures can't be silent — was itself silently dead for ~35 min; root cron 127'd every 5 min)

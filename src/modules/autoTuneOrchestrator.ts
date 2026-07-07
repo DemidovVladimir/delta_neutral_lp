@@ -85,6 +85,7 @@ import {
   updateUnclaimedLpFees,
 } from './persistence.js';
 import { trackBatchTransactionFees } from '../utils/transactionUtils.js';
+import { waitForBalanceCredit } from '../utils/balanceBarrier.js';
 import {
   recordPositionSnapshot,
   recordRebalanceTriggered,
@@ -1379,6 +1380,17 @@ export class AutoTuneOrchestrator {
       const oldPositionMint = discoveredMints[0];
       log.info(`🔄 Rebalancing position ${oldPositionMint.slice(0, 8)}...`);
 
+      // BUG-017: snapshot wallet balances BEFORE Phase 1 so we can tell,
+      // after it confirms, whether the RPC node we read from has actually
+      // applied the withdraw credit (see the barrier below Phase 1).
+      const connection = getConnection();
+      const wallet = getWalletKeypair();
+      const readWalletBalances = async () => ({
+        sol: (await connection.getBalance(wallet.publicKey)) / Math.pow(10, 9),
+        usdc: await this.getUsdcBalance(),
+      });
+      const preWithdraw = await readWalletBalances();
+
       // Execute Phase 1: Withdraw + Claim + Close in ONE transaction.
       //
       // Wrapped in a retry loop matching Phase 2's pattern. RPC congestion or
@@ -1464,12 +1476,56 @@ export class AutoTuneOrchestrator {
       // ========================================================================
       // CALCULATE BALANCED DEPOSITS RESPECTING WALLET RESERVES
       // ========================================================================
-      // Get actual wallet balances first
-      const connection = getConnection();
-      const wallet = getWalletKeypair();
-      const solBalance = await connection.getBalance(wallet.publicKey);
-      const actualSol = solBalance / Math.pow(10, 9);
-      const actualUsdc = await this.getUsdcBalance();
+      // BUG-017 read-your-write barrier: the withdraw is confirmed, but a
+      // load-balanced RPC can serve a stale balance for a moment after
+      // (live 2026-07-07 18:56Z: the planner read the pre-withdraw wallet
+      // and bought 0.41 SOL we already held). Closing always returns the
+      // position rent (~0.057 SOL) in the same transaction, so wait until
+      // SOL shows at least a rent-sized credit — and, if the closed
+      // position was USDC-heavy, until its USDC principal shows too.
+      // Fail-open on timeout: proceed with the freshest reading, loudly.
+      let actualSol: number;
+      let actualUsdc: number;
+      if (withdrawResult.signature === 'unknown-prior-success') {
+        // The withdraw landed on an EARLIER attempt — the pre-Phase-1
+        // snapshot may already include the credit, so the delta barrier
+        // has nothing to wait for. Take one fresh reading.
+        ({ sol: actualSol, usdc: actualUsdc } = await readWalletBalances());
+      } else {
+        const expectUsdcCredit = (triggerBalance?.usdcPercent ?? 0) > 50;
+        const credit = await waitForBalanceCredit({
+          preSol: preWithdraw.sol,
+          preUsdc: preWithdraw.usdc,
+          minSolDelta: 0.03,
+          minUsdcDelta: expectUsdcCredit ? 0.5 : 0,
+          timeoutMs: 12_000,
+          pollIntervalMs: 500,
+          readBalances: readWalletBalances,
+        });
+        if (credit.confirmed) {
+          log.info('✅ Phase-1 credit visible in wallet', {
+            deltaSol: (credit.sol - preWithdraw.sol).toFixed(6),
+            deltaUsdc: (credit.usdc - preWithdraw.usdc).toFixed(6),
+            waitedMs: credit.waitedMs,
+            attempts: credit.attempts,
+          });
+        } else {
+          log.errorBanner(
+            '⚠️  Phase-1 credit NOT visible after barrier timeout — proceeding with freshest balances (BUG-017 signature: possible stale RPC read)',
+            {
+              preSol: preWithdraw.sol.toFixed(6),
+              preUsdc: preWithdraw.usdc.toFixed(6),
+              readSol: credit.sol.toFixed(6),
+              readUsdc: credit.usdc.toFixed(6),
+              expectUsdcCredit,
+              waitedMs: credit.waitedMs,
+              attempts: credit.attempts,
+            },
+          );
+        }
+        actualSol = credit.sol;
+        actualUsdc = credit.usdc;
+      }
 
       // Calculate maximum depositable SOL (respecting reserves)
       const totalReserve = this.config.minimumWalletBalanceSol + this.config.rentReserveSol;
