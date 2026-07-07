@@ -25,7 +25,7 @@ cargo run --release -- --from 2026-07-05T14:47:00Z --hours 20 --strategy \
                                                                # --deadband-bps after it overrides)
 # Clamp dampening (Jul 7): the freeze is PRODUCTION since ADR-025 and the
 # sim DEFAULT (clamp regime commits frozen while the recenter pipeline owns
-# the imbalance, storms excepted; 65h: trades 13→1, churn $574→$120, edge
+# the imbalance, storms excepted; 65h: trades 13→1, churn 574→120 USD, edge
 # +2.61→+2.98).
 #   --no-clamp-freeze         pre-ADR-025 machine, reproduces +2.6052/13 trades exactly
 #   --clamp-ramp 0.9          continuous midpoint→bag ramp — REJECTED (13→78 trades on 65h)
