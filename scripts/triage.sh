@@ -26,6 +26,10 @@ echo "── 3. Last cycle & hedge heartbeat ───────────�
 remote 'cd /opt/delta-bot && docker compose logs --since 30m 2>/dev/null | grep -E "Hedge:|Hedge |Position balance|Rebalance|regime|frozen|storm" | tail -12'
 
 echo ""
+echo "── 3b. Persistent log (survives deploys/restarts) ───────"
+remote 'tail -5 /opt/delta-bot/data/logs/bot.log 2>/dev/null; echo "history depth:"; ls -la /opt/delta-bot/data/logs/ 2>/dev/null | tail -3'
+
+echo ""
 echo "── 4. Watchdog & crons ──────────────────────────────────"
 remote 'tail -3 /opt/delta-bot/data/watchdog.log 2>/dev/null; cat /opt/delta-bot/data/watchdog.state 2>/dev/null; ls -la /opt/delta-bot/watchdog.env /opt/delta-bot/deploy/hetzner/watchdog.sh 2>&1 | awk "{print \$NF, \$1}"; echo "hodl-history age(h): $(( ( $(date +%s) - $(stat -c %Y /opt/delta-bot/data/hodl-history.jsonl 2>/dev/null || echo 0) ) / 3600 ))"; tail -2 /opt/delta-bot/data/hodl-cron.err 2>/dev/null'
 

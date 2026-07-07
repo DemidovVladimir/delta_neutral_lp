@@ -22,7 +22,11 @@ description: Incident runbooks for every delta-bot alert (ntfy/Telegram push fro
 4. **Afterwards, always:** verify the alert stopped (recovery push arrives
    / VITALS line gone from fresh logs / watchdog exit 0), then record the
    incident in progress.md (and bugs.md if it revealed a defect).
-5. Known-benign log noise (do NOT treat as incidents): the red banner
+5. **History past the last deploy** lives in the persistent log
+   `data/logs/bot.log` on the server (rotated, ~2 weeks) — container logs
+   die on every deploy/recreate, so any forensics reaching further back
+   greps that file, not `docker compose logs`.
+6. Known-benign log noise (do NOT treat as incidents): the red banner
    «Imbalance trigger fired but wallet is already 50/50 ±10% — skipping
    alignment swap» (recenter path, informational); `bigint: Failed to load
    bindings` (pure-JS fallback); old 429 lines inside `hodl-cron.err` from

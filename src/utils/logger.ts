@@ -1,4 +1,6 @@
 import winston from 'winston';
+import fs from 'fs';
+import path from 'path';
 
 // Detect if running in GCP (Cloud Run, Compute Engine, etc.)
 const isGCP = process.env.NODE_ENV === 'production' ||
@@ -54,6 +56,42 @@ const transports: winston.transport[] = [
     format,
   })
 ];
+
+// Persistent file log (operator order 2026-07-07): docker container logs die
+// on every deploy/recreate — a file under data/ survives both (data/ is the
+// bind mount, excluded from rsync --delete). Rotation caps disk use at
+// ~100 MB ≈ 2 weeks of history at the current log volume. Full ISO
+// timestamps because the file spans days. Failures here must never break
+// the bot — logging is not worth dying for.
+const FILE_LOG_PATH = process.env.LOG_FILE_PATH || 'data/logs/bot.log';
+const fileFormat = winston.format.combine(
+  winston.format.uncolorize(),
+  winston.format.errors({ stack: true }),
+  winston.format.printf((info: winston.Logform.TransformableInfo) => {
+    // Own full-ISO timestamp: the logger-level format may have already set a
+    // short HH:mm:ss one, and this file spans days.
+    const { timestamp: _short, level, message, ...meta } = info as any;
+    let msg = `${new Date().toISOString()} [${level}] ${message}`;
+    if (meta && Object.keys(meta).length > 0) {
+      msg += ` ${JSON.stringify(meta)}`;
+    }
+    return msg;
+  })
+);
+try {
+  fs.mkdirSync(path.dirname(FILE_LOG_PATH), { recursive: true });
+  transports.push(
+    new winston.transports.File({
+      filename: FILE_LOG_PATH,
+      format: fileFormat,
+      maxsize: 10 * 1024 * 1024,
+      maxFiles: 10,
+      tailable: true,
+    })
+  );
+} catch {
+  // no file log — console/docker logs still work
+}
 
 // Create the logger with appropriate log level
 // In production/GCP, default to 'info' to reduce log volume
@@ -113,6 +151,11 @@ export const log = {
 
     console.error(`\x1b[41m\x1b[37m${banner}\x1b[0m`);
     console.error('\n');
+
+    // The raw console banner above bypasses winston — mirror the message
+    // through the logger so file/JSON transports (and anything grepping the
+    // persistent log, e.g. incident forensics) see banner-level events too.
+    logger.error(message, meta);
   },
 };
 

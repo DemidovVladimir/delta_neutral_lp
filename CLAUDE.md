@@ -116,6 +116,7 @@ Hedge (ADR-017):
 - Jupiter fills are asynchronous (TX2). Never act on position state within `HEDGE_COOLDOWN_MS` of a live mutation.
 - Meteora SDK + Jupiter APIs handle priority fees internally; `SEND_OPTIMIZED=true` opts LP sends into simulated CU limits + Helius fee estimates.
 - NEVER write `$<digit>` literals in `.claude/skills/*/SKILL.md` — the skill engine substitutes them with invocation args (write `N USD`); check with `rg '\$[0-9]' .claude/skills/`.
+- Container logs die on every deploy/recreate; the PERSISTENT log is `data/logs/bot.log` on the server (rotated 10×10 MB ≈ 2 weeks) — use it for any incident forensics reaching past the last deploy. `log.errorBanner` also mirrors into it.
 - When pulling `data/pnl.db` for analysis, ALWAYS copy `pnl.db-wal` too (hours of rows live only in the WAL). Exception: a bot that is down/crash-looping checkpoints the WAL on every shutdown, so no `-wal` file then is normal.
 - Helius answering `429 {"code":-32429,"message":"max usage reached"}` = the plan's credits are EXHAUSTED (BUG-014 killed the bot for 15h this way), not rate limiting — retries won't help. Read-only CLIs (`pnpm hodl`, `pnpm dashboard --json`) work with a public-endpoint override: `RPC_URL=https://api.mainnet-beta.solana.com pnpm hodl`.
 
