@@ -1,6 +1,56 @@
 # HANDOVER — Delta-Neutral Bot (LP + Jupiter Perps hedge, both sides)
 
-**Last updated:** 2026-07-07 (Session 20)
+**Last updated:** 2026-07-07 (Session 20, evening — operator signed off for the day)
+
+## NEXT SESSION (Jul 8) — checklist, in order
+
+1. **Morning liveness first (2 min):** did the two heartbeats arrive on the
+   operator's phone overnight — the 00:17Z hodl cron row AND the 08:05Z
+   «💚 живой»? A missing 💚 = the watchdog itself died (runbook: «Нет
+   утреннего 💚» in `.claude/skills/alert-response`). Then
+   `bash scripts/triage.sh --chain` — expect: 0 VITALS, netΔ in band,
+   RestartCount 0, persistent log advancing.
+2. **Срез #1 of Campaign 3** — the FIRST clean срез of the rebuilt machine
+   (0.1% pool + ADR-025 hedge liveness + freeze + auto-band + 0.33
+   collateral). `pnpm hodl` against baseline **$366.7102143406818**
+   (2026-07-07T13:47:08.417Z — do NOT re-init). This is also the FIRST срез
+   under the mandatory verification block (hodl-check SKILL.md): pull
+   pnl.db+WAL, hedge_actions row-density check, FULL tx list via
+   `scripts/tx-audit.ts --since 2026-07-07T13:47:00Z`, equity formula with
+   numbers substituted, norms check. Then the strategy-analyzer standing
+   order (its Step 4 now includes the tx-audit + density invariants).
+3. **Judge Campaign 3 vs the sim's promise:** expected ~2× edge vs the old
+   pool and recenter cadence ~4× rarer (sim: 12 vs 50 per 65h). Count real
+   recenters/day and LP fees/day; if recenters ≫ expected or fees ≪
+   expected, the pool-switch thesis needs a look before any scaling talk.
+4. **ADR-025 field check:** grep the persistent log (`data/logs/bot.log`,
+   survives deploys) for the first `🧊 Clamp regime commit frozen` and any
+   `Hedge input regime changed` lines — the freeze should show up around
+   out-of-range episodes, commits should be RARE. Verify hedge_actions has
+   no silent gaps (BUG-015 regression watch).
+5. **Collateral 0.33 migration watch:** `pnpm jupiter:read` — blended ratio
+   drifts 0.466→0.33 only via new increases; liq/spot will drift from
+   ~1.45× toward ~1.32×. Alarm only below 1.3× (the vitals alert fires at
+   1.25×).
+6. **If the срез is clean → the scaling conversation (130→300+):**
+   everything auto-scales now (cap ADR-022, band ADR-025, collateral =
+   ratio); the operator decision is the deposit size itself
+   (`AUTO_TUNE_DEPOSIT_AMOUNT`, currently 0.61 SOL) and whether to move
+   more USDC/SOL onto the wallet. Re-run the simulator grid on the NEW pool
+   params before proposing numbers (recorded grids are pre-ADR-025 — the
+   SKILL.md caution applies; also update `StrategyParams::default()`
+   target_collateral_ratio 0.5→0.33 while touching it).
+7. **Housekeeping (cheap):** server STRATEGY_VERSION stamp is `8679a38`,
+   HEAD is one docs-only commit ahead — the next real deploy restamps;
+   BUG-014 residual risks remain open (no RPC-budget awareness in the bot,
+   kill-switch-as-retry, hodl cron shares the bot's RPC key).
+
+Operator standing orders in force (memory files are authoritative):
+mandatory срез verification (`mandatory-srez-verification`), RULE #1
+step-by-step explanations + terminology glossary
+(`explain-step-by-step-rule-one`), auto-scaling parameters only
+(`operator-wants-auto-scaling-params`), plain Russian
+(`user-prefers-russian`).
 
 ## Session 20 delta (read this first, then the Session 19 context below)
 
