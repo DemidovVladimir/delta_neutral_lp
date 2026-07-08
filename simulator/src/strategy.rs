@@ -104,7 +104,9 @@ impl Default for StrategyParams {
             trend_confirm_ms: 300_000,
             band_sol: 0.25,
             cooldown_ms: 600_000,
-            target_collateral_ratio: 0.5,
+            // 0.33 = production since ADR-025 (2026-07-07); affects only
+            // wallet-USDC pressure in the sim, not the edge.
+            target_collateral_ratio: 0.33,
             min_collateral_ratio: 0.15,
             carry_cost_bps: 550.0,
             carry_cap_bps: 5000.0,

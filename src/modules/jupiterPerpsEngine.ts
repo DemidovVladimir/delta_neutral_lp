@@ -35,6 +35,7 @@ import { getConfig } from '../config/env.js';
 import { getWalletKeypair } from '../utils/solana.js';
 import { getSolPrice } from '../core/priceOracle.js';
 import { log } from '../utils/logger.js';
+import { VitalsLatch } from '../utils/vitalsLatch.js';
 import {
   anchor,
   BN,
@@ -100,20 +101,34 @@ export class JupiterPerpsEngine implements HedgeEngine {
   private walletPubkey: any;
   private positionPdas!: { long: any; short: any };
   private initialized = false;
-  /** Per-breach-type throttle for the 🚨 VITALS BREACH lines (10 min). */
-  private lastVitalsLogAt: Record<string, number> = {};
+  /** Latched vitals with a 10-min throttle backstop (двойной порог). */
+  private vitals = new VitalsLatch(10 * 60 * 1000);
 
   /**
    * Vitals breaches (operator standing order 2026-07-07): conditions that
    * must NEVER hold on a healthy machine, logged as loud greppable lines the
    * host watchdog (ADR-024) pushes to ntfy/Telegram. Thresholds derive from
    * the ADR-022 auto-cap — they scale with the portfolio, no hand constants.
+   *
+   * Latch semantics (operator-approved 2026-07-07): `breached` fires the 🚨
+   * line ONCE; the episode then stays silent until `cleared` (a release
+   * level with a ~10% gap BELOW the fire level) logs the ✅ line and
+   * re-arms. Boundary breathing lands inside the gap — no repeat pushes
+   * (the Jul-7 night flapped twice on a $0.18 margin).
    */
-  private vitalsBreach(kind: string, message: string, ctx: Record<string, unknown>): void {
-    const now = Date.now();
-    if (now - (this.lastVitalsLogAt[kind] ?? 0) < 10 * 60 * 1000) return;
-    this.lastVitalsLogAt[kind] = now;
-    log.error(`🚨 VITALS BREACH — ${message}`, ctx);
+  private vitalsWatch(
+    kind: string,
+    message: string,
+    breached: boolean,
+    cleared: boolean,
+    ctx: Record<string, unknown>,
+  ): void {
+    const event = this.vitals.update(kind, breached, cleared);
+    if (event === 'fire') {
+      log.error(`🚨 VITALS BREACH — ${message}`, ctx);
+    } else if (event === 'recover') {
+      log.info(`✅ VITALS recovered — ${message}`, ctx);
+    }
   }
 
   private checkVitals(
@@ -128,21 +143,29 @@ export class JupiterPerpsEngine implements HedgeEngine {
   ): void {
     if (effectiveMaxNotionalUsd > 0) {
       const grossNotionalUsd = (sides.long?.notionalUsd ?? 0) + (sides.short?.notionalUsd ?? 0);
-      if (grossNotionalUsd > effectiveMaxNotionalUsd * 1.1) {
-        this.vitalsBreach('notional', 'perp notional above the ADR-022 auto-cap', {
+      this.vitalsWatch(
+        'notional',
+        'perp notional above the ADR-022 auto-cap',
+        grossNotionalUsd > effectiveMaxNotionalUsd * 1.1,
+        grossNotionalUsd < effectiveMaxNotionalUsd * 1.0,
+        {
           grossNotionalUsd,
           capUsd: effectiveMaxNotionalUsd,
-          rule: 'gross perp notional ≤ 1.1 × auto-cap; above it the cap enforcement is broken',
-        });
-      }
+          rule: 'gross perp notional ≤ 1.1 × auto-cap (release < 1.0×); above it the cap enforcement is broken',
+        },
+      );
       const churn24hUsd = getLiveHedgeChurn24hUsd();
-      if (churn24hUsd > 3 * effectiveMaxNotionalUsd) {
-        this.vitalsBreach('churn', '24h live hedge churn above 3× the auto-cap', {
+      this.vitalsWatch(
+        'churn',
+        '24h live hedge churn above 3× the auto-cap',
+        churn24hUsd > 3 * effectiveMaxNotionalUsd,
+        churn24hUsd < 2.7 * effectiveMaxNotionalUsd,
+        {
           churn24hUsd,
           capUsd: effectiveMaxNotionalUsd,
-          rule: 'Σ|size_usd| live over 24h ≤ 3 × auto-cap (the Jul-5 whipsaw night, $966 vs cap $200, would have fired this)',
-        });
-      }
+          rule: 'Σ|size_usd| live over 24h ≤ 3 × auto-cap, release < 2.7× (the Jul-5 whipsaw night, $966 vs cap $200, would have fired this)',
+        },
+      );
     }
 
     // Liquidation distance: the operator's floor is 1.3× — alert at 1.25
@@ -150,44 +173,64 @@ export class JupiterPerpsEngine implements HedgeEngine {
     // longs BELOW (mirrored ratio).
     if (oraclePriceUsd > 0) {
       const shortLiq = sides.short?.liquidationPrice;
-      if (shortLiq && shortLiq > 0 && shortLiq / oraclePriceUsd < 1.25) {
-        this.vitalsBreach('liq-short', 'short liquidation price too close to spot', {
-          liquidationPrice: shortLiq,
+      const shortLiqRatio = shortLiq && shortLiq > 0 ? shortLiq / oraclePriceUsd : null;
+      this.vitalsWatch(
+        'liq-short',
+        'short liquidation price too close to spot',
+        shortLiqRatio !== null && shortLiqRatio < 1.25,
+        shortLiqRatio === null || shortLiqRatio > 1.3,
+        {
+          liquidationPrice: shortLiq ?? null,
           oraclePriceUsd,
-          ratio: shortLiq / oraclePriceUsd,
-          rule: 'short liq / spot must stay ≥ 1.25 (operator floor 1.3 + margin) — top up collateral or reduce the short',
-        });
-      }
+          ratio: shortLiqRatio,
+          rule: 'short liq / spot must stay ≥ 1.25 (operator floor 1.3 + margin; release > 1.30) — top up collateral or reduce the short',
+        },
+      );
       const longLiq = sides.long?.liquidationPrice;
-      if (longLiq && longLiq > 0 && oraclePriceUsd / longLiq < 1.25) {
-        this.vitalsBreach('liq-long', 'long liquidation price too close to spot', {
-          liquidationPrice: longLiq,
+      const longLiqRatio = longLiq && longLiq > 0 ? oraclePriceUsd / longLiq : null;
+      this.vitalsWatch(
+        'liq-long',
+        'long liquidation price too close to spot',
+        longLiqRatio !== null && longLiqRatio < 1.25,
+        longLiqRatio === null || longLiqRatio > 1.3,
+        {
+          liquidationPrice: longLiq ?? null,
           oraclePriceUsd,
-          ratio: oraclePriceUsd / longLiq,
-          rule: 'spot / long liq must stay ≥ 1.25 — top up collateral or reduce the long',
-        });
-      }
+          ratio: longLiqRatio,
+          rule: 'spot / long liq must stay ≥ 1.25 (release > 1.30) — top up collateral or reduce the long',
+        },
+      );
     }
 
     // Wallet below its own reserves: rent + network fees stop being payable,
     // LP recenters and long collateral posts start failing quietly.
-    if (walletReserveSol > 0 && sides.walletSol < walletReserveSol) {
-      this.vitalsBreach('reserves', 'wallet SOL below the configured reserves', {
-        walletSol: sides.walletSol,
-        walletReserveSol,
-        rule: 'wallet SOL ≥ MINIMUM_WALLET_BALANCE_SOL + RENT_RESERVE_SOL — below it recenters/rent/fees fail',
-      });
+    if (walletReserveSol > 0) {
+      this.vitalsWatch(
+        'reserves',
+        'wallet SOL below the configured reserves',
+        sides.walletSol < walletReserveSol,
+        sides.walletSol > walletReserveSol * 1.1,
+        {
+          walletSol: sides.walletSol,
+          walletReserveSol,
+          rule: 'wallet SOL ≥ MINIMUM_WALLET_BALANCE_SOL + RENT_RESERVE_SOL (release > 1.1×) — below it recenters/rent/fees fail',
+        },
+      );
     }
 
     // Runaway network-fee burn: norm is ~0.001–0.005 SOL/day; 10× that means
     // something is spamming transactions.
     const fees24hSol = getWalletFees24hSol();
-    if (fees24hSol > 0.05) {
-      this.vitalsBreach('feeburn', 'wallet-paid network fees over 24h far above norm', {
+    this.vitalsWatch(
+      'feeburn',
+      'wallet-paid network fees over 24h far above norm',
+      fees24hSol > 0.05,
+      fees24hSol < 0.045,
+      {
         fees24hSol,
-        rule: 'Σ fee_sol over 24h ≤ 0.05 SOL (norm 0.001–0.005) — runaway tx churn',
-      });
-    }
+        rule: 'Σ fee_sol over 24h ≤ 0.05 SOL (norm 0.001–0.005; release < 0.045) — runaway tx churn',
+      },
+    );
   }
 
   async initialize(): Promise<void> {
