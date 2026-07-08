@@ -23,6 +23,12 @@ cargo run --release -- --from 2026-07-05T14:47:00Z --hours 20 --strategy \
                                                                # pool-switch question (fee-bps also rescales
                                                                # arb_deadband to fee/2 — the calibrated ratio;
                                                                # --deadband-bps after it overrides)
+    [--target 0.6]        # HEDGE_TARGET_DELTA_SOL tilt (Jul 8): net SOL kept
+                          # unhedged; must stay below total delta (sim never
+                          # goes perp-long — watch the ⚠ unsupported counter).
+                          # Two-month verdict: pure direction risk, net LOSER
+                          # (+8.4 rally / −14.6 crash) — measurement dial, not
+                          # an improvement.
 # Clamp dampening (Jul 7): the freeze is PRODUCTION since ADR-025 and the
 # sim DEFAULT (clamp regime commits frozen while the recenter pipeline owns
 # the imbalance, storms excepted; 65h: trades 13→1, churn 574→120 USD, edge
@@ -104,6 +110,32 @@ trades) — do not trust without extra scrutiny. CAVEAT: fee model counts
 only our own bin-sweep conversions; the deadband=fee/2 scaling is an
 extrapolation validated only at 4 bps.
 
+CONTROL month (May 8 → Jun 8, SOL 88.43 → 66.40 = −25% crash): prod config
++42.62 vs hold-as-is (insurance paying; absolute equity still POSITIVE
++1.74 through the crash). Improvement candidates on BOTH months:
+step20/fee20/bins10 (same 2% width, same recenter cadence) wins BOTH
+(+11.3 and +13.0 over prod → BACKLOG A9, gated on D2 recalibration; live
+pool BVRbyLjjfSBcoyiYFuxbgKYnWuiFaF9CSXEa5vdSZ9Hh); band 0.5 wins both
+slightly (+1.5/+1.1, trades 18→6/17→2); confirm 30/60 loses (clamp trades
+while parked out of range); --target tilt is symmetric direction risk,
+net negative over the pair.
+
+MONTH grid (Jul 8, post-ADR-025 defaults, Jun 8 → Jul 8 path = +21% rally
+month, SOL 66.49 → 80.50, pool 10/10): ALL configs negative vs hold-as-is —
+the rally week Jun 29 → Jul 6 (edge −12.13) dominates; the weekly split
+shows the machine WINS in chop (+4.03, +1.04, +3.73 per 48h) and pays for
+neutrality in trends. Best of the 3×3 grid = deployed bins20/confirm5
+(−10.64); confirm 0 is far worse everywhere (−26.8 at 20 bins); wider bins
+lose fees faster than they save costs on this path (bins40/confirm5
+−19.48). Old pool 4/4 on the same month: −54.80 (pool switch confirmed,
+≈44 USD/month). `--no-clamp-freeze` on the month: −12.77 with 118 perp
+trades vs 18 (ADR-025 freeze confirmed, +2.13/month). Band 0.5 vs 0.25:
+−9.11 vs −10.64, trades 18 → 6 — inside month-level noise but pro-wide
+(the trustworthy direction); candidate at scaling time. Trend-shrink:
+REJECTED on this month (BACKLOG A7). Absolute dollars: remember BACKLOG
+D2 — fee income at 10 bps runs ~50% above reality; relative comparisons
+on the same path stay valid.
+
 ## Interpretation rules
 
 - `EDGE vs hold-as-is` is directly comparable to the срез verdict block's
@@ -122,6 +154,14 @@ extrapolation validated only at 4 bps.
 
 ## Gotchas
 
+- zsh does NOT word-split unquoted `$VAR` — `FLAGS="--a 1 --b 2"; cargo run
+  -- $FLAGS` passes ONE argument and the flags are SILENTLY ignored (bitten
+  twice on Jul 8; symptom: variant output identical to baseline to the
+  cent). Write flags out explicitly in Bash tool calls.
+- `auto_notional_cap_usd`'s 4th arg is `absolute_cap_usd` (the optional
+  MAX_HEDGE_NOTIONAL_USD ceiling), NOT |target|. |target| belongs in the
+  bag (1st arg, per ADR-022). Passing a small number as the 4th arg
+  silently disables the whole hedge (sub-dollar ceiling, 0 trades).
 - Fixtures are `.jsonl`, NOT `.json` — the repo `.gitignore` excludes
   `*.json` (the Jupiter IDL trap); keep it that way.
 - The bot's logged position ranges span 18–20 bin steps for a "20-bin"

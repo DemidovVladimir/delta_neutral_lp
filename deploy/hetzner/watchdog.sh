@@ -75,6 +75,12 @@ else
   # exceeds 3× the cap, or LP value drops below half its creation deposit.
   # The first line of any breach is pushed verbatim.
   vitals=$(printf '%s' "$logs10m" | grep "VITALS BREACH" | head -1)
+  # A6: the bot logs ✅ VITALS recovered when a latched breach releases
+  # (VitalsLatch «двойной порог») — push it at LOW priority so episodes
+  # close on the operator's phone too. Informational: never touches the
+  # bad/ok state. Deduped via the state file (the 10m log window overlaps
+  # two 5-min cron runs — without memory the same line would push twice).
+  recovered=$(printf '%s' "$logs10m" | grep "VITALS recovered" | head -1)
 
   [ "$cycles" -eq 0 ] && problems="${problems}0 завершённых циклов за 10 мин — бот стоит;"
   [ "$quota" -gt 0 ] && problems="${problems}RPC отвечает 'max usage reached' (квота исчерпана!);"
@@ -109,6 +115,11 @@ fi
 prev_status=$(state_get status)
 last_alert=$(state_get last_alert); last_alert=${last_alert:-0}
 
+if [ -n "${recovered:-}" ] && [ "$recovered" != "$(state_get recovered)" ]; then
+  notify low "$recovered"
+  echo "$(date -u +%FT%TZ) VITALS-RECOVERED pushed" >> "$LOG_FILE"
+fi
+
 if [ -n "$problems" ]; then
   echo "$(date -u +%FT%TZ) BAD: $problems" >> "$LOG_FILE"
   if [ "$prev_status" != "bad" ] || [ $(( NOW - last_alert )) -ge "$REALERT_SECS" ]; then
@@ -128,4 +139,5 @@ fi
   echo "status=$new_status"
   echo "restarts=$restarts"
   echo "last_alert=$last_alert"
+  echo "recovered=${recovered:-}"
 } > "$STATE_FILE"

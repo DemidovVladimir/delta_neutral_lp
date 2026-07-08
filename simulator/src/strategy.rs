@@ -91,6 +91,12 @@ pub struct StrategyParams {
     /// an in-range calm stretch of this length triggers a restore recenter
     /// (its swap/network cost is charged like any recenter). ms.
     pub trend_calm_ms: i64,
+    /// HEDGE_TARGET_DELTA_SOL: deliberate net-SOL tilt the controller steers
+    /// toward (0 = delta-neutral, production). Positive = keep this much SOL
+    /// unhedged. Must stay below the portfolio's total delta — the sim does
+    /// not execute perp-long decisions (they land in the unsupported
+    /// counter and invalidate the run).
+    pub target_delta_sol: f64,
 }
 
 impl Default for StrategyParams {
@@ -132,6 +138,7 @@ impl Default for StrategyParams {
             trend_shrink_streak: 0,
             trend_shrink_frac: 0.5,
             trend_calm_ms: 1_800_000,
+            target_delta_sol: 0.0,
         }
     }
 }
@@ -414,7 +421,7 @@ pub fn run(params: &StrategyParams, points: &[(i64, f64)]) -> SimReport {
         };
         let lp_full_value_sol = lp.total_sol() + lp.total_usdc() / pool_price;
         let cap = auto_notional_cap_usd(
-            params.idle_wallet_sol + lp_full_value_sol,
+            params.idle_wallet_sol + lp_full_value_sol + params.target_delta_sol.abs(),
             price,
             params.cap_mult,
             0.0,
@@ -434,7 +441,7 @@ pub fn run(params: &StrategyParams, points: &[(i64, f64)]) -> SimReport {
             wallet_sol,
             wallet_reserve_sol: params.wallet_reserve_sol,
             wallet_usdc,
-            target_delta_sol: 0.0,
+            target_delta_sol: params.target_delta_sol,
             band_sol: params.band_sol,
             carry_cap_bps: params.carry_cap_bps,
             max_hedge_notional_usd: cap,

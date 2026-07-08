@@ -87,30 +87,49 @@ legacy config only. Steps: `npx @eslint/migrate-config .eslintrc.json`
 `eslint.config.js`, run `pnpm lint`, fix or explicitly ignore findings (do
 NOT auto-fix en masse — review each). Low value, do in idle time.
 
-### A5. Recenter-rate vitals → latch (optional, 15 min)
-`autoTuneOrchestrator.ts` (~line 700) still uses a bare 1h throttle for the
-recenter-rate VITALS line. Convert to the shared `VitalsLatch` (fire > 12
-recenters/6h, release < 9/6h). Same pattern as `jupiterPerpsEngine.ts` —
-copy the `vitalsWatch` wrapper.
+### A5. Recenter-rate vitals → latch — DONE 2026-07-08
+`autoTuneOrchestrator.ts`: converted to the shared `VitalsLatch` (fire > 12
+recenters/6h, release < 9/6h, 10-min throttle backstop), `vitalsWatch`
+wrapper mirrors `jupiterPerpsEngine.ts`. The latch is evaluated EVERY cycle
+(not only on recenter success) so the ✅ release fires even when
+recentering stops entirely.
 
-### A6. Watchdog: push ✅ recovered lines (optional nicety)
-`deploy/hetzner/watchdog.sh` greps `VITALS BREACH` and pushes new lines. Add
-a second grep for `✅ VITALS recovered` pushed at lower priority, so episodes
-close on the operator's phone too. Server-side file — edit the REPO copy
-(cron runs the repo copy since BUG-016), deploy ships it.
+### A6. Watchdog: push ✅ recovered lines — DONE 2026-07-08
+`deploy/hetzner/watchdog.sh` (repo copy, cron runs it): second grep for
+`VITALS recovered`, pushed at ntfy priority `low`, deduped via a
+`recovered=` line in `data/watchdog.state` (the 10m log window overlaps two
+5-min cron runs). Informational — never touches the bad/ok state machine.
 
-### A7. Trend-shrink production port — ONLY IF the re-test wins (see C3)
-The mechanism is built and tested in the simulator (`--trend-streak`,
-`--trend-frac`, `--trend-calm-min`; commit `856d735`). Verdict on 4 real
-windows: TIE (+0.52 on the −3.8% night, −0.48 on the whipsaw night, ~0
-elsewhere) — NOT deployed. Do not port to the bot unless the C3 re-test on
-10+ accumulated episodes shows a sum clearly above the sim's noise
-threshold (~$1/3days). If it wins: port the detector (same-direction
-recenter streak) + shrink/park/restore into `autoTuneOrchestrator.ts`
-mirroring the sim logic in `simulator/src/strategy.rs` (search
-`trend_shrink`), behind env flags `TREND_SHRINK_STREAK` /
-`TREND_SHRINK_FRAC` / `TREND_CALM_MIN`, default OFF; keep delta-neutral
-(operator explicitly rejected directional bets 2026-07-08).
+### A7. Trend-shrink production port — REJECTED 2026-07-08, do not revisit
+The mechanism is built in the simulator (`--trend-streak`, `--trend-frac`,
+`--trend-calm-min`; commit `856d735`). First verdict on 4 real windows was
+TIE. **Month-long re-test (Jun 8 → Jul 8 Binance path, +21% rally month,
+pool 10/10, prod params) REJECTED it decisively**: with the C3 recipe
+(streak 2 / frac 0.5 / calm 60m) edge worsened on the FULL month (−15.95
+vs −10.64 baseline) and on EVERY week individually, including the rally
+week it was designed for (−14.99 vs −12.13). Cause: each shrink/restore is
+a full recenter with swap costs, and perp trades exploded 18 → 88 ($654 →
+$2087 churn). More aggressive settings (streak 1 / frac 0.1) are worse
+still (−17.11, 97 trades). The C3 episode-accumulation protocol is
+superseded by this month test — do NOT port; keep delta-neutral (operator
+explicitly rejected directional bets 2026-07-08).
+
+### A9. Pool-switch candidate: step 20 / fee 0.2% — AFTER the D2 recalibration
+Two-month sim evidence (Jul 8, post-ADR-025 defaults, same paths as the
+month grids): step20/fee20/bins10 (same 2% width, same ~8 recenters/day as
+prod) beats prod 10/10/bins20 on BOTH regimes — rally month +0.70 vs
+−10.64, crash month +55.64 vs +42.62 — ≈ +12 USD/month on the ~245 sim
+portfolio. Live target pool found and verified active Jul 8:
+`BVRbyLjjfSBcoyiYFuxbgKYnWuiFaF9CSXEa5vdSZ9Hh` (SOL/USDC, binStep=20,
+baseFee=0.2%, 62 successful tx/h, fresh price; current pool does 525
+tx/h). bins4 scores similar but runs 819–913 recenters/month (pro-narrow —
+distrust per D1). GATE: the fee model at fat fees is D2-extrapolated
+(sim already +50% optimistic at 10 bps). Sequence: (1) live week on
+Campaign 3 → recalibrate deadband/fee at 10 bps vs pnl.db (stage-3
+procedure in the simulator skill); (2) re-run this comparison with the
+recalibrated model; (3) if it still wins ≥ ~5 USD/month, propose the
+migration to the operator (close-lp.ts + METEORA_POOL_ADDRESS change,
+~1 USD cost, baseline re-init decision per hodl-check skill).
 
 ### A8. Scaling 130 → 300+ (operator decision, after clean срезы)
 Everything auto-scales (cap ADR-022, band ADR-025, collateral = ratio). The
@@ -168,7 +187,8 @@ width w (fraction, = binCount × binStep_bps / 10000):
 Sum must ≈ the vs-USDC move over the window. If it doesn't (gap > ~30%),
 something is unexplained — dig before reporting.
 
-### C3. Trend-shrink re-test protocol (when 10+ episodes accumulated)
+### C3. Trend-shrink re-test protocol — CLOSED (superseded by the Jun 8 →
+### Jul 8 month test, see A7; kept for the episode-mining sqlite recipe)
 An «episode» = either a trend (≥3 same-direction recenters within ~6h) or a
 chop night (≥6 recenters alternating). Find them:
 `sqlite3 pnl.db "SELECT triggered_at, trigger_reason FROM rebalances WHERE triggered_at >= '<campaign start>' ORDER BY triggered_at"`

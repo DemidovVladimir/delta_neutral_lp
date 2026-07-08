@@ -59,6 +59,7 @@ import { JupiterPerpsEngine } from './jupiterPerpsEngine.js';
 import { planSwapForDeposit, type SwapPlan } from './swapPlanner.js';
 import { getConfig } from '../config/env.js';
 import { log } from '../utils/logger.js';
+import { VitalsLatch } from '../utils/vitalsLatch.js';
 import { getConnection, getWalletKeypair } from '../utils/solana.js';
 import { closeEmptyTokenAccounts } from './walletJanitor.js';
 import { computeLpHedgeDelta, lpDeltaForRegime, type LpHedgeRegime } from './hedgeController.js';
@@ -384,7 +385,29 @@ export class AutoTuneOrchestrator {
   private outOfBandStreak = 0;
   /** Successful-recenter timestamps, trailing 6h (recenter-rate vitals alert). */
   private recenterTimesMs: number[] = [];
-  private lastRecenterRateLogAt = 0;
+  /** Latched vitals with a 10-min throttle backstop (двойной порог, A5). */
+  private vitals = new VitalsLatch(10 * 60 * 1000);
+
+  /**
+   * Same pattern as `jupiterPerpsEngine.vitalsWatch`: `breached` fires the
+   * 🚨 line ONCE per episode, then silence until `cleared` (a release level
+   * with a gap below the fire level) logs the ✅ line and re-arms — boundary
+   * breathing lands inside the gap, no repeat pushes.
+   */
+  private vitalsWatch(
+    kind: string,
+    message: string,
+    breached: boolean,
+    cleared: boolean,
+    ctx: Record<string, unknown>,
+  ): void {
+    const event = this.vitals.update(kind, breached, cleared);
+    if (event === 'fire') {
+      log.error(`🚨 VITALS BREACH — ${message}`, ctx);
+    } else if (event === 'recover') {
+      log.info(`✅ VITALS recovered — ${message}`, ctx);
+    }
+  }
 
   private recordPriceSample(price: number): void {
     const now = Date.now();
@@ -471,6 +494,25 @@ export class AutoTuneOrchestrator {
       const currentPrice = solPriceData.usd;
       this.recordPriceSample(currentPrice);
       log.debug('Using SOL price for check cycle', { price: currentPrice, source: solPriceData.source });
+
+      // Recenter-rate vitals (latched, A5): the measured red line is ~40
+      // recenters/day (the Jul-5 whipsaw night ran ~52/day and bled $2/night
+      // in churn). Fire once above 12 in a trailing 6h (≈48/day), silence
+      // through the episode, ✅ + re-arm below 9 — the 25% gap keeps
+      // boundary breathing quiet.
+      this.recenterTimesMs = this.recenterTimesMs.filter(
+        (t) => Date.now() - t <= 6 * 3600_000,
+      );
+      this.vitalsWatch(
+        'recenter-rate',
+        'recenter rate above the churn red line',
+        this.recenterTimesMs.length > 12,
+        this.recenterTimesMs.length < 9,
+        {
+          recentersIn6h: this.recenterTimesMs.length,
+          rule: 'fire >12 per 6h (≈48/day; whipsaw-night rate), release <9 — above the line the machine is paying the trend tax repeatedly',
+        },
+      );
 
       // True only when THIS cycle actually mutated the LP (create/rebalance
       // attempt) — then `exposure` predates the mutation and the hedge sits
@@ -691,19 +733,10 @@ export class AutoTuneOrchestrator {
           this.state.consecutiveErrors = 0;
           this.imbalanceSince = null; // ADR-023: fresh position starts balanced
 
-          // Recenter-rate vitals: the measured red line is ~40 recenters/day
-          // (the Jul-5 whipsaw night ran ~52/day and bled $2/night in churn).
-          // 12 in a trailing 6h ≈ 48/day — alert once an hour while it lasts.
-          const nowMs = Date.now();
-          this.recenterTimesMs.push(nowMs);
-          this.recenterTimesMs = this.recenterTimesMs.filter((t) => nowMs - t <= 6 * 3600_000);
-          if (this.recenterTimesMs.length > 12 && nowMs - this.lastRecenterRateLogAt > 3600_000) {
-            this.lastRecenterRateLogAt = nowMs;
-            log.error('🚨 VITALS BREACH — recenter rate above the churn red line', {
-              recentersIn6h: this.recenterTimesMs.length,
-              rule: '≤12 recenters per 6h (≈48/day; whipsaw-night rate) — above it the machine is paying the trend tax repeatedly',
-            });
-          }
+          // Recenter-rate vitals window (evaluated per cycle in
+          // runCheckCycleInner — the release must fire even when
+          // recentering stops entirely).
+          this.recenterTimesMs.push(Date.now());
 
           // Accumulate claimed fees (for backward compatibility with auto-tune-state.json)
           this.state.totalClaimedFees.sol += result.claimedFees.sol;

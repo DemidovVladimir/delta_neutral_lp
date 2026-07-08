@@ -79,13 +79,17 @@ fn main() {
         if let Some(m) = flag(&args, "--trend-calm-min") {
             params.trend_calm_ms = m.parse::<i64>().expect("--trend-calm-min <minutes>") * 60_000;
         }
+        if let Some(t) = flag(&args, "--target") {
+            params.target_delta_sol = t.parse().expect("--target <net SOL tilt, 0=neutral>");
+        }
         let r = run_strategy(&params, &points);
         println!(
-            "strategy replay: {} candles, confirm {}m, {} bins, band {} | pool: step {} bps, fee(net) {:.1} bps, deadband {:.1} bps",
+            "strategy replay: {} candles, confirm {}m, {} bins, band {}, target {} | pool: step {} bps, fee(net) {:.1} bps, deadband {:.1} bps",
             candles.len(),
             params.trend_confirm_ms / 60_000,
             params.n_bins,
             params.band_sol,
+            params.target_delta_sol,
             params.bin_step_bps,
             params.fee_rate_net * 10_000.0,
             params.arb_deadband * 10_000.0

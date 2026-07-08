@@ -7,6 +7,37 @@
 
 ## 2026-07-08
 
+### Session 22 — operator challenged the sim's data provenance (rightly); month-long backtest run; trend-shrink REJECTED for good
+
+**Provenance correction (operator: «ты меня наебал, нет там никакой метеоровской SDK»):** confirmed — the simulator has NO Meteora SDK and fetches NO historical pool state (none exists: dlmm-api is dead, BUG-004). Its inputs are (1) Binance 1m klines over plain HTTP (`ureq`, cached in `simulator/data/*.csv`), (2) a hand-written DLMM bin model (`bins.rs`/`position.rs`), (3) calibration fixtures copied from the bot's OWN logs + pnl.db. Any earlier claim of "historical pool slices via SDK" was false and is retracted.
+
+**Month backtest (operator: «зачем ждать неделю — прогони месяц»), Jun 8 → Jul 8, SOL 66.49 → 80.50 (+21% rally month), 17 cargo tests green first:**
+1. **3×3 grid (bins 20/30/40 × confirm 0/5/10, pool 10/10): ALL negative vs hold-as-is** (−10.64 … −26.82). Deployed bins20/confirm5 is the BEST of the grid (−10.64). Confirm=0 catastrophic everywhere; wider bins lose more fees than they save in costs on this path.
+2. **Weekly split explains the minus:** chop weeks WIN (+4.03, +1.04; Jul 6–8 48h +3.73), the Jun 29 → Jul 6 rally week alone loses −12.13 — the price of delta-neutrality in a trend, not a parameter defect. vs-USDC skill number ≈ +17.9/month in-model (D2 caveat: fee income at 10 bps overstated ~50%, so realistically ~+9–12).
+3. **Pool switch re-validated on the month:** old pool 4/4 same path = −54.80 vs −10.64 (836 recenters vs 250) — ≈44 USD/month saved.
+4. **ADR-025 clamp freeze re-validated on the month:** `--no-clamp-freeze` = −12.77 with 118 perp trades / $3989 churn vs 18 / $654 with it (+2.13/month).
+5. **Trend-shrink (BACKLOG A7/C3) decisively REJECTED:** C3 recipe (streak2/frac0.5/calm60) is worse on the month (−15.95 vs −10.64) and on EVERY week including the rally week it targets (−14.99 vs −12.13); shrink/restore cycles cost a full recenter each and perp trades exploded 18→88. A7 updated, C3 closed. (Methodology note: first run silently no-opped — zsh does not word-split `$VAR`, the flags passed as one string; caught because results matched baseline to the cent.)
+6. **Band 0.5 vs 0.25:** −9.11 vs −10.64, perp trades 18→6 — inside month noise but pro-wide (the trustworthy direction per D1); flagged as a discussion item at scaling time, no change proposed.
+
+**Why the live week is still needed (answered to operator):** not for parameter search — for validating the model's INCOME assumption on the new pool (D2: deadband=fee/2 extrapolated, sim fees ~50% above reality on Jul 7–8) against real pnl.db, and for execution health (keeper fills, latch, reserves) the sim does not model. Docs: SKILL.md month-grid record added, BACKLOG A7/C3 updated.
+
+### Session 22 (addendum 2) — operator approvals executed: band 0.25 → ~0.49 (HEDGE_BAND_BINS 4→8), A5 + A6 shipped
+
+Operator: «расширять зону покоя и добей мелкие технические задачи». Three changes, one deploy:
+1. **Band widened (auto-scaled):** `.env` `HEDGE_BAND_BINS` 4 → 8 → auto band ≈ 0.49 SOL at the current ~$96 LP (floor 0.25 now binds only below ~$50 LP). Backed by the two-month sim (+1.5/+1.1 edge, perp trades 18→6 / 17→2).
+2. **A5:** recenter-rate VITALS converted to the shared `VitalsLatch` (fire >12/6h, release <9/6h, «двойной порог»); latch evaluated every cycle so the ✅ release fires even if recentering stops.
+3. **A6:** watchdog pushes `✅ VITALS recovered` lines at low priority, deduped through `watchdog.state`.
+114 vitest green, tsc clean, `bash -n` clean. Deploy + verification below.
+
+### Session 22 (addendum) — «как улучшить?»: improvement candidates tested on TWO opposite months; pool 20/20 is the big one
+
+Operator asked to brainstorm improvements after understanding the insurance trade-off. Every candidate was TESTED, on both the rally month (Jun 8 → Jul 8, +21%) and a control crash month (May 8 → Jun 8, 88.43 → 66.40, −25%). Baselines (prod config 10/10 bins20 confirm5): rally −10.64 / crash **+42.62** vs hold-as-is (the crash month shows the insurance paying: hold lost ~41, the machine ended POSITIVE absolute, +1.74).
+
+1. **Partial hedge (`HEDGE_TARGET_DELTA_SOL` > 0) — sim support added:** new `--target` flag (StrategyParams.target_delta_sol → controller input; |target| joins the ADR-022 cap bag). Port bug caught on the way: first version passed |target| as `auto_notional_cap_usd`'s 4th arg, which is `absolute_cap_usd` — that set a sub-dollar hedge ceiling and silently disabled ALL trades (detected: 0 perp trades + identical output across targets). Results: tilt 0.6 = +8.4 on the rally month, **−14.6 on the crash month** — net NEGATIVE over the two months; tilt 1.0 beats hold in a rally but is just re-added direction risk. Confirms the operator's Jul-8 no-directional-bets decision with numbers.
+2. **Longer выдержка (confirm 30/60m):** worse on the rally month (−13.34/−16.15 vs −10.64); confirm 60 doubles perp trades to 40 (clamp trades while the position sits out of range). Rejected.
+3. **Band 0.5 (vs 0.25):** better on BOTH months (+1.53 rally, +1.07 crash), perp trades 18→6 / 17→2. Under the noise threshold per month, but consistent, pro-wide (trustworthy per D1), and shrinks keeper-fill exposure. Discussion candidate: `HEDGE_BAND_BINS` 4→8 keeps it auto-derived.
+4. **Fatter pool step 20 / fee 0.2%, bins 10 (same 2% width, same recenter cadence ~8/day): the headline.** Beats prod on BOTH months: rally +0.70 vs −10.64 (+11.3), crash +55.64 vs +42.62 (+13.0) — ~+12/month on the ~245 sim portfolio, robust across regimes. Live pool located: `BVRbyLjjfSBcoyiYFuxbgKYnWuiFaF9CSXEa5vdSZ9Hh` (SOL/USDC binStep=20 baseFee=0.2%, 62 successful tx/h, price fresh; our current pool does 525 tx/h). bins4 variant scores similarly but with 819–913 recenters/month — pro-narrow, distrust per D1. **Gate: D2 — the fee model at fat fees is extrapolated (validated only at 4 bps, already +50% optimistic at 10 bps). Do NOT migrate now (Campaign 3 is 1 day old); after the live week recalibrates the model at 10 bps, re-run this comparison and propose migration if it survives.** BACKLOG A9 added.
+
 ### Session 21 (addendum 2) — operator manually swapped 2 SOL on the BOT wallet; machine self-neutralized in one cycle; VITALS latch deployed
 
 **Incident 11:25Z (not a bug — an unannounced manual intervention):** the operator, intending the agreed «sell personal SOL + send 35 USDC to the bot», instead executed the swap ON THE BOT WALLET from his phone app (it holds the bot key; the Perps tab screenshot confirmed). Chain facts: swap 2.000143258 SOL → +151.869916 USDC at implied $75.93 vs oracle $77.05 (**≈ $2.24 slippage** — the bot's own route pays ~$0.15; sig `3HH37hs6hNw1sG6PGK1uMp91umTRS5CayN71JikNqAgRTknGxSKuUs844hmUBt45Ft46WJsbteMbvhoLx4uDx7PM`). Seven seconds later the bot's cycle saw idle SOL gone, netΔ −1.969 → `decrease_short −$151.74, withdraw $50.07 collateral` (sig `Nx3MWNGuRQnzkkZsrux8EUKJKGzh5ySh7GAYSQuJFxSJfcu8dajAoLBeigYQxyS138pHUkUkcTBmKKEtgx1Wkft`, keeper fill +$57.54) → netΔ −0.00008. **ADR-021 full-portfolio neutrality absorbed an external 2-SOL mutation in ONE cycle — the strongest live validation of the design so far.** No external funds arrived → baseline untouched. Two VITALS fired on the old throttle code (churn — the $152 decrease itself + cap collapsed $250→$118 with the idle gone; reserves — **wallet SOL 0.2617 < 0.30**).
