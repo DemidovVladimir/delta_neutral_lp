@@ -7,6 +7,14 @@
 
 ## 2026-07-08
 
+### Session 21 (addendum 2) — operator manually swapped 2 SOL on the BOT wallet; machine self-neutralized in one cycle; VITALS latch deployed
+
+**Incident 11:25Z (not a bug — an unannounced manual intervention):** the operator, intending the agreed «sell personal SOL + send 35 USDC to the bot», instead executed the swap ON THE BOT WALLET from his phone app (it holds the bot key; the Perps tab screenshot confirmed). Chain facts: swap 2.000143258 SOL → +151.869916 USDC at implied $75.93 vs oracle $77.05 (**≈ $2.24 slippage** — the bot's own route pays ~$0.15; sig `3HH37hs6hNw1sG6PGK1uMp91umTRS5CayN71JikNqAgRTknGxSKuUs844hmUBt45Ft46WJsbteMbvhoLx4uDx7PM`). Seven seconds later the bot's cycle saw idle SOL gone, netΔ −1.969 → `decrease_short −$151.74, withdraw $50.07 collateral` (sig `Nx3MWNGuRQnzkkZsrux8EUKJKGzh5ySh7GAYSQuJFxSJfcu8dajAoLBeigYQxyS138pHUkUkcTBmKKEtgx1Wkft`, keeper fill +$57.54) → netΔ −0.00008. **ADR-021 full-portfolio neutrality absorbed an external 2-SOL mutation in ONE cycle — the strongest live validation of the design so far.** No external funds arrived → baseline untouched. Two VITALS fired on the old throttle code (churn — the $152 decrease itself + cap collapsed $250→$118 with the idle gone; reserves — **wallet SOL 0.2617 < 0.30**).
+
+**Open consequence:** wallet SOL below reserves → an ABOVE-range recenter would fail at the reserves check (the 08:45 Jul-7 failure mode); below-range self-heals. Asked the operator to send 0.35 SOL to the bot (external flow → baseline adjustment procedure when it lands). The reserves recovery will also be the first live test of the ✅ recovered line.
+
+**VITALS latch deployed 11:30Z** (operator: «Задеплой пороги и тд»): server `f61368b`, restarts 0, in band, watchdog.env intact. Expected effect: the churn boundary-flapping (cap $118 vs rolling churn ~$350 until ~13:30Z roll-off) produces at most ONE push instead of one per 10 min.
+
 ### Session 21 (addendum) — operator's trend-shrink idea built into the simulator and tested on 4 real windows: verdict TIE, not deployed
 
 Operator (after the −$1.48 night, «думай более обширно»): on a detected trend, halve the LP and park the rest until stabilization; also asked about fast-pump losses and news-based detection. Decisions taken with operator: stay DELTA-NEUTRAL while shrunk (no directional bet — he approved «Сжаться, остаться нейтральными»); news feeds rejected (price impounds news faster than parsing; false-alarm generator).
