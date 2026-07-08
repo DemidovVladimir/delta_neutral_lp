@@ -5,6 +5,18 @@
 
 ---
 
+## 2026-07-08
+
+### Session 21 (morning, scheduled by the operator) — срез #2: MIXED on a −3.8% night, BUG-017 fix VERIFIED in production (4/4 recenters clean)
+
+**Срез #2 (window 0.73d, 13:47Z Jul 7 → 07:11Z Jul 8; SOL $81.23 → $78.03, −3.8%):** equity $365.08. vs HODL-as-is **+$4.91**, vs HODL-SOL +$12.78, vs HODL-USDC **−$1.63** → MIXED. Honest decomposition: ~+$6.56 of the as-is edge is mechanical (baseline holds 2.05 unhedged SOL × −$3.20); the skill number (fees − IL − costs ≡ vs USDC for a 0-target bot) is −$1.63, trend −0.15 (20:47Z) → −1.63: the falling night cost ≈ $1.48 — LP fees kept coming (claimed $0.84 overnight; campaign total claimed+unclaimed ≈ $1.63 = $2.24/day pace) but 7 range traversals' conversion losses + trend tax (01:35→01:42 position lived 7 MINUTES) + swap/perp/network costs ≈ $3.26 outweighed them. No neutrality-leak signature: netΔ in band all night (now −0.054, band 0.25), the gap is real trading cost of a trend, not delta.
+
+**BUG-017 fix verified in production (see bugs.md):** 4/4 below-range recenters logged `✅ Phase-1 credit visible in wallet` (48–80ms, attempt 1), all 3 alignment swaps ran SOL→USDC (правильная сторона — pre-fix it bought MORE SOL), and the wallet buffer + correct swaps kept the hedge in band through recenters 2–4: **1 hedge trade the whole falling night ($48.22 at 21:25Z, the design ~$50 after the first surplus)** vs 4 trades the previous chop day. Night verification: 15/15 txs classified (tx-audit), 2754 contiguous cycles, 0 restarts, 0 VITALS, 00:17Z hodl cron row present on the correct baseline; liq $115.33 vs spot $77.93 = 1.48×; network fees 0.001579 SOL ≈ norm; churn24h $573.06 vs threshold ~$900 (self-scaled), Jul-7 morning tail rolls off by ~13:30Z → ~$217.
+
+**Morning watch items:** wallet USDC down to **$6.37** (night swaps + $15.91 collateral for the 21:25 increase) — a further-fall short increase could hit collateral starvation (BUG-013 family; a bounce is self-healing: above-range recenter + short decrease both return USDC). Recenter cadence 9.7/day vs sim promise 4.4/day — trending market, judge on a flat day. Двойной-порог alert item still queued (HANDOVER item 6).
+
+---
+
 ## 2026-07-07
 
 ### Session 20 (addendum 7) — срез #1 of Campaign 3 (operator-ordered, early); BUG-017 found in the verification block and fixed the same evening
