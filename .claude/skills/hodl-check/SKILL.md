@@ -96,6 +96,17 @@ Interpretation rules for the block:
 - «Бот выгоден?» отвечает ТОЛЬКО строка vs HODL-as-is и её ТРЕНД между
   срезами — fees + hedge PnL − IL − все косты относительно полного
   бездействия. Один срез — точка; тренд — ответ.
+- **MANDATORY decomposition when price moved since baseline (after срез #2,
+  2026-07-08):** with target delta 0 the vs-as-is edge contains a MECHANICAL
+  term = baseline_SOL × (P_now − P_baseline) × (−1) — i.e. baseline_SOL from
+  data/hodl-baseline.json times how far price fell (positive on a drop: the
+  hedge protected what the do-nothing benchmark lost; negative on a rise:
+  the insurance premium). Subtract it; the remainder must ≈ the vs-USDC
+  edge within cents (mismatch = neutrality leak → strategy-analyzer
+  mirror-check). Report BOTH parts in plain words («из +4.91 против
+  бездействия ~+6.56 — механика защиты от падения; чистое умение −1.65»).
+  NEVER present the mechanical part as skill. Night-loss decomposition
+  template and current norms: BACKLOG.md §C2, §C4.
 - vs HODL-USDC (= PnL к baseline): ДО 2026-07-05T14:47Z дышал с ценой SOL
   (idle-кошелёк был нехеджирован); с ADR-021 (HEDGE_INCLUDE_WALLET_SOL) idle
   SOL входит в хедж-цель и дыхание должно прекратиться. Если этот edge

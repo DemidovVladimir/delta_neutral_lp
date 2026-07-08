@@ -1,8 +1,27 @@
 # HANDOVER — Delta-Neutral Bot (LP + Jupiter Perps hedge, both sides)
 
-**Last updated:** 2026-07-07 (Session 20, night — срез #1 done early by operator order (−$0.18, progress.md addendum 7), BUG-017 found+fixed (`ee26f02`) and **DEPLOYED same evening** (operator ran deploy 19:52Z; server STRATEGY_VERSION `98bac75`, restarts 0, cycles in band, watchdog.env survived). **Field verification still pending:** on the next out-of-range recenter grep bot.log for `✅ Phase-1 credit visible in wallet` and confirm NO wrong-direction swap. Двойной-порог alert item queued as item 6.)
+**Last updated:** 2026-07-08 (Session 21).
+
+**⚠️ MODEL TRANSITION (operator order 2026-07-08): after Jul 12 a less
+capable model may operate this project. `BACKLOG.md` is the authoritative
+list of open items with implementation-ready specs, daily-ops recipe,
+analysis formulas (mechanical-vs-skill decomposition, night-loss template,
+norms), and known tooling caveats. Read it BEFORE improvising anything.**
+
+Session 21 delta: срез #2 on the −3.8% night = MIXED (+4.91 vs as-is of
+which ~+6.56 mechanical protection, skill −1.63; progress.md). **BUG-017 fix
+VERIFIED in production 4/4** (bugs.md). Operator's trend-shrink idea built
+into the simulator, tested on 4 real windows → **TIE, not deployed**
+(re-test protocol: BACKLOG §C3). **VITALS latch («двойной порог») built +
+tested (`52a2b12`) — DEPLOY PENDING** (BACKLOG §A1). Simulator default
+collateral now 0.33. Wallet idle USDC ≈ $6 — starvation watch (BACKLOG §A2).
+Old note: BUG-017 deployed 19:52Z Jul 7, server was `98bac75`.
 
 ## NEXT SESSION (Jul 8) — checklist, in order
+
+> STATUS 2026-07-08 midday: items 1–5 DONE in Session 21 (progress.md);
+> item 6 BUILT (`52a2b12`), deploy pending — see BACKLOG §A1. Items 7–9 and
+> everything new live in `BACKLOG.md` now — this checklist is historical.
 
 1. **Morning liveness first (2 min):** did the two heartbeats arrive on the
    operator's phone overnight — the 00:17Z hodl cron row AND the 08:05Z
