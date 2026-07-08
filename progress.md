@@ -7,6 +7,16 @@
 
 ## 2026-07-08
 
+### Session 21 (addendum) — operator's trend-shrink idea built into the simulator and tested on 4 real windows: verdict TIE, not deployed
+
+Operator (after the −$1.48 night, «думай более обширно»): on a detected trend, halve the LP and park the rest until stabilization; also asked about fast-pump losses and news-based detection. Decisions taken with operator: stay DELTA-NEUTRAL while shrunk (no directional bet — he approved «Сжаться, остаться нейтральными»); news feeds rejected (price impounds news faster than parsing; false-alarm generator).
+
+**Implementation (simulator only, `--trend-streak K --trend-frac F --trend-calm-min M`):** detector = K consecutive SAME-direction out-of-range recenters; response = next recenter redeposits F of principal, parks the rest in wallet USDC (delta-neutral, hedge follows the smaller midpoint automatically); release = direction-flip recenter (trend broke) or M minutes of in-range calm (restore recenter at usual costs). 17 cargo tests stay green.
+
+**Grid on 4 REAL windows (Campaign-3 pool step10/fee10), edge deltas vs same-window baseline:** our −3.8% night: streak2/calm60 **+$0.52** (recovers ~⅓ of the booth loss — the idea WORKS on its target scenario); Jul-5 whipsaw night: **−$0.48** (false trigger: chop's first 2 recenters are indistinguishable from a trend; halved fees + restore costs); +2.2% rise window: +$0.01 (shrink can't help — the vs-SOL lag is the hedge itself); −2.8% Jul-4 fall: −$0.01. **Sum ≈ +$0.04 — a wash, and every delta is under the simulator's own ±$1/3d noise threshold.** Deeper shrink (keep 25%) strictly worse on both key windows (+5.78 vs +5.92; +1.17 vs +1.21). streak=3 never arms (real trends end in 2–4 recenters).
+
+**Verdict (operator to confirm): do NOT deploy at current size; keep the mechanism in the simulator and re-run the grid when Campaign 3 accumulates 10+ trend/chop episodes.** The already-shipped BUG-017 fix is doing the heavier lifting on trend nights (1 hedge trade vs 4 on comparable falls). Pump-side answer recorded: the +2.2% window's −$2.61 vs hold-as-is is the insurance premium (same hedge that saved $6.5 on the fall); the dial for deliberate upside participation is `HEDGE_TARGET_DELTA_SOL` > 0 — a product decision, not a bug.
+
 ### Session 21 (morning, scheduled by the operator) — срез #2: MIXED on a −3.8% night, BUG-017 fix VERIFIED in production (4/4 recenters clean)
 
 **Срез #2 (window 0.73d, 13:47Z Jul 7 → 07:11Z Jul 8; SOL $81.23 → $78.03, −3.8%):** equity $365.08. vs HODL-as-is **+$4.91**, vs HODL-SOL +$12.78, vs HODL-USDC **−$1.63** → MIXED. Honest decomposition: ~+$6.56 of the as-is edge is mechanical (baseline holds 2.05 unhedged SOL × −$3.20); the skill number (fees − IL − costs ≡ vs USDC for a 0-target bot) is −$1.63, trend −0.15 (20:47Z) → −1.63: the falling night cost ≈ $1.48 — LP fees kept coming (claimed $0.84 overnight; campaign total claimed+unclaimed ≈ $1.63 = $2.24/day pace) but 7 range traversals' conversion losses + trend tax (01:35→01:42 position lived 7 MINUTES) + swap/perp/network costs ≈ $3.26 outweighed them. No neutrality-leak signature: netΔ in band all night (now −0.054, band 0.25), the gap is real trading cost of a trend, not delta.

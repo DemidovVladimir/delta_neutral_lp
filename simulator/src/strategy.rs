@@ -77,6 +77,20 @@ pub struct StrategyParams {
     /// sell-low-buy-high round trip. Storms lift the freeze (recenters are
     /// paused there — the clamp IS the response). false = pre-ADR-025.
     pub clamp_skip_inflight: bool,
+    /// Trend-shrink candidate (operator idea, Jul 8): after this many
+    /// consecutive SAME-direction out-of-range recenters the market is
+    /// treated as trending — the next recenter redeposits only
+    /// `trend_shrink_frac` of the principal and parks the rest in USDC
+    /// (delta-neutral: parked USDC has no SOL exposure; the hedge follows
+    /// the smaller midpoint automatically). 0 = off (production).
+    pub trend_shrink_streak: u32,
+    /// Fraction of the principal kept in the LP while shrunk (0.5 = half).
+    pub trend_shrink_frac: f64,
+    /// Release the shrink: a direction-FLIP recenter restores immediately
+    /// (the trend broke into chop — the full booth earns there); otherwise
+    /// an in-range calm stretch of this length triggers a restore recenter
+    /// (its swap/network cost is charged like any recenter). ms.
+    pub trend_calm_ms: i64,
 }
 
 impl Default for StrategyParams {
@@ -113,6 +127,9 @@ impl Default for StrategyParams {
             clamp_ramp_lo: 0.0,
             regime_exit_confirm_ms: -1,
             clamp_skip_inflight: true,
+            trend_shrink_streak: 0,
+            trend_shrink_frac: 0.5,
+            trend_calm_ms: 1_800_000,
         }
     }
 }
@@ -136,6 +153,10 @@ pub struct SimReport {
     pub perp_notional_traded_usd: f64,
     pub unsupported_long_decisions: u32,
     pub final_net_delta_sol: f64,
+    pub shrink_events: u32,
+    pub restore_events: u32,
+    /// Share of simulated time spent with the LP shrunk (0..1).
+    pub time_shrunk_frac: f64,
 }
 
 struct ShortState {
@@ -169,6 +190,14 @@ pub fn run(params: &StrategyParams, points: &[(i64, f64)]) -> SimReport {
     // Stage-3 mechanics: lazy pool price + in-flight recenter countdown.
     let mut pool_price = p0;
     let mut pending_recenter: Option<u32> = None;
+    // Trend-shrink state (off unless trend_shrink_streak > 0).
+    let mut parked_usdc = 0.0_f64;
+    let mut shrunk = false;
+    let mut same_dir_streak = 0u32;
+    let mut last_dir_down: Option<bool> = None;
+    let mut last_recenter_at: Option<i64> = None;
+    let mut time_shrunk_ms = 0i64;
+    let total_ms = points.last().unwrap().0 - points[0].0;
 
     let mut prev_t = points[0].0;
     for &(t, price) in &points[1..] {
@@ -187,6 +216,9 @@ pub fn run(params: &StrategyParams, points: &[(i64, f64)]) -> SimReport {
             / (365.25 * 86_400.0 * 1000.0);
         short.collateral_usd -= carry;
         report.carry_paid_usd += carry;
+        if shrunk {
+            time_shrunk_ms += dt_ms as i64;
+        }
         prev_t = t;
 
         // Storm window (rolling ~6 min, ref sample >= 4 min old, hysteresis /2).
@@ -235,30 +267,96 @@ pub fn run(params: &StrategyParams, points: &[(i64, f64)]) -> SimReport {
                 let withdrawn_sol = lp.total_sol();
                 let withdrawn_usdc = lp.total_usdc() + fresh_fees;
                 let value = withdrawn_sol * pool_price + withdrawn_usdc;
-                // …swap toward 50/50 (fee + impact on the swapped notional)…
-                let swap_notional = (withdrawn_sol * pool_price - value / 2.0).abs();
+                let principal = value - fresh_fees.min(value);
+
+                // Trend-shrink bookkeeping: which way did this recenter fire?
+                // (composition is ≥92% one-sided at the trigger, so the
+                // majority side names the direction unambiguously).
+                let dir_down = withdrawn_sol * pool_price > withdrawn_usdc;
+                let flipped = matches!(last_dir_down, Some(d) if d != dir_down);
+                same_dir_streak = if flipped { 1 } else { same_dir_streak + 1 };
+                last_dir_down = Some(dir_down);
+
+                // Decide the redeposit size.
+                let mut deposit = principal;
+                if params.trend_shrink_streak > 0 {
+                    if shrunk && flipped {
+                        // Trend broke into chop — restore the parked half.
+                        deposit = principal + parked_usdc;
+                        parked_usdc = 0.0;
+                        shrunk = false;
+                        report.restore_events += 1;
+                    } else if !shrunk && same_dir_streak >= params.trend_shrink_streak {
+                        // Trend confirmed — park (1 − frac) in USDC.
+                        deposit = principal * params.trend_shrink_frac;
+                        parked_usdc = principal - deposit;
+                        shrunk = true;
+                        report.shrink_events += 1;
+                    }
+                    // While shrunk and the trend continues, redeposit the
+                    // (already small) principal; the parked USDC stays put.
+                }
+
+                // …swap toward the new 50/50 deposit (fee + impact on the
+                // swapped notional; anything not redeposited as SOL becomes
+                // USDC, so the swap covers parking too)…
+                let swap_notional = (withdrawn_sol * pool_price - deposit / 2.0).abs();
                 let swap_cost = swap_notional * params.swap_fee_rate;
                 let network = params.network_fee_usd_per_recenter;
-                wallet_usdc += fresh_fees - swap_cost - network;
+                // (principal − deposit) is +parked on a shrink, −parked on a
+                // flip-restore (deposit already includes it), 0 otherwise —
+                // the parked half physically lives in wallet_usdc.
+                wallet_usdc += fresh_fees - swap_cost - network + (principal - deposit);
                 report.lp_fees_usd += fresh_fees;
                 report.swap_cost_usd += swap_cost;
                 report.network_cost_usd += network;
-                // …and redeposit the same principal, recentered.
-                lp = SpotPosition::open(
-                    g,
-                    pool_price,
-                    params.n_bins,
-                    value - fresh_fees.min(value),
-                    params.fee_rate_net,
-                );
+                // …and redeposit, recentered.
+                lp = SpotPosition::open(g, pool_price, params.n_bins, deposit, params.fee_rate_net);
                 claimed_fees_marker = 0.0;
                 report.recenters += 1;
                 imbalance_since = None;
                 pending_recenter = None;
+                last_recenter_at = Some(t);
                 lp_mutated = true;
             }
             Some(k) => pending_recenter = Some(k - 1),
             None => {}
+        }
+
+        // Calm-window restore: in range, no trigger pending, quiet long
+        // enough — bring the parked principal back (a full recenter with
+        // its usual costs).
+        if !lp_mutated
+            && shrunk
+            && params.trend_shrink_streak > 0
+            && !imbalanced
+            && pending_recenter.is_none()
+            && !storm_active
+            && last_recenter_at.map_or(false, |lr| t - lr >= params.trend_calm_ms)
+        {
+            let fresh_fees = lp.fees_usd - claimed_fees_marker;
+            let withdrawn_sol = lp.total_sol();
+            let withdrawn_usdc = lp.total_usdc() + fresh_fees;
+            let value = withdrawn_sol * pool_price + withdrawn_usdc;
+            let principal = value - fresh_fees.min(value);
+            let deposit = principal + parked_usdc;
+            let swap_notional = (withdrawn_sol * pool_price - deposit / 2.0).abs();
+            let swap_cost = swap_notional * params.swap_fee_rate;
+            let network = params.network_fee_usd_per_recenter;
+            wallet_usdc += fresh_fees - swap_cost - network - parked_usdc;
+            parked_usdc = 0.0;
+            shrunk = false;
+            same_dir_streak = 0;
+            last_dir_down = None;
+            report.lp_fees_usd += fresh_fees;
+            report.swap_cost_usd += swap_cost;
+            report.network_cost_usd += network;
+            report.recenters += 1;
+            report.restore_events += 1;
+            lp = SpotPosition::open(g, pool_price, params.n_bins, deposit, params.fee_rate_net);
+            claimed_fees_marker = 0.0;
+            last_recenter_at = Some(t);
+            lp_mutated = true;
         }
 
         // --- Hedge (skipped the cycle the LP mutated, like the orchestrator) --
@@ -404,6 +502,7 @@ pub fn run(params: &StrategyParams, points: &[(i64, f64)]) -> SimReport {
         lp_delta_for_regime(lp_regime, lp.total_sol(), lp.total_usdc(), pool_price)
     };
     report.final_net_delta_sol = final_lp_delta + params.idle_wallet_sol - short.sol;
+    report.time_shrunk_frac = if total_ms > 0 { time_shrunk_ms as f64 / total_ms as f64 } else { 0.0 };
     report
 }
 

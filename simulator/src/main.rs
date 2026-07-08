@@ -70,6 +70,15 @@ fn main() {
         if let Some(l) = flag(&args, "--latency-ticks") {
             params.recenter_latency_ticks = l.parse().expect("--latency-ticks <n>");
         }
+        if let Some(k) = flag(&args, "--trend-streak") {
+            params.trend_shrink_streak = k.parse().expect("--trend-streak <n same-direction recenters, 0=off>");
+        }
+        if let Some(f) = flag(&args, "--trend-frac") {
+            params.trend_shrink_frac = f.parse().expect("--trend-frac <kept fraction, e.g. 0.5>");
+        }
+        if let Some(m) = flag(&args, "--trend-calm-min") {
+            params.trend_calm_ms = m.parse::<i64>().expect("--trend-calm-min <minutes>") * 60_000;
+        }
         let r = run_strategy(&params, &points);
         println!(
             "strategy replay: {} candles, confirm {}m, {} bins, band {} | pool: step {} bps, fee(net) {:.1} bps, deadband {:.1} bps",
@@ -96,6 +105,17 @@ fn main() {
             r.storm_pauses,
             r.final_net_delta_sol
         );
+        if params.trend_shrink_streak > 0 {
+            println!(
+                "trend-shrink: streak {} / keep {:.0}% / calm {}m | shrinks {} | restores {} | time shrunk {:.0}%",
+                params.trend_shrink_streak,
+                params.trend_shrink_frac * 100.0,
+                params.trend_calm_ms / 60_000,
+                r.shrink_events,
+                r.restore_events,
+                r.time_shrunk_frac * 100.0
+            );
+        }
         if r.unsupported_long_decisions > 0 {
             println!("⚠ unsupported long decisions: {}", r.unsupported_long_decisions);
         }
