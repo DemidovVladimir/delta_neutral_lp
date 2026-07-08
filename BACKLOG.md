@@ -54,9 +54,15 @@ Guards: never on cooldown, never below min position, one per N cycles.
 **Verification:** table-driven tests in `hedgeController.test.ts` (blocked →
 partial-decrease path), vectors regenerated, simulator replay of the Jul-8
 falling night with `wallet_usdc_start: 6` shows netΔ returning to band.
-**Alternative (simpler, zero code):** operator keeps ≥ $40 idle USDC on the
-wallet; document as a norm in the срез norms check. ASK THE OPERATOR which
-he prefers before building.
+**Alternative (simpler, zero code) — PROPORTIONAL rule (operator 2026-07-08:
+«я не люблю статические цифры»):** keep idle wallet USDC ≥
+`HEDGE_TARGET_COLLATERAL_RATIO × LP full value in USD` (≈ 0.33 × 96 ≈ $32
+today). Derivation: the largest single hedge increase the machine generates
+is ~half the LP value (a below-range recenter dumps the SOL half into the
+wallet; the storm clamp jump is the same magnitude), needing
+`ratio × value/2` of collateral — the rule covers TWO back-to-back events.
+Scales automatically with position size and the ratio. Documented as a
+norm in §C4; check it in every срез.
 
 ### A3. RPC-budget awareness (BUG-014 residual) — DESIGN
 **Problem:** Helius `429 {"code":-32429,"message":"max usage reached"}` means
@@ -183,7 +189,10 @@ AND no single episode loses more than $0.60.
   inflates the cap and can absorb a symptom — cross-check churn in absolute
   dollars vs the day's trade list).
 - Liq distance ≥ 1.3× spot (alert 1.25, release 1.30).
-- Wallet idle USDC: keep ≥ $40 until A2 lands (starvation risk).
+- Wallet idle USDC ≥ `HEDGE_TARGET_COLLATERAL_RATIO × LP full value USD`
+  (proportional, operator rule 2026-07-08; ≈ $32 at the current ~$96 slice) —
+  covers two back-to-back hedge-increase events; below it = collateral
+  starvation risk (see A2).
 - netΔ in band; band = max(0.25, 4 bins' worth).
 
 ## D. Known model/tooling caveats (do not re-discover these)
