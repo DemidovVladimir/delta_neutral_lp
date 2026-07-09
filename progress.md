@@ -29,6 +29,10 @@
 
 **A10 decided with the simulator (--swap-skip mode built):** dynamic wallet + swapPlanner port in `strategy.rs` (legacy path byte-identical, 18 tests green incl. new shuttle test). Live-window replay validates the model (recenters 12/14, machine trades 9/10, swaps 5/5 exact, fees +49% = known D2 bias — the stage-3 trade-count caveat is CLOSED). Verdict on both reference months: **forcing the alignment swap (option a) LOSES on both** (spot ~10 bps > perp 6 bps — the shuttle IS the cheaper venue, +2…+10 USD/month); band 10 bins (option b) ties band 8; **option c accepted** — shuttle stays, churn norm recalibrated (C4), runbooks updated. Docs: BACKLOG A10 → DECIDED, simulator + strategy-analyzer skills corrected (the «recenter-invariant input» claim was wrong under midpoint+swap-skip).
 
+### Session 23 (addendum 2) — operator asked «увеличить шорт, чтобы покрыть IL?» — answered with the mirror tilt test
+
+Over-short tilt tested (--target −0.6 / −1.2, both months, prod config): rally edge +6.29 → −2.52 → −9.87 (the tilt DOUBLES the loss exactly in the regime where IL already hurts), crash +28.84 → +38.14 → +55.50. First-order instrument cannot cover a second-order loss — it relocates it; plus carry grows with short size (0.39→0.72/month rally). The two-month SUM favors a short tilt spuriously (net down-drift across the pair) — trap recorded in the simulator skill. Recommendation to operator: keep HEDGE_TARGET_DELTA_SOL=0; the IL lever is the fee side (A9 fat pool after D2). Reaffirms the Jul-8 no-directional-bets decision from the short side.
+
 ## 2026-07-08
 
 ### Session 22 — operator challenged the sim's data provenance (rightly); month-long backtest run; trend-shrink REJECTED for good
@@ -1356,8 +1360,3 @@ Track these at the end of each week:
   - Enables long-term performance analytics and fee tracking
   - State persisted to `data/auto-tune-state.json`
 
----
-
-### Session 23 (addendum 2) — operator asked «увеличить шорт, чтобы покрыть IL?» — answered with the mirror tilt test
-
-Over-short tilt tested (--target −0.6 / −1.2, both months, prod config): rally edge +6.29 → −2.52 → −9.87 (the tilt DOUBLES the loss exactly in the regime where IL already hurts), crash +28.84 → +38.14 → +55.50. First-order instrument cannot cover a second-order loss — it relocates it; plus carry grows with short size (0.39→0.72/month rally). The two-month SUM favors a short tilt spuriously (net down-drift across the pair) — trap recorded in the simulator skill. Recommendation to operator: keep HEDGE_TARGET_DELTA_SOL=0; the IL lever is the fee side (A9 fat pool after D2). Reaffirms the Jul-8 no-directional-bets decision from the short side.
