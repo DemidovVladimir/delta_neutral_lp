@@ -5,6 +5,22 @@
 
 ---
 
+## 2026-07-09
+
+### Session 23 — VITALS churn latch fired (24h $448 vs cap $119.70, 3.74×): explained, no defect; wallet-SOL reserve latched low
+
+**What fired (06:31:37Z, single latched push each — A5 working):** (1) 24h live hedge churn $448.28 > 3× auto-cap $119.70; (2) wallet SOL 0.287836882 < reserve 0.30. Container healthy the whole time (0 restarts, cycles 15s, netΔ in band ±0.0001 at triage).
+
+**Churn decomposition (db + tx-audit verified, sums to the cent):**
+- **$228.31 (51%) = the Jul-8 operator manual-swap pair** (session 21 addendum 2): machine counter-trades `decrease_short $151.74` @ 11:25 + `increase_short $76.57` @ 11:35. Already understood; rolls out of the 24h window at ~11:26Z/11:36Z Jul 9 → expected churn release ≈ **11:36Z** (2.18× < 2.7×) with a ✅ recovered push, unless ≥2 new live trades land first.
+- **$219.98 (49%) = five recenter-follow trades** ($45.72 / $40.67 / $45.79 / $46.70 / $41.10, each exactly one cycle after an LP recenter completed). Mechanism (log + chain evidence): since the operator pair left ~$180 idle USDC in the wallet, EVERY recenter deposit now "fits without a swap" (swapPlanner) — the deposit takes ~0.61 SOL from / returns ~0.62 SOL to the WALLET instead of swapping. Idle wallet SOL is counted live by the hedge (ADR-021) while the LP is counted at midpoint (ADR-019), so each wallet↔LP shuttle steps the hedge input by ~0.55–0.62 SOL — above even the widened 0.49 band (8 bins; the shuttle step is ~half-position = 10 bins by construction, so it ALWAYS out-steps a sub-half band). Control case proving it: the 08:24Z Jul-8 recenter (pre-pair, thin wallet USDC) DID run its alignment swap (sig `3T4ZqpRPWr8CCMgwvT9unTziTYdDsPHCz2CnxUhxP5JzFzzfuqCEjRBGDKwUSJktLYsW6xQz9AGnjrHSxiz4ZXUc`) and NO hedge trade followed.
+- The trades are CORRECT delta-tracking (each recenter realizes the SOL the LP sold/bought crossing the range edge; the perp does the rebuy the skipped swap didn't). Cost per event ≈ perp 6 bps ($0.026) vs spot swap ~4–10 bps ($0.03–0.15) — a wash, possibly perp-cheaper. Not bleeding; the alert threshold is what got crossed.
+- **New steady state while wallet USDC stays fat:** ~1 hedge trade of ~$43 per recenter → at 6–8 recenters/day ≈ $260–350/day churn ≈ 2.2–2.9× cap — permanently near the 2.7×/3× lines. Occasional latch fires are expected noise until this is decided on (BACKLOG A10).
+
+**Wallet-SOL reserve breach:** three consecutive top-exit no-swap deposits each pulled ~0.55 SOL from the wallet (1.37 → 0.83 → 0.29 across 02:53→04:43→06:31Z) plus the operator pair's net −0.97 SOL. At 0.2878 < 0.30. Self-heals on the next BOTTOM-exit recenter (+0.62 SOL); a top-exit recenter still works (planner will be forced to swap USDC→SOL for the deposit leg) but leaves the wallet at ~0.29. Latch stays BAD until refill; release needs > 0.33. Cheapest manual fix if the operator wants it green now: ~0.1 SOL USDC→SOL swap on the bot wallet (idle +0.12 < 0.49 band → no counter-trade). No action taken without approval.
+
+**No code changed, no live mutations. Verification:** triage clean, hedge in band, one 🚨 line per breach type (no 10-min spam — latch v2 works), watchdog pushing status=bad as designed. BACKLOG A10 added (venue choice for recenter rebalancing: swap-skip vs hedge shuttle).
+
 ## 2026-07-08
 
 ### Session 22 — operator challenged the sim's data provenance (rightly); month-long backtest run; trend-shrink REJECTED for good

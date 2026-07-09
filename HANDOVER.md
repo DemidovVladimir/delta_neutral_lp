@@ -1,6 +1,26 @@
 # HANDOVER — Delta-Neutral Bot (LP + Jupiter Perps hedge, both sides)
 
-**Last updated:** 2026-07-08 (Session 21).
+**Last updated:** 2026-07-09 (Session 23).
+
+Session 23 delta (Jul 9): churn VITALS fired (24h $448.28 vs 3×cap $359.11)
+— **explained, no defect, nothing deployed**: 51% = the Jul-8 operator
+manual-swap pair still in the rolling window (self-releases ~11:36Z Jul 9),
+49% = the **swap-skip shuttle** (fat idle-USDC buffer → recenter deposits
+skip the alignment swap → ~0.61 SOL moves wallet↔LP → hedge re-trades a
+half-position step after EVERY recenter; ~43 USD each). Wallet-SOL reserve
+also latched low (0.288 < 0.30; drains on top-exits, refills on
+bottom-exits). Full mechanism + decision options: **BACKLOG §A10**
+(recommended: sim swapPlanner-prefers-swap vs band ≥10 bins before
+proposing). Runbooks updated in `.claude/skills/alert-response`. Expect
+near-threshold churn latch fires (~2.2–2.9× cap on 6–8-recenter days)
+until A10 is decided — explained noise, verify by matching trades to
+recenters ±1 cycle.
+
+Session 22 delta (Jul 8): month backtests both regimes; trend-shrink
+REJECTED for good (§A7); `HEDGE_BAND_BINS` 4→8 deployed (band ≈0.49);
+A5+A6 latch/recovered-push deployed (`9ae30bc` live on server); pool
+step-20 candidate recorded (§A9, gated on D2 recalibration after the live
+week).
 
 **⚠️ MODEL TRANSITION (operator order 2026-07-08): after Jul 12 a less
 capable model may operate this project. `BACKLOG.md` is the authoritative

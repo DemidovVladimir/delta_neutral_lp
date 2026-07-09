@@ -131,6 +131,31 @@ recalibrated model; (3) if it still wins ≥ ~5 USD/month, propose the
 migration to the operator (close-lp.ts + METEORA_POOL_ADDRESS change,
 ~1 USD cost, baseline re-init decision per hodl-check skill).
 
+### A10. Recenter rebalancing venue: swap-skip pushes the job onto the perp hedge — DECIDE
+Found during the Jul-9 churn VITALS incident (progress.md session 23).
+Since the wallet holds a fat idle-USDC buffer (~$180, left by the Jul-8
+operator swap pair), every recenter deposit "fits without a swap"
+(swapPlanner post-scale check) and shuttles ~0.61 SOL between wallet and
+LP instead. The hedge counts wallet SOL live (ADR-021) but the LP at
+midpoint (ADR-019), so each shuttle steps the hedge input by ~half the
+position — by construction 10 bins' worth, which out-steps ANY band below
+`HEDGE_BAND_BINS=10` — and the perp trades ~$43 one cycle after every
+recenter. Verified control: recenters that DO run the alignment swap
+produce NO hedge trade (Jul-8 08:24Z). The trades are correct
+delta-tracking and per-event cost is a wash (perp 6 bps vs swap 4–10 bps);
+the problems are operational: churn sits at 2.2–2.9× the auto-cap
+(latch noise), wallet SOL drains below reserve on trending runs
+(three top-exits: 1.37 → 0.83 → 0.29 SOL on Jul 8–9), and every trade
+adds keeper-fill exposure. Options (all auto-derived, no hand constants):
+(a) swapPlanner prefers the alignment swap whenever skipping it would move
+idle wallet SOL by more than the current hedge band — kills the shuttle at
+the source, spot venue does the rebuy; (b) `HEDGE_BAND_BINS` 8 → ≥10 so
+the band swallows a half-position step — but re-adds up to ~0.6 SOL
+uncorrected exposure, needs a two-month sim run first (simulator skill);
+(c) accept + recalibrate the churn norm to count recenter-follow trades
+separately. Recommendation: sim (a) vs (b) on both reference months before
+proposing; (a) is the structural fix.
+
 ### A8. Scaling 130 → 300+ (operator decision, after clean срезы)
 Everything auto-scales (cap ADR-022, band ADR-025, collateral = ratio). The
 ONLY knobs to change: `AUTO_TUNE_DEPOSIT_AMOUNT` (currently 0.61 SOL) and
@@ -207,7 +232,11 @@ AND no single episode loses more than $0.60.
   judge only on calm days.
 - Hedge churn 24h: ≤ 3× auto-cap (watch the CAVEAT: surplus wallet SOL
   inflates the cap and can absorb a symptom — cross-check churn in absolute
-  dollars vs the day's trade list).
+  dollars vs the day's trade list). Since Jul 9: while the wallet holds a
+  fat idle-USDC buffer, expect ~1 recenter-follow trade of ~$43 per
+  recenter (swap-skip shuttle, see A10) ≈ 2.2–2.9× cap on a 6–8-recenter
+  day — near-threshold latch fires are explained noise, not the Jul-5
+  pathology; verify by matching each trade to a recenter ±1 cycle.
 - Liq distance ≥ 1.3× spot (alert 1.25, release 1.30).
 - Wallet idle USDC ≥ `HEDGE_TARGET_COLLATERAL_RATIO × LP full value USD`
   (proportional, operator rule 2026-07-08; ≈ $32 at the current ~$96 slice) —

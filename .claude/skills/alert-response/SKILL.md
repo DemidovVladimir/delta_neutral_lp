@@ -143,9 +143,18 @@ Meaning: цена принудительного закрытия шорта б�
 
 1. Where did it go: `npx tsx scripts/tx-audit.ts --since <24h ago>` —
    look at ΔSOL out.
-2. Free SOL fast: unwrap wSOL (`tsx src/cli/jupiter-hedge.ts --unwrap`);
+2. Known benign cause (Jul-9 incident): consecutive TOP-exit no-swap
+   recenters each pull ~0.55 SOL from the wallet into the new position
+   (the swap-skip shuttle, BACKLOG A10). Self-heals on the next
+   BOTTOM-exit recenter (+~0.62 SOL back); top-exit recenters still work
+   (the planner is forced to swap USDC→SOL for the deposit leg) but leave
+   the wallet at the same sub-reserve level, so the latch stays BAD in an
+   uptrend. Manual green-up if the operator wants it: swap ~0.1 SOL worth
+   of USDC→SOL on the bot wallet — sized under the hedge band, so no
+   counter-trade fires (release needs wallet > 1.1× reserve).
+3. Free SOL fast: unwrap wSOL (`tsx src/cli/jupiter-hedge.ts --unwrap`);
    janitor reclaims rent automatically (or restart triggers it at boot).
-3. Structural fix if recurring: LP deposits are sized too close to the
+4. Structural fix if recurring: LP deposits are sized too close to the
    wallet total — operator decision on sizing.
 
 ### 🚨 «wallet-paid network fees over 24h far above norm»
@@ -168,10 +177,28 @@ for the close.
 
 1. Pull fresh db, look at the day:
    `sqlite3 pnl.db "SELECT taken_at, action, round(size_usd,2), round(lp_sol,3) FROM hedge_actions WHERE dry_run=0 AND taken_at >= '<24h ago>' AND action != 'none' ORDER BY taken_at"`.
-2. Flip-flop pattern (increase↔decrease same size) → the input is
-   oscillating: check 🧊 freeze lines actually appear (BUG-015 regression?),
-   wallet SOL swings around recenters, band vs input step sizes.
-3. Containment while diagnosing: raise `HEDGE_COOLDOWN_MS` in .env +
+2. FIRST match every trade against `rebalances.triggered_at` (±1 cycle) and
+   against untagged wallet txs (`other (ours)` rows in tx-audit):
+   - **Every trade lands one cycle after a recenter, sized ~half the LP
+     deposit (~40–47 USD at the ~95-USD slice)** → the swap-skip shuttle
+     (Jul-9 incident, BACKLOG A10): with a fat idle-USDC buffer in the
+     wallet the recenter deposit "fits without a swap" and moves ~0.61 SOL
+     wallet↔LP; the hedge counts wallet SOL live (ADR-021) but LP at
+     midpoint (ADR-019), so it re-trades a half-position step after EVERY
+     recenter — that step is 10 bins' worth by construction and out-steps
+     any band below `HEDGE_BAND_BINS=10`. Explained noise, correct
+     delta-tracking, no defect, cost ≈ the swap it replaced. Verify one
+     control: a recenter with a `db:swap` row in tx-audit must have NO
+     hedge trade after it. Expect self-release as the window rolls.
+   - **A trade with no recenter near it + an `other (ours)` swap seconds
+     before** → operator manual trade on the bot wallet; the machine
+     counter-trades within 1 cycle (ADR-021 working as designed, Jul-8
+     precedent). Confirm with the operator, count it out of the "machine
+     churn" mentally.
+3. Flip-flop pattern NOT matching recenters (increase↔decrease same size)
+   → the input is oscillating: check 🧊 freeze lines actually appear
+   (BUG-015 regression?), band vs input step sizes.
+4. Containment while diagnosing: raise `HEDGE_COOLDOWN_MS` in .env +
    redeploy (operator call). Note the cause before tuning anything else.
 
 ### 🚨 «recenter rate above the churn red line»
