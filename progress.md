@@ -1357,3 +1357,7 @@ Track these at the end of each week:
   - State persisted to `data/auto-tune-state.json`
 
 ---
+
+### Session 23 (addendum 2) — operator asked «увеличить шорт, чтобы покрыть IL?» — answered with the mirror tilt test
+
+Over-short tilt tested (--target −0.6 / −1.2, both months, prod config): rally edge +6.29 → −2.52 → −9.87 (the tilt DOUBLES the loss exactly in the regime where IL already hurts), crash +28.84 → +38.14 → +55.50. First-order instrument cannot cover a second-order loss — it relocates it; plus carry grows with short size (0.39→0.72/month rally). The two-month SUM favors a short tilt spuriously (net down-drift across the pair) — trap recorded in the simulator skill. Recommendation to operator: keep HEDGE_TARGET_DELTA_SOL=0; the IL lever is the fee side (A9 fat pool after D2). Reaffirms the Jul-8 no-directional-bets decision from the short side.

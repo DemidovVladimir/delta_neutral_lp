@@ -28,7 +28,17 @@ cargo run --release -- --from 2026-07-05T14:47:00Z --hours 20 --strategy \
                           # goes perp-long — watch the ⚠ unsupported counter).
                           # Two-month verdict: pure direction risk, net LOSER
                           # (+8.4 rally / −14.6 crash) — measurement dial, not
-                          # an improvement.
+                          # an improvement. NEGATIVE target (over-short, the
+                          # «cover IL with a bigger hedge» idea, tested Jul 9
+                          # with --swap-skip --band 0.49): rally +6.29→−2.52
+                          # (0.6) →−9.87 (1.2), crash +28.84→+38.14→+55.50 —
+                          # first-order tilt cannot cover second-order IL, it
+                          # doubles the loss on up-trends and pays extra carry.
+                          # TRAP: do NOT sum this pair for tilt questions —
+                          # the two months have a net DOWN drift (crash move
+                          # bigger than rally move), so any short tilt "wins"
+                          # the sum spuriously; delta-neutral comparisons
+                          # cancel the drift, directional ones do not.
 # Clamp dampening (Jul 7): the freeze is PRODUCTION since ADR-025 and the
 # sim DEFAULT (clamp regime commits frozen while the recenter pipeline owns
 # the imbalance, storms excepted; 65h: trades 13→1, churn 574→120 USD, edge
