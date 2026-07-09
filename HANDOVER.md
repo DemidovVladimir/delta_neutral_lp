@@ -1,20 +1,64 @@
 # HANDOVER — Delta-Neutral Bot (LP + Jupiter Perps hedge, both sides)
 
-**Last updated:** 2026-07-09 (Session 23).
+**Last updated:** 2026-07-09 (Session 23, end of day).
+
+## NEXT SESSION (Jul 10) — план на завтра, по порядку
+
+1. **Liveness (2 мин):** did both heartbeats reach the operator's phone —
+   the 00:17Z hodl-cron row AND the 08:05Z «💚 живой»? Then
+   `bash scripts/triage.sh --chain`: expect container Up (started
+   2026-07-09T08:49Z, restarts 0), cycles ~15s, netΔ in band, 0 unexplained
+   VITALS. A churn/reserves 🚨 is EXPLAINED noise only if every live trade
+   matches a recenter ±1 cycle (shuttle, BACKLOG §A10 — decided, keep) —
+   verify, don't assume.
+2. **Срез #4 (the main deliverable).** `pnpm hodl` — baseline is
+   **336.7102143406818** (ADJUSTED −30 USDC on Jul 9 for two operator
+   outflows, both sigs in the baseline's note field; do NOT re-init, do
+   NOT "fix" it back). Compare against the REFERENCE POINT
+   **2026-07-09T13:26:36Z: equity 331.5388 @ price 77.8027, vs-as-is
+   +1.8451, skill −5.1715**. The number that answers «выгоден ли бот»:
+   Δskill over ~24h; positive or ~0 on a calm day = the machine earns its
+   keep; ≪0 → decompose before touching anything (C2 template).
+   Mandatory verification block per hodl-check SKILL.md: tx-audit
+   `--since 2026-07-09T13:26:36Z` (срез times come from elapsedDays, NOT
+   the CLI's local-time log stamps — the −15-USDC near-miss trap,
+   progress.md session 23 addendum 3), log density, formulas, norms.
+3. **Первый день на зоне 8 бинов (band ≈0.49, live since 08:49Z Jul 9):**
+   count live hedge trades vs recenters — expect ~1 shuttle trade per
+   swap-free recenter (step ~0.55–0.62 > band), NO trades between
+   recenters; churn/day expected well under 3× auto-cap. If trades appear
+   with no recenter and no manual tx near them — investigate (that's the
+   only pattern A10 did NOT explain).
+4. **Ledger watch:** LP fee pace (was $1.88/day, norm band $2–3.5 — two
+   days below norm = note it, D2 recalibration after the live week decides
+   the pool thesis); liq ≥1.3× spot (was 1.70×); wallet USDC ≥ 0.33×LP
+   (~$32; was $117); collateral ratio migrating 0.71→0.33 (by design).
+5. **After the срез:** strategy-analyzer standing order. Expected verdict
+   on a calm day: «keep, no lever». The live week runs to ~Jul 14 → then
+   D2 fee recalibration (simulator skill, stage-3 procedure) → then the
+   §A9 pool-switch decision (step 20 / fee 0.2%, ~+12 USD/month in sim).
+   Scaling talk (§A8) only after clean срезы.
+6. **If the operator swapped/withdrew again:** find EVERY outflow on-chain
+   (walk pre/post token balances until the identity closes), adjust the
+   baseline by exactly the flow, note the sigs — BEFORE quoting any verdict.
 
 Session 23 delta (Jul 9): churn VITALS fired (24h $448.28 vs 3×cap $359.11)
-— **explained, no defect, nothing deployed**: 51% = the Jul-8 operator
-manual-swap pair still in the rolling window (self-releases ~11:36Z Jul 9),
-49% = the **swap-skip shuttle** (fat idle-USDC buffer → recenter deposits
-skip the alignment swap → ~0.61 SOL moves wallet↔LP → hedge re-trades a
-half-position step after EVERY recenter; ~43 USD each). Wallet-SOL reserve
-also latched low (0.288 < 0.30; drains on top-exits, refills on
-bottom-exits). Full mechanism + decision options: **BACKLOG §A10**
-(recommended: sim swapPlanner-prefers-swap vs band ≥10 bins before
-proposing). Runbooks updated in `.claude/skills/alert-response`. Expect
-near-threshold churn latch fires (~2.2–2.9× cap on 6–8-recenter days)
-until A10 is decided — explained noise, verify by matching trades to
-recenters ±1 cycle.
+— **explained, no defect**: 51% = the Jul-8 operator manual-swap pair
+still in the rolling window, 49% = the **swap-skip shuttle** (fat
+idle-USDC buffer → recenter deposits skip the alignment swap → ~0.61 SOL
+moves wallet↔LP → hedge re-trades the step one cycle later; ~43 USD each).
+**§A10 DECIDED with the simulator the same day** (`--swap-skip` mode
+built + live-window-validated, stage-3 trade-count caveat closed): forcing
+the swap LOSES on both reference months (spot ~10 bps > perp 6 bps) —
+the shuttle stays; band 10 bins ties 8 — no change; churn norm
+recalibrated (C4). Also: the Jul-8-approved `HEDGE_BAND_BINS` 4→8 was
+found NOT deployed (last deploy predated the .env edit) — **deployed
+08:49Z Jul 9** (`333d2b2`, verified in container). Over-short tilt
+(«cover IL with a bigger hedge») tested and REJECTED with numbers
+(progress.md addendum 2; two-month-sum trap recorded in the simulator
+skill). Operator outflows −30 USDC found on-chain, baseline adjusted
+(addendum 3). Both VITALS latches self-released. Runbooks + both skills
+updated.
 
 Session 22 delta (Jul 8): month backtests both regimes; trend-shrink
 REJECTED for good (§A7); `HEDGE_BAND_BINS` 4→8 deployed (band ≈0.49);
