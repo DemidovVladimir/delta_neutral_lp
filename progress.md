@@ -7,6 +7,25 @@
 
 ## 2026-07-09
 
+### Session 23 (addendum 4) — operator restated the goal → vs-USDC promoted to the headline срез number
+
+Evening conversation. The operator restated what the machine is FOR: «у меня
+~335 долларов, через месяц хочу больше, а солана пусть делает что хочет» —
+stable USD growth, SOL-indifferent, no speculation. On the project's terms
+that is exactly the vs-HODL-USDC line (= PnL к baseline), which BACKLOG §C1
+already called the skill number — but the hodl-check verdict block still
+crowned vs-as-is as «ГЛАВНОЕ ЧИСЛО». Fixed (docs only, no code, no deploy):
+hodl-check SKILL.md verdict block reordered (💵 vs-USDC first = headline;
+🤖 vs-as-is second = protection diagnostic, still mandatory together with
+the mechanical/skill decomposition), strategy-analyzer intro, BACKLOG
+§C1/§B2, HANDOVER next-session item 2 (срез #4 verdict = Δ(vs-USDC),
+numerically the same as Δskill). Also explained to the operator with
+Campaign-3 numbers: vs-USDC −5.17 over the first ~2 days (protection worked,
++1.85 vs as-is on a −4% SOL drop; earnings not yet), and that only ~97 of
+the 335 USD works in the LP — the rest is collateral + reserves. A
+profit-skimming policy (всё выше стартовой суммы периодически откладывать в
+USDC) was discussed and DEFERRED — no design, no BACKLOG item yet.
+
 ### Session 23 — VITALS churn latch fired (24h $448 vs cap $119.70, 3.74×): explained, no defect; wallet-SOL reserve latched low
 
 **What fired (06:31:37Z, single latched push each — A5 working):** (1) 24h live hedge churn $448.28 > 3× auto-cap $119.70; (2) wallet SOL 0.287836882 < reserve 0.30. Container healthy the whole time (0 restarts, cycles 15s, netΔ in band ±0.0001 at triage).

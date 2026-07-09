@@ -181,7 +181,8 @@ one deploy, watch the first recenter + hedge cycle live.
    Expect: 0 VITALS, netΔ in band, restarts=0, persistent log advancing.
 2. **Срез:** `pnpm hodl` + the mandatory verification block (hodl-check
    skill) + strategy-analyzer skill. Report format: plain-language summary
-   FIRST (≤5 sentences, ≤4 numbers), details below.
+   FIRST (≤5 sentences, ≤4 numbers), details below; headline number =
+   vs-USDC (did the dollar total grow — operator decision 2026-07-09).
 3. **Any alert:** alert-response skill, triage first, mutate never without
    «да».
 4. **Docs after every session:** progress.md (what happened), bugs.md (new
@@ -191,9 +192,12 @@ one deploy, watch the first recenter + hedge cycle live.
 
 ### C1. Срез decomposition — mechanical vs skill (used in срез #2)
 The bot's target delta is 0 (full-portfolio neutral). Therefore:
-- **vs HODL-USDC = the skill number** ≈ LP fees − conversion losses (IL) −
-  all costs. For a neutral bot this line should NOT move with price; its
-  TREND across срезы answers «бот выгоден?».
+- **vs HODL-USDC = the skill number AND the headline of every срез**
+  (operator decision 2026-07-09: the goal is stable USD growth, SOL
+  indifferent — report this line FIRST, per the hodl-check verdict block)
+  ≈ LP fees − conversion losses (IL) − all costs. For a neutral bot this
+  line should NOT move with price; its TREND across срезы answers
+  «бот выгоден?».
 - **vs HODL-as-is contains a mechanical part** = `baseline_SOL × (P_baseline
   − P_now)` (baseline_SOL = the SOL amount in `data/hodl-baseline.json`,
   2.049970 for Campaign 3). On a price DROP this term is positive (the

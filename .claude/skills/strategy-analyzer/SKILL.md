@@ -5,7 +5,8 @@ description: Audit the live delta-neutral strategy after every срез (hodl-ch
 
 # Strategy Analyzer — is the CURRENT strategy still the right one?
 
-Runs after every срез. hodl-check answers "are we beating HODL"; this skill
+Runs after every срез. hodl-check answers "are we beating HODL" (headline
+since 2026-07-09: the vs-USDC line — did the dollar total grow); this skill
 answers "is the machine converting LP fees into net edge efficiently, and
 should any lever move?" Output: a keep/change verdict with numbers. Any
 change requires explicit operator approval (AskUserQuestion) — «если захотим

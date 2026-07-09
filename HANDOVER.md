@@ -17,7 +17,10 @@
    NOT "fix" it back). Compare against the REFERENCE POINT
    **2026-07-09T13:26:36Z: equity 331.5388 @ price 77.8027, vs-as-is
    +1.8451, skill −5.1715**. The number that answers «выгоден ли бот»:
-   Δskill over ~24h; positive or ~0 on a calm day = the machine earns its
+   Δ(vs-USDC) over ~24h (numerically = Δskill; **vs-USDC is the HEADLINE
+   of every срез since Jul 9 evening** — operator restated the goal as
+   stable USD growth, SOL indifferent; hodl-check verdict block updated);
+   positive or ~0 on a calm day = the machine earns its
    keep; ≪0 → decompose before touching anything (C2 template).
    Mandatory verification block per hodl-check SKILL.md: tx-audit
    `--since 2026-07-09T13:26:36Z` (срез times come from elapsedDays, NOT
@@ -58,7 +61,11 @@ found NOT deployed (last deploy predated the .env edit) — **deployed
 (progress.md addendum 2; two-month-sum trap recorded in the simulator
 skill). Operator outflows −30 USDC found on-chain, baseline adjusted
 (addendum 3). Both VITALS latches self-released. Runbooks + both skills
-updated.
+updated. Evening (addendum 4): operator restated the goal — stable USD
+growth, SOL indifferent («долларов через месяц больше, солана побоку») —
+**vs-USDC promoted to the headline срез number** (hodl-check verdict block
+reordered, strategy-analyzer/BACKLOG §C1+§B2 updated); profit-skimming
+policy (сливки в USDC) discussed, DEFERRED — no design yet.
 
 Session 22 delta (Jul 8): month backtests both regimes; trend-shrink
 REJECTED for good (§A7); `HEDGE_BAND_BINS` 4→8 deployed (band ≈0.49);

@@ -61,9 +61,10 @@ there is no baseline:
   `beats-sol-only` / `loses-to-both`. Report it first, with the USD edges.
 - A delta-neutral strategy is SUPPOSED to lag HODL-SOL when SOL pumps hard and
   beat it when SOL dumps — one mixed verdict after a big price move is not a
-  failure. The signal that matters over time: the strategy should beat
-  **HODL-as-is** (that edge ≈ fees earned − IL − carry − costs) and its USD
-  equity should grind up vs **HODL-USDC**.
+  failure. The signal that matters over time: USD equity grinding up vs
+  **HODL-USDC** — that is the operator's declared goal (2026-07-09:
+  «долларов через месяц больше, солана побоку»). vs **HODL-as-is** is the
+  protection diagnostic (mechanical hedge protection + the same skill part).
 - `aprMeaningful: false` (window < 3 days) → quote USD edges only, warn that
   annualized numbers are noise.
 - Persistent `loses-to-both` with a meaningful window → recommend reviewing
@@ -74,28 +75,33 @@ there is no baseline:
 - Answer the user in Russian; keep report numbers in USD/SOL as printed.
   Always show wallet addresses and identifiers in full, never abbreviated.
 
-## MANDATORY report format (operator feedback 2026-07-05)
+## MANDATORY report format (operator feedback 2026-07-05; headline switched to vs-USDC 2026-07-09)
 
 The operator was left unsure whether the bot is profitable because a report
 labeled the HODL-USDC edge as «PnL к baseline» without naming it (they are
 the SAME number: HODL-USDC = the frozen baseline total), and never gave a
-one-line bottom line. Every срез MUST render this block, all three
+one-line bottom line. On 2026-07-09 the operator restated the product goal —
+stable USD growth, indifferent to SOL — so the vs-USDC line IS the headline
+now (it was vs-as-is before). Every срез MUST render this block, all three
 benchmarks explicitly labeled in plain language, then ONE verdict sentence:
 
 ```
 ВЕРДИКТ СРЕЗА (окно N дней):
-  🤖 Бот vs «ничего не делать» (HODL-as-is):  ±X USD   ← ГЛАВНОЕ ЧИСЛО
-  💵 Портфель vs «всё в USDC» (= PnL к baseline): ±Y USD
+  💵 Портфель vs «всё в USDC» (= PnL к baseline): ±Y USD   ← ГЛАВНОЕ ЧИСЛО
+  🤖 Бот vs «ничего не делать» (HODL-as-is):  ±X USD   (диагностика защиты)
   🌊 Портфель vs «всё в SOL»:                  ±Z USD
-Итог: <одно предложение: бот заработал/потерял X USD относительно
-бездействия за N дней; тренд этого числа между срезами; когда финальный
-вердикт кампании>.
+Итог: <одно предложение: долларов стало больше/меньше на Y USD за N дней;
+тренд этого числа между срезами; когда финальный вердикт кампании>.
 ```
 
 Interpretation rules for the block:
-- «Бот выгоден?» отвечает ТОЛЬКО строка vs HODL-as-is и её ТРЕНД между
-  срезами — fees + hedge PnL − IL − все косты относительно полного
-  бездействия. Один срез — точка; тренд — ответ.
+- «Бот выгоден?» отвечает строка vs HODL-USDC (= PnL к baseline: стало ли
+  долларов больше) и её ТРЕНД между срезами — для нейтрального бота это
+  ≈ fees − IL − все косты и оно НЕ должно дышать с ценой SOL. Один срез —
+  точка; тренд — ответ. (До 2026-07-09 главным числом считалась строка
+  vs-as-is; операторская цель переформулирована — «стабильный доллар,
+  солана побоку».) vs HODL-as-is остаётся ОБЯЗАТЕЛЬНОЙ второй строкой:
+  это диагностика механики защиты (см. decomposition ниже), не вердикт.
 - **MANDATORY decomposition when price moved since baseline (after срез #2,
   2026-07-08):** with target delta 0 the vs-as-is edge contains a MECHANICAL
   term = baseline_SOL × (P_now − P_baseline) × (−1) — i.e. baseline_SOL from
