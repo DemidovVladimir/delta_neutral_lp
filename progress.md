@@ -21,6 +21,14 @@
 
 **No code changed, no live mutations. Verification:** triage clean, hedge in band, one 🚨 line per breach type (no 10-min spam — latch v2 works), watchdog pushing status=bad as designed. BACKLOG A10 added (venue choice for recenter rebalancing: swap-skip vs hedge shuttle).
 
+### Session 23 (addendum) — срез #3, band-8 deploy caught missing and fixed, A10 DECIDED by simulator
+
+**Deploy audit finding:** the Jul-8-approved band widening (`HEDGE_BAND_BINS` 4→8) was NEVER live — the last deploy ran 11:30Z Jul 8 (HEAD `f61368b`) and the .env edit happened 22:03Z. Container `printenv` was the tell (banner floor 0.25 masked it). **Deployed 08:49Z Jul 9** (`333d2b2`): bins=8 verified in container, cycles clean, in band, restarts 0. Two 🚨 re-fires on restart = in-memory latch reset re-announcing the known breaches (expected; churn releases on window roll-off ~11:36Z).
+
+**Срез #3 (10:42Z, window 1.79d, baseline 366.7102143406818):** vs as-is **+1.20** = mechanical +6.17 (2.0499698609999997 × price drop 3.011) + skill **−4.97** (matches vs-USDC to the cent — neutrality holds). Skill split: operator manual pair ≈ −2.79, perp fees −0.42 (12 trades, Σ$706), network −0.17, LP fees +3.37, remainder ≈ −4.95 = recenter/IL cost (mostly the −3.7% trend). Day-2 marginal skill ex-operator ≈ −0.3 (flattish). Verification block: 1 gap >60s in 9844 cycles (= the slow 08:23 swap recenter, documented), 89 txs all classified (5 alignment swaps ↔ swaps table exact), 9 VITALS lines = 3 known episodes, 0 regime commits / 144 ⏳ / 0 🧊 / 0 storms, liq 1.70× spot, network fees 0.00125 SOL/day. Ledger flags: fee pace $1.88/day (below the $2–3.5 norm band — D2 recalibration after the live week decides the pool thesis); hedge cost ratio inflated by the blended collateral 0.71→0.33 migration (by design).
+
+**A10 decided with the simulator (--swap-skip mode built):** dynamic wallet + swapPlanner port in `strategy.rs` (legacy path byte-identical, 18 tests green incl. new shuttle test). Live-window replay validates the model (recenters 12/14, machine trades 9/10, swaps 5/5 exact, fees +49% = known D2 bias — the stage-3 trade-count caveat is CLOSED). Verdict on both reference months: **forcing the alignment swap (option a) LOSES on both** (spot ~10 bps > perp 6 bps — the shuttle IS the cheaper venue, +2…+10 USD/month); band 10 bins (option b) ties band 8; **option c accepted** — shuttle stays, churn norm recalibrated (C4), runbooks updated. Docs: BACKLOG A10 → DECIDED, simulator + strategy-analyzer skills corrected (the «recenter-invariant input» claim was wrong under midpoint+swap-skip).
+
 ## 2026-07-08
 
 ### Session 22 — operator challenged the sim's data provenance (rightly); month-long backtest run; trend-shrink REJECTED for good

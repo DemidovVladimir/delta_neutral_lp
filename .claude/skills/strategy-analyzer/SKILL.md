@@ -188,10 +188,13 @@ capital, something is wrong — flag it.
 
 **Idle wallet SOL policy (стейл-сумма):** current policy B = always hedged
 (`HEDGE_INCLUDE_WALLET_SOL=true`), full-portfolio neutrality. Verify:
-- idle = walletSol − reserves; the hedge input includes it; the combined
-  input is INVARIANT to recenter-phase wallet↔LP transfers (they cancel) —
-  only real swaps move it. If hedge trades correlate with recenters again,
-  that invariant broke — investigate.
+- idle = walletSol − reserves; the hedge input includes it. NOTE (corrected
+  2026-07-09, A10): the input is NOT invariant to recenter wallet↔LP flows
+  under midpoint mode — a swap-skipped recenter deposit moves wallet SOL
+  while the LP midpoint stays put, so ~1 hedge trade of ~half the deposit
+  per swap-free recenter is EXPECTED (the shuttle, BACKLOG A10 — decided:
+  keep, it is the cheaper venue). Investigate only trades that match
+  NEITHER a recenter (±1 cycle) NOR a manual wallet tx.
 - A sudden idle jump = probably an operator top-up → run the external-flows
   check and the baseline adjustment BEFORE the next срез verdict.
 - Directional SOL treasury belongs on the operator's hot wallet

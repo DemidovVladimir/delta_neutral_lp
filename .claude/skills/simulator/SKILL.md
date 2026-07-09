@@ -170,6 +170,18 @@ on the same path stay valid.
   convention before absolute-fee calibration.
 - `simulator/target/` and `simulator/data/` are gitignored; `deploy.sh`
   rsync excludes `target` — the simulator never ships to the Hetzner box.
-- The идle-wallet SOL is a constant param (`idle_wallet_sol`) — faithful
-  because the combined hedge input is recenter-invariant (ADR-021 note),
-  but revisit if simulating deposits/withdrawals.
+- The idle-wallet SOL is a constant param (`idle_wallet_sol`) ONLY in the
+  legacy always-swap model. Since Jul 9 (A10) `--swap-skip` turns on the
+  PRODUCTION swapPlanner model: dynamic wallet, recenter deposits that fit
+  the wallet skip the alignment swap and shuttle SOL wallet↔LP, and the
+  hedge re-trades the step one tick later. Extra flags: `--idle-sol`,
+  `--wallet-usdc`, `--lp-value` set the starting state. This CLOSED the
+  stage-3 «perp trade count −35%» caveat: live-window replay (Jul 7
+  13:47Z → Jul 9, 42h, pool 10/10, `--swap-skip --band 0.25 --idle-sol
+  0.85 --wallet-usdc 100`) gives recenters 12 vs 14 real, machine trades
+  9 vs 10, churn 456 vs 478 USD, alignment swaps 5 vs 5 exact; LP fees
+  +49% (D2 fee optimism reconfirmed). A10 grid (both reference months,
+  LP 95 / USDC 180 / idle 0): forcing the swap LOSES on both months
+  (spot ~10 bps > perp 6 bps); band 0.62 ties band 0.49; recorded in
+  BACKLOG A10. Pre-recorded grids in this file ran the LEGACY model —
+  do not mix their absolute numbers with `--swap-skip` runs.

@@ -82,6 +82,18 @@ fn main() {
         if let Some(t) = flag(&args, "--target") {
             params.target_delta_sol = t.parse().expect("--target <net SOL tilt, 0=neutral>");
         }
+        if args.iter().any(|a| a == "--swap-skip") {
+            params.swap_skip = true; // A10: production swapPlanner + dynamic wallet
+        }
+        if let Some(v) = flag(&args, "--idle-sol") {
+            params.idle_wallet_sol = v.parse().expect("--idle-sol <SOL above reserves at start>");
+        }
+        if let Some(v) = flag(&args, "--wallet-usdc") {
+            params.wallet_usdc_start = v.parse().expect("--wallet-usdc <USD>");
+        }
+        if let Some(v) = flag(&args, "--lp-value") {
+            params.lp_value_usd = v.parse().expect("--lp-value <USD>");
+        }
         let r = run_strategy(&params, &points);
         println!(
             "strategy replay: {} candles, confirm {}m, {} bins, band {}, target {} | pool: step {} bps, fee(net) {:.1} bps, deadband {:.1} bps",
@@ -109,6 +121,12 @@ fn main() {
             r.storm_pauses,
             r.final_net_delta_sol
         );
+        if params.swap_skip {
+            println!(
+                "swap-skip (A10): {} recenter deposits fit the wallet (no swap), {} needed the alignment swap",
+                r.swaps_skipped, r.swaps_executed
+            );
+        }
         if params.trend_shrink_streak > 0 {
             println!(
                 "trend-shrink: streak {} / keep {:.0}% / calm {}m | shrinks {} | restores {} | time shrunk {:.0}%",

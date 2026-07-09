@@ -97,6 +97,16 @@ pub struct StrategyParams {
     /// not execute perp-long decisions (they land in the unsupported
     /// counter and invalidate the run).
     pub target_delta_sol: f64,
+    /// A10 (Jul 9): model the PRODUCTION swapPlanner instead of the legacy
+    /// always-swap recenter. The wallet becomes dynamic: a recenter deposit
+    /// whose both legs fit the wallet skips the alignment swap and shuttles
+    /// SOL wallet↔LP; the hedge counts wallet SOL live (ADR-021) but the LP
+    /// at midpoint (ADR-019), so each shuttle steps the hedge input by
+    /// ~half the deposit and the perp re-trades it one tick later — the
+    /// recenter-follow churn observed live Jul 8–9. false = legacy constant
+    /// wallet (the pre-recorded grids; also breaks the −35% trade-count
+    /// caveat of the stage-3 gate).
+    pub swap_skip: bool,
 }
 
 impl Default for StrategyParams {
@@ -139,6 +149,7 @@ impl Default for StrategyParams {
             trend_shrink_frac: 0.5,
             trend_calm_ms: 1_800_000,
             target_delta_sol: 0.0,
+            swap_skip: false,
         }
     }
 }
@@ -164,6 +175,10 @@ pub struct SimReport {
     pub final_net_delta_sol: f64,
     pub shrink_events: u32,
     pub restore_events: u32,
+    /// A10 shuttle visibility (swap_skip mode): recenters whose deposit fit
+    /// the wallet without an alignment swap / recenters that swapped.
+    pub swaps_skipped: u32,
+    pub swaps_executed: u32,
     /// Share of simulated time spent with the LP shrunk (0..1).
     pub time_shrunk_frac: f64,
 }
@@ -176,11 +191,21 @@ struct ShortState {
 }
 
 pub fn run(params: &StrategyParams, points: &[(i64, f64)]) -> SimReport {
+    // The calm-restore recenter still uses the legacy wallet-neutral
+    // settlement — combining the A10 wallet model with the (rejected)
+    // trend-shrink would silently double-count the parked principal.
+    assert!(
+        !(params.swap_skip && params.trend_shrink_streak > 0),
+        "swap_skip does not support trend_shrink (rejected feature; extend the calm-restore settlement first)"
+    );
     let g = BinGeometry::from_bps(params.bin_step_bps);
     let p0 = points[0].1;
     let mut lp = SpotPosition::open(g, p0, params.n_bins, params.lp_value_usd, params.fee_rate_net);
     let mut wallet_usdc = params.wallet_usdc_start;
-    let wallet_sol = params.idle_wallet_sol + params.wallet_reserve_sol;
+    // Dynamic in swap_skip mode (the A10 shuttle); the legacy always-swap
+    // path is wallet-SOL-neutral by construction, so this stays constant
+    // there and every downstream `idle` read reduces to the old parameter.
+    let mut wallet_sol = params.idle_wallet_sol + params.wallet_reserve_sol;
     let mut short = ShortState { sol: 0.0, notional_usd: 0.0, collateral_usd: 0.0, entry_price: p0 };
 
     let mut report = SimReport::default();
@@ -306,21 +331,63 @@ pub fn run(params: &StrategyParams, points: &[(i64, f64)]) -> SimReport {
                     // (already small) principal; the parked USDC stays put.
                 }
 
-                // …swap toward the new 50/50 deposit (fee + impact on the
-                // swapped notional; anything not redeposited as SOL becomes
-                // USDC, so the swap covers parking too)…
-                let swap_notional = (withdrawn_sol * pool_price - deposit / 2.0).abs();
-                let swap_cost = swap_notional * params.swap_fee_rate;
                 let network = params.network_fee_usd_per_recenter;
-                // (principal − deposit) is +parked on a shrink, −parked on a
-                // flip-restore (deposit already includes it), 0 otherwise —
-                // the parked half physically lives in wallet_usdc.
-                wallet_usdc += fresh_fees - swap_cost - network + (principal - deposit);
-                report.lp_fees_usd += fresh_fees;
-                report.swap_cost_usd += swap_cost;
-                report.network_cost_usd += network;
-                // …and redeposit, recentered.
-                lp = SpotPosition::open(g, pool_price, params.n_bins, deposit, params.fee_rate_net);
+                if params.swap_skip {
+                    // A10: production swapPlanner. Credit the withdraw to the
+                    // wallet, then skip the alignment swap when both legs of
+                    // the new deposit already fit — the deposit shuttles the
+                    // wallet's own SOL/USDC into the LP and the hedge input
+                    // steps by the shuttled idle SOL one tick later.
+                    wallet_sol += withdrawn_sol;
+                    wallet_usdc += withdrawn_usdc;
+                    let next = SpotPosition::open(g, pool_price, params.n_bins, deposit, params.fee_rate_net);
+                    let sol_leg = next.deposit_sol;
+                    let usdc_leg = next.deposit_usdc;
+                    let avail_sol = (wallet_sol - params.wallet_reserve_sol).max(0.0);
+                    let swap_cost = if avail_sol >= sol_leg && wallet_usdc >= usdc_leg {
+                        report.swaps_skipped += 1;
+                        0.0
+                    } else {
+                        // Shortfall-only alignment swap (the planner sizes it
+                        // to make the target fit given the WHOLE wallet).
+                        report.swaps_executed += 1;
+                        let notional = if avail_sol < sol_leg {
+                            let n = ((sol_leg - avail_sol) * pool_price).min(wallet_usdc.max(0.0));
+                            wallet_sol += n / pool_price;
+                            wallet_usdc -= n;
+                            n
+                        } else {
+                            let n = (usdc_leg - wallet_usdc).max(0.0);
+                            wallet_sol -= n / pool_price;
+                            wallet_usdc += n;
+                            n
+                        };
+                        notional * params.swap_fee_rate
+                    };
+                    wallet_sol -= sol_leg;
+                    wallet_usdc -= usdc_leg + swap_cost + network;
+                    report.lp_fees_usd += fresh_fees;
+                    report.swap_cost_usd += swap_cost;
+                    report.network_cost_usd += network;
+                    lp = next;
+                } else {
+                    // Legacy always-swap model (pre-recorded grids): swap
+                    // toward the new 50/50 deposit (fee + impact on the
+                    // swapped notional; anything not redeposited as SOL
+                    // becomes USDC, so the swap covers parking too). Wallet
+                    // SOL is zero-sum here by construction.
+                    let swap_notional = (withdrawn_sol * pool_price - deposit / 2.0).abs();
+                    let swap_cost = swap_notional * params.swap_fee_rate;
+                    // (principal − deposit) is +parked on a shrink, −parked on
+                    // a flip-restore (deposit already includes it), 0 otherwise
+                    // — the parked half physically lives in wallet_usdc.
+                    wallet_usdc += fresh_fees - swap_cost - network + (principal - deposit);
+                    report.swaps_executed += 1;
+                    report.lp_fees_usd += fresh_fees;
+                    report.swap_cost_usd += swap_cost;
+                    report.network_cost_usd += network;
+                    lp = SpotPosition::open(g, pool_price, params.n_bins, deposit, params.fee_rate_net);
+                }
                 claimed_fees_marker = 0.0;
                 report.recenters += 1;
                 imbalance_since = None;
@@ -419,16 +486,20 @@ pub fn run(params: &StrategyParams, points: &[(i64, f64)]) -> SimReport {
             }
             lp_delta_for_regime(lp_regime, lp.total_sol(), lp.total_usdc(), pool_price)
         };
+        // Idle wallet SOL above reserves joins the hedge input (ADR-021).
+        // Constant on the legacy path (wallet-neutral recenters), LIVE on
+        // the swap_skip path — that step is the A10 shuttle signal.
+        let idle_now = (wallet_sol - params.wallet_reserve_sol).max(0.0);
         let lp_full_value_sol = lp.total_sol() + lp.total_usdc() / pool_price;
         let cap = auto_notional_cap_usd(
-            params.idle_wallet_sol + lp_full_value_sol + params.target_delta_sol.abs(),
+            idle_now + lp_full_value_sol + params.target_delta_sol.abs(),
             price,
             params.cap_mult,
             0.0,
         );
 
         let input = HedgeInput {
-            lp_sol: lp_delta + params.idle_wallet_sol,
+            lp_sol: lp_delta + idle_now,
             long_sol: 0.0,
             short_sol: short.sol,
             long_notional_usd: 0.0,
@@ -510,7 +581,8 @@ pub fn run(params: &StrategyParams, points: &[(i64, f64)]) -> SimReport {
     } else {
         lp_delta_for_regime(lp_regime, lp.total_sol(), lp.total_usdc(), pool_price)
     };
-    report.final_net_delta_sol = final_lp_delta + params.idle_wallet_sol - short.sol;
+    report.final_net_delta_sol =
+        final_lp_delta + (wallet_sol - params.wallet_reserve_sol).max(0.0) - short.sol;
     report.time_shrunk_frac = if total_ms > 0 { time_shrunk_ms as f64 / total_ms as f64 } else { 0.0 };
     report
 }
@@ -577,6 +649,43 @@ mod tests {
         assert_eq!(r.recenters, 0);
         assert!(r.edge_vs_hold.abs() < 0.35, "flat edge {}", r.edge_vs_hold);
         assert!(r.unsupported_long_decisions == 0);
+    }
+
+    #[test]
+    fn swap_skip_shuttle_generates_recenter_follow_trades() {
+        // MECHANICS only (real-path dollars are settled by the month runs):
+        // with a fat USDC buffer the swapPlanner model must (a) skip
+        // alignment swaps, (b) shuttle wallet SOL in and out of the LP, and
+        // (c) make the hedge re-trade the shuttle step — the live Jul 8–9
+        // pattern (one ~half-deposit perp trade per recenter). The legacy
+        // wallet-neutral model on the same path trades strictly less.
+        let points = to_price_points(&whipsaw_candles(720));
+        let base = StrategyParams {
+            wallet_usdc_start: 180.0,
+            idle_wallet_sol: 1.0,
+            ..StrategyParams::default()
+        };
+        let legacy = run(&base, &points);
+        let shuttle = run(&StrategyParams { swap_skip: true, ..base.clone() }, &points);
+        assert!(shuttle.recenters > 0, "path must recenter to exercise the shuttle");
+        assert!(
+            shuttle.swaps_skipped > 0,
+            "fat USDC buffer must skip alignment swaps: {} skipped / {} swapped",
+            shuttle.swaps_skipped,
+            shuttle.swaps_executed
+        );
+        assert!(
+            shuttle.perp_trades > legacy.perp_trades,
+            "shuttle must add recenter-follow perp trades: {} vs legacy {}",
+            shuttle.perp_trades,
+            legacy.perp_trades
+        );
+        assert!(
+            shuttle.swap_cost_usd < legacy.swap_cost_usd,
+            "skipped swaps must cut swap costs: {} vs {}",
+            shuttle.swap_cost_usd,
+            legacy.swap_cost_usd
+        );
     }
 
     #[test]

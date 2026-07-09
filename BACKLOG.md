@@ -131,30 +131,36 @@ recalibrated model; (3) if it still wins ≥ ~5 USD/month, propose the
 migration to the operator (close-lp.ts + METEORA_POOL_ADDRESS change,
 ~1 USD cost, baseline re-init decision per hodl-check skill).
 
-### A10. Recenter rebalancing venue: swap-skip pushes the job onto the perp hedge — DECIDE
+### A10. Recenter rebalancing venue: swap-skip shuttle — DECIDED 2026-07-09 (keep it; option c)
 Found during the Jul-9 churn VITALS incident (progress.md session 23).
-Since the wallet holds a fat idle-USDC buffer (~$180, left by the Jul-8
-operator swap pair), every recenter deposit "fits without a swap"
-(swapPlanner post-scale check) and shuttles ~0.61 SOL between wallet and
-LP instead. The hedge counts wallet SOL live (ADR-021) but the LP at
-midpoint (ADR-019), so each shuttle steps the hedge input by ~half the
-position — by construction 10 bins' worth, which out-steps ANY band below
-`HEDGE_BAND_BINS=10` — and the perp trades ~$43 one cycle after every
-recenter. Verified control: recenters that DO run the alignment swap
-produce NO hedge trade (Jul-8 08:24Z). The trades are correct
-delta-tracking and per-event cost is a wash (perp 6 bps vs swap 4–10 bps);
-the problems are operational: churn sits at 2.2–2.9× the auto-cap
-(latch noise), wallet SOL drains below reserve on trending runs
-(three top-exits: 1.37 → 0.83 → 0.29 SOL on Jul 8–9), and every trade
-adds keeper-fill exposure. Options (all auto-derived, no hand constants):
-(a) swapPlanner prefers the alignment swap whenever skipping it would move
-idle wallet SOL by more than the current hedge band — kills the shuttle at
-the source, spot venue does the rebuy; (b) `HEDGE_BAND_BINS` 8 → ≥10 so
-the band swallows a half-position step — but re-adds up to ~0.6 SOL
-uncorrected exposure, needs a two-month sim run first (simulator skill);
-(c) accept + recalibrate the churn norm to count recenter-follow trades
-separately. Recommendation: sim (a) vs (b) on both reference months before
-proposing; (a) is the structural fix.
+Mechanism: with a fat idle-USDC buffer (~$180, left by the Jul-8 operator
+swap pair), most recenter deposits "fit without a swap" (swapPlanner
+post-scale check) and shuttle ~0.61 SOL between wallet and LP. The hedge
+counts wallet SOL live (ADR-021) but the LP at midpoint (ADR-019), so each
+shuttle steps the hedge input by ~half the deposit and the perp re-trades
+~$43 one cycle after the recenter. Verified control: recenters that DO
+swap produce NO hedge trade (Jul-8 08:24Z).
+**Simulator verdict (Jul 9, `--swap-skip` mode added — dynamic wallet +
+swapPlanner port; two reference months, pool 10/10, LP 95 / USDC 180 /
+idle 0):**
+- (a) force the alignment swap: REJECTED — loses on BOTH months
+  (rally +4.97 vs +6.29, crash +18.24 vs +28.84 at band 0.49). The spot
+  swap (~10 bps fee+impact) is strictly dearer than the perp leg (6 bps);
+  the shuttle is the CHEAPER rebalancing venue, ~+2–10 USD/month.
+- (b) band ≥10 bins (0.62): TIE with 8 bins over the two months
+  (+35.89 vs +35.13 summed — under the noise threshold), halves trade
+  count (125→70) but doubles the un-hedged residual (netΔ end ±0.55).
+  Not worth a change; 8 bins (deployed 2026-07-09) stays.
+- (c) accept + recalibrate the churn norm: ACCEPTED — C4 updated; at
+  band 8 bins expect ~1–3 recenter-follow trades/day, churn well under
+  the 3× latch on calm days.
+Live-window validation of the new mode (Jul 7 13:47 → Jul 9, 42h):
+recenters 12 vs 14 real, machine trades 9 vs 10, machine churn 456 vs
+478 USD, alignment swaps 5 vs 5 EXACT, LP fees +49% (the known D2 fee
+optimism, reconfirmed) — the stage-3 «perp trade count −35%» caveat is
+CLOSED when running `--swap-skip`. Residual ops note: wallet SOL can
+drift below reserve after consecutive top-exit recenters (self-heals on
+a bottom-exit; ~0.1 SOL manual top-up silences the latch early).
 
 ### A8. Scaling 130 → 300+ (operator decision, after clean срезы)
 Everything auto-scales (cap ADR-022, band ADR-025, collateral = ratio). The
