@@ -7,6 +7,39 @@
 
 ## 2026-07-10
 
+### Session 24 (addendum) — CAMPAIGN 3 CLOSED, CAMPAIGN 4 STARTED (operator order: «слишком много неправильных факторов, начнём заново»)
+
+After reading the срез-#4 report the operator rejected the Campaign-3
+measurement frame: the campaign totals drag the Jul-8→9 crash night and
+two baseline adjustments (−30 USDC) into every verdict — «давай начнём
+кампанию заново, не с 8–9 июля». Executed the campaign-restart procedure
+(explicit operator instruction = the sanctioned re-init case per
+hodl-check SKILL.md):
+
+- **Campaign 3 CLOSED at 2.86d.** Final closing numbers (срез #4,
+  09:26:09Z): vs-USDC **−4.91** / vs-as-is −0.48 / vs-SOL +4.05; ~−4.7 of
+  the vs-USDC total was the single Jul-8→9 night, the last 20h window was
+  +0.27. Window was contaminated by: the crash night on the 4-bin band
+  (pre-833d2b2 hardware), the undeployed-band day, two operator outflows
+  (−30 USDC baseline surgery), and the pre-BUG-018 planner. Archive:
+  `data/archive/campaign-3/` (server + local baseline copies, 3 server
+  cron rows, 6 local срез rows).
+- **CAMPAIGN 4 baseline captured 2026-07-10T10:48:08.395Z:**
+  **totalUsd 331.958196546895** @ solPriceUsd 79.47515894
+  (solSideAmount 0.755234909, usdcSideAmount 271.9357821170836) — do NOT
+  re-init. Local + server copies verified identical; the 00:17Z cron
+  writes against it from tonight. History filtering key:
+  `baselineCapturedAt == "2026-07-10T10:48:08.395Z"`.
+- Campaign 4 measures the CURRENT machine from a clean start: pool 10/10,
+  8-bin auto-band, выдержка 10 мин, BUG-017/018 planner fixes, watchdog
+  episode ledger — no legacy regimes inside the window.
+- `STRATEGY_LABEL` → `campaign-4-clean-restart-2026-07-10` in .env; takes
+  effect on the next deploy (no restart done for a cosmetic tag — a
+  restart would re-fire the standing wallet-reserve latch again).
+- NOTE: the restart resets the MEASUREMENT, not the money — the −4.91 has
+  already happened to the wallet. Campaign 4 answers «does the dollar grow
+  with today's machine», unpolluted.
+
 ### Session 24 — срез #4: first positive window (+0.27 vs USDC / 20h); BUG-018+019 fixed & deployed; выдержка → 10 мин; A9 pool rejected (dead on-chain); fee norm recalibrated
 
 **Срез #4 (09:26:09Z, full verification block passed).** Campaign totals:

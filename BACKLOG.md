@@ -191,8 +191,10 @@ split any recenter-cadence comparison at 2026-07-10T09:58Z.
 Everything auto-scales (cap ADR-022, band ADR-025, collateral = ratio). The
 ONLY knobs to change: `AUTO_TUNE_DEPOSIT_AMOUNT` (currently 0.61 SOL) and
 the wallet funding itself. Protocol: (1) at least 2 clean срезы on Campaign
-3 with vs-USDC trend ≥ 0 on calm days; (2) re-run the simulator pool grid on
-CURRENT Campaign-3 data (fee model was validated only at 4 bps — see D2);
+4 (clean restart 2026-07-10, baseline 331.958196546895 @
+2026-07-10T10:48:08.395Z) with vs-USDC trend ≥ 0 on calm days; (2) re-run
+the simulator pool grid on CURRENT campaign data (D2: sim fees ×1.5–1.7
+hot at 10 bps);
 (3) propose numbers, get approval, operator funds the wallet, bump deposit,
 one deploy, watch the first recenter + hedge cycle live.
 
@@ -225,7 +227,8 @@ The bot's target delta is 0 (full-portfolio neutral). Therefore:
   «бот выгоден?».
 - **vs HODL-as-is contains a mechanical part** = `baseline_SOL × (P_baseline
   − P_now)` (baseline_SOL = the SOL amount in `data/hodl-baseline.json`,
-  2.049970 for Campaign 3). On a price DROP this term is positive (the
+  0.755234909 for Campaign 4 since 2026-07-10; was 2.049970 for
+  Campaign 3). On a price DROP this term is positive (the
   hedge protected what the benchmark lost); on a rise, negative. Skill part
   = vs-as-is − mechanical ≈ vs-USDC (cross-check: they must agree within
   cents; a mismatch = neutrality leak → hedge-economics mirror-check in

@@ -1,23 +1,41 @@
 # HANDOVER — Delta-Neutral Bot (LP + Jupiter Perps hedge, both sides)
 
-**Last updated:** 2026-07-10 (Session 24, midday).
+**Last updated:** 2026-07-10 (Session 24, after the campaign restart).
+
+## ⚡ CAMPAIGN 4 — live since 2026-07-10T10:48:08.395Z (operator: «начнём заново»)
+
+Campaign 3's frame was rejected by the operator (crash night + baseline
+surgery inside every verdict). **Campaign 4 baseline:
+totalUsd 331.958196546895 @ solPriceUsd 79.47515894 (solSideAmount
+0.755234909, usdcSideAmount 271.9357821170836), captured
+2026-07-10T10:48:08.395Z — do NOT re-init.** Local + server copies in
+sync; history rows filter by `baselineCapturedAt ==
+"2026-07-10T10:48:08.395Z"`. Campaign-3 archive:
+`data/archive/campaign-3/` (closing numbers: vs-USDC −4.91 / vs-as-is
+−0.48 / vs-SOL +4.05 over 2.86d, contaminated window). The machine under
+measurement: pool 10/10 `BGm1tav58oGcsQJehL9WXBFXF7D27vZsKefj4xJKD5Y`,
+8-bin auto-band, выдержка 10 мин, deploy `26e9319`. `STRATEGY_LABEL`
+`campaign-4-clean-restart-2026-07-10` is in .env and stamps on the NEXT
+deploy.
 
 ## NEXT SESSION (Jul 11) — план, по порядку
 
 1. **Liveness (2 мин):** both heartbeats on the operator's phone — 00:17Z
-   hodl-cron row AND the 08:05Z heartbeat (may be **💛 with «тревога ещё
-   держится: wallet SOL below the configured reserves»** — that is the NEW
-   correct behavior, BUG-019 fix, while the wallet-reserve episode stays
-   open). Then `bash scripts/triage.sh --chain`: container Up (started
-   2026-07-10 ~09:58Z, deploy `26e9319`), restarts 0, cycles ~15s, netΔ in
-   band.
-2. **Срез #5.** `pnpm hodl` — baseline **336.7102143406818** (do NOT
-   re-init). REFERENCE POINT: **2026-07-10T09:26:09Z: equity 331.8047 @
-   price 79.0647, vs-USDC −4.9055, vs-as-is −0.4761**. Headline =
-   Δ(vs-USDC); срез #4 was the FIRST positive window (+0.27/20h) — does
-   the trend hold? Mandatory verification block per hodl-check SKILL.md:
-   tx-audit `--since 2026-07-10T09:26:09Z`, snapshot density, formulas,
-   norms (fee-pace norm now **$1.2–2.2/day**, C4 recalibrated).
+   hodl-cron row (FIRST row of Campaign 4 — must reference benchmarks
+   ≈331.96, NOT 336.71) AND the 08:05Z heartbeat (may be **💛 with
+   «тревога ещё держится: wallet SOL below the configured reserves»** —
+   that is the NEW correct behavior, BUG-019 fix, while the wallet-reserve
+   episode stays open). Then `bash scripts/triage.sh --chain`: container
+   Up (started 2026-07-10 ~09:58Z, deploy `26e9319`), restarts 0, cycles
+   ~15s, netΔ in band.
+2. **Срез #1 of Campaign 4.** `pnpm hodl` — baseline
+   **331.958196546895 @ 2026-07-10T10:48:08.395Z** (do NOT re-init).
+   Headline = Δ(vs-USDC) — with the clean baseline the campaign total IS
+   the window number now (first срез: vs-USDC ≈ 0 ± день работы; positive
+   or ~0 on a calm day = the machine earns its keep). Mandatory
+   verification block per hodl-check SKILL.md: tx-audit
+   `--since 2026-07-10T10:48:08Z`, snapshot density, formulas, norms
+   (fee-pace norm **$1.2–2.2/day**, C4 recalibrated 2026-07-10).
 3. **BUG-018 fix field check (first swap-assisted recenter):** grep the
    window's recenters; any recenter whose flow includes an alignment swap
    must land the wallet AT ≥0.30 SOL (was: 0.30 − rent). The standing

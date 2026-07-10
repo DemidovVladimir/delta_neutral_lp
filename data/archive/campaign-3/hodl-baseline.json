@@ -1,0 +1,9 @@
+{
+  "capturedAt": "2026-07-07T13:47:08.417Z",
+  "solPriceUsd": 81.22549567,
+  "solSideAmount": 2.0499698609999997,
+  "usdcSideAmount": 170.2003962723958,
+  "totalUsd": 336.7102143406818,
+  "source": "captured",
+  "note": "2026-07-09: usdcSideAmount adjusted -30.000000 USDC total (operator outflows to 7uTT8Xi5RWXzy7h9XL244GRgEycDYDhLjr3ZyNdXi8pZ: -15.000000 at 2026-07-09T10:41:48Z sig 3zhi2tfwkVagTp5bTzXjY8AjykZNWJx2ZR3cAJBioqEDx2qczjiuYSGsJ3XXN82Ku6KSfVfWnpsXCnLPZGLsrfZ8, and -15.000000 at 2026-07-09T11:13:45Z sig 2523QRUQ6V8LN1e47zifhpFq96CJSxudQ4EMA9c9rwc9DdfMUMyo53to18pFraZJtEro5jvpjyLjtt3DYqJE3Ugk; external-flows procedure, progress.md session 23). Original usdcSideAmount 200.2003962723958, totalUsd 366.7102143406818."
+}
