@@ -29,9 +29,17 @@ the simulator the same evening (per project law — stage-3 before code):
    deposits, restore on first positive day) — `--governor-frac/
    --governor-days` built; crash month −3.10 (lagging signal: downsizes
    into the recovery days), rally +0.30 (noise), whipsaw never fires.
-   Auto-action REJECTED — BACKLOG §A13. The METRIC (daily ±USD on the
-   phone) approved as idea; cheapest impl spec'd in §A13 (watchdog
-   heartbeat + hodl-history rows), pending operator approval.
+   Auto-action REJECTED — BACKLOG §A13. The ТАБЛО (daily ±USD on the
+   phone) was approved and BUILT the same evening: the 08:05Z watchdog
+   heartbeat appends «за сутки: ±X USD» from the last two hodl-history
+   rows, with a campaign-boundary fallback against hodl-baseline.json
+   («за Nч» on the first morning of a new campaign). Uploaded via scp (no
+   bot restart), field-tested on real server rows (three cases). Bonus
+   field verification the same hour: the wallet-reserve VITALS episode
+   CLOSED end-to-end — 🟡 «жив, но тревога держится» at 10:10Z, the bot's
+   «✅ VITALS recovered» pushed at 14:20Z after an afternoon recenter
+   lifted the wallet above the release level, watchdog `vitals_open` went
+   empty. BUG-018+BUG-019 both battle-verified on day one.
 
 Communication: fifth RULE #1 offense logged to memory (design discussions
 must use the same plain register as number reports; thresholds in dollars,

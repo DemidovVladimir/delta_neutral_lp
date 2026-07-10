@@ -128,10 +128,39 @@ fi
 if [ "${1:-}" = "--heartbeat" ]; then
   if [ -z "$problems" ]; then
     iter=$(grep -o '"iteration":[0-9]*' "$BOT_DIR/data/auto-tune-state.json" 2>/dev/null | head -1 | cut -d: -f2)
+    # Daily-PnL табло (A13, approved 2026-07-10): Δ equity between the last
+    # two 00:17Z hodl rows when both belong to the same campaign baseline;
+    # if the older row is from a previous campaign, compare against the
+    # campaign's own baseline instead. KNOWN LIMIT: a manual mid-campaign
+    # withdrawal shows up as that day's «loss» (baseline adjustments keep
+    # their capturedAt) — the срез procedure, not the табло, owns that case.
+    daily=""
+    hist="$BOT_DIR/data/hodl-history.jsonl"
+    if [ -f "$hist" ]; then
+      r1=$(tail -1 "$hist")
+      r2=$(tail -2 "$hist" | head -1)
+      j() { printf '%s' "$1" | sed -n "s/.*\"$2\": *\"\{0,1\}\([0-9TZ:.eE+-]*\).*/\1/p"; }
+      b1=$(j "$r1" baselineCapturedAt); e1=$(j "$r1" equityUsd); t1=$(j "$r1" takenAt)
+      b2=$(j "$r2" baselineCapturedAt); e2=$(j "$r2" equityUsd); t2=$(j "$r2" takenAt)
+      if [ -z "$b2" ] || [ "$b1" != "$b2" ]; then
+        # previous row is another campaign (or missing) — diff vs the baseline
+        e2=$(sed -n 's/.*"totalUsd": *\([0-9.eE+-]*\).*/\1/p' "$BOT_DIR/data/hodl-baseline.json" 2>/dev/null | head -1)
+        t2=$(sed -n 's/.*"capturedAt": *"\([^"]*\)".*/\1/p' "$BOT_DIR/data/hodl-baseline.json" 2>/dev/null | head -1)
+      fi
+      if [ -n "$e1" ] && [ -n "$e2" ] && [ -n "$t1" ] && [ -n "$t2" ]; then
+        hrs=$(( ($(date -d "$t1" +%s 2>/dev/null || echo 0) - $(date -d "$t2" +%s 2>/dev/null || echo 0)) / 3600 ))
+        delta=$(awk -v a="$e1" -v b="$e2" 'BEGIN{printf "%+.2f", a-b}')
+        if [ "$hrs" -ge 20 ] && [ "$hrs" -le 28 ]; then
+          daily="; за сутки: ${delta} USD"
+        elif [ "$hrs" -gt 0 ]; then
+          daily="; за ${hrs}ч: ${delta} USD"
+        fi
+      fi
+    fi
     if [ -n "$vitals_open" ]; then
-      notify default "💛 живой: итерация ${iter:-?}, рестартов ${restarts}; тревога ещё держится: ${vitals_open}"
+      notify default "💛 живой: итерация ${iter:-?}, рестартов ${restarts}${daily}; тревога ещё держится: ${vitals_open}"
     else
-      notify default "💚 живой: итерация ${iter:-?}, рестартов ${restarts}, проблем нет"
+      notify default "💚 живой: итерация ${iter:-?}, рестартов ${restarts}${daily}, проблем нет"
     fi
   fi
   # persist the episode ledger even on heartbeat runs

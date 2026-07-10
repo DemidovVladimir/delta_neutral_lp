@@ -220,14 +220,17 @@ N`, requires --swap-skip) and run: crash month +25.74 vs baseline +28.84
 (−3.10; the lagging-signal trap: it downsizes into the post-drawdown
 recovery days where the machine earns), rally +6.59 vs +6.29 (noise),
 whipsaw: never fired. 3-day variant no better (crash −2.98). REJECTED as
-an actuator. (b) THE METRIC IS APPROVED as an idea: «сколько бот
-заработал/потерял за сутки и из чего сложилось» — cheapest
-implementation: the 00:17Z hodl cron row already IS the daily sample;
-extend the watchdog 08:05Z heartbeat to append «за сутки: ±X USD» from
-the last two hodl-history.jsonl rows (guard: both rows must share
-baselineCapturedAt; skip the line otherwise). ~6 lines in
-deploy/hetzner/watchdog.sh + scp; no bot restart needed. Not built yet —
-operator to approve.
+an actuator. (b) THE ТАБЛО IS BUILT & DEPLOYED (operator «Да, делай
+табло», same day): the watchdog 08:05Z heartbeat now appends «за сутки:
+±X USD» = Δ equityUsd between the last two 00:17Z hodl-history.jsonl
+rows; when the older row belongs to another campaign (baselineCapturedAt
+differs) it diffs against `hodl-baseline.json` instead and labels the
+window «за Nч» — so the first morning after a campaign restart already
+shows a number. Field-tested on the server against real rows (three
+cases incl. the campaign-boundary fallback). KNOWN LIMIT (accepted): a
+manual mid-campaign withdrawal shows as that day's «loss» (baseline
+adjustments keep their capturedAt) — the срез procedure owns that case,
+the табло does not.
 
 ### A8. Scaling 130 → 300+ (operator decision, after clean срезы)
 Everything auto-scales (cap ADR-022, band ADR-025, collateral = ratio). The

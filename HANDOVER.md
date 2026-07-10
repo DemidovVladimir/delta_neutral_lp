@@ -22,12 +22,16 @@ deploy.
 
 1. **Liveness (2 мин):** both heartbeats on the operator's phone — 00:17Z
    hodl-cron row (FIRST row of Campaign 4 — must reference benchmarks
-   ≈331.96, NOT 336.71) AND the 08:05Z heartbeat (may be **💛 with
-   «тревога ещё держится: wallet SOL below the configured reserves»** —
-   that is the NEW correct behavior, BUG-019 fix, while the wallet-reserve
-   episode stays open). Then `bash scripts/triage.sh --chain`: container
-   Up (started 2026-07-10 ~09:58Z, deploy `26e9319`), restarts 0, cycles
-   ~15s, netΔ in band.
+   ≈331.96, NOT 336.71) AND the 08:05Z heartbeat, which since Jul 10
+   evening carries the **daily-PnL табло** (§A13): expect «💚 живой: …;
+   за 13ч: ±X USD» on Jul 11 (campaign-boundary fallback window
+   10:48Z→00:17Z), «за сутки: ±X USD» from Jul 12 on. The wallet-reserve
+   VITALS episode CLOSED 2026-07-10 14:20Z (recovered line pushed,
+   watchdog `vitals_open` empty) — a 💛 heartbeat would mean a NEW
+   episode, investigate it. Then `bash scripts/triage.sh --chain`:
+   container Up (started 2026-07-10 ~09:58Z, deploy `26e9319`), restarts
+   0, cycles ~15s, netΔ in band. NOTE: an afternoon recenter happened
+   ~14:1xZ Jul 10 (it released the latch) — срез #1 counts it.
 2. **Срез #1 of Campaign 4.** `pnpm hodl` — baseline
    **331.958196546895 @ 2026-07-10T10:48:08.395Z** (do NOT re-init).
    Headline = Δ(vs-USDC) — with the clean baseline the campaign total IS
