@@ -46,6 +46,23 @@ cargo run --release -- --from 2026-07-05T14:47:00Z --hours 20 --strategy \
 #   --no-clamp-freeze         pre-ADR-025 machine, reproduces +2.6052/13 trades exactly
 #   --clamp-ramp 0.9          continuous midpoint→bag ramp — REJECTED (13→78 trades on 65h)
 #   --exit-confirm-min 30     slow clamp exit — REJECTED (worse on 65h path)
+# Risk-cap & governor probes (Jul 10, operator ideas from the Kamino review;
+# both auto-actions REJECTED with numbers — BACKLOG A12/A13; flags kept):
+#   --risk-engage-usd E [--risk-release-usd R]   discrete protective perp step
+#                             on the hidden gap |LP live delta − hedge input|
+#                             with USD hysteresis (R defaults to E/2). LOSES
+#                             on all three reference windows incl. the crash
+#                             month (its best case): edge-touches mostly
+#                             revert → sells low, buys back higher each false
+#                             episode; at 20-bin geometry the max gap (10
+#                             bins' worth) is only 1.25× the 8-bin band, so
+#                             loose thresholds simply never trade.
+#   --governor-frac 0.5 --governor-days N        after N consecutive negative
+#                             daily-Δequity samples, recenters redeposit only
+#                             the fraction; first positive day restores.
+#                             Requires --swap-skip. Crash −3.10 (downsizes
+#                             into the recovery days — lagging signal),
+#                             rally +0.30 (noise), whipsaw: never fires.
 ```
 
 `--strategy` prints the ledger: `EDGE vs hold-as-is` (the срез metric —

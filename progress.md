@@ -7,6 +7,36 @@
 
 ## 2026-07-10
 
+### Session 24 (addendum 2) — operator's Kamino-review ideas: both auto-mechanisms TESTED & REJECTED same day (A12/A13); daily-PnL табло approved as idea
+
+The operator brought an external analysis of Kamino (hedge venue + 4
+borrowed ideas). Assessment delivered: Kamino as hedge venue rejected by
+both sides (collateral 1.875× vs our 0.33× target ≈ 5.7× more capital;
+borrow rate 5.4–45%/week vs Jupiter's stable ~5.5%; derisk-to-USDC already
+covers the «Jupiter died» scenario at our size); Scope third oracle
+rejected (degraded-oracle GREEN/YELLOW/RED semantics can be built on the
+existing Pyth+Jupiter pair — zero oracle incidents to date, all real
+incidents were RPC/keeper/planner). The two actionable ideas went through
+the simulator the same evening (per project law — stage-3 before code):
+
+1. **Protective step on the hidden live-vs-midpoint gap** (discrete, USD
+   hysteresis) — `--risk-engage-usd/--risk-release-usd` built; LOSES on
+   all three reference windows at every threshold (crash −1.6…−7.1, rally
+   −5.8…0, whipsaw −0.4…0). Root cause: edge-touches mostly revert (sell
+   low → buy back higher per false episode); real continuations already
+   owned by storm+clamp+recenter. REJECTED — BACKLOG §A12.
+2. **Profitability governor** (2–3 negative daily-Δequity samples → half
+   deposits, restore on first positive day) — `--governor-frac/
+   --governor-days` built; crash month −3.10 (lagging signal: downsizes
+   into the recovery days), rally +0.30 (noise), whipsaw never fires.
+   Auto-action REJECTED — BACKLOG §A13. The METRIC (daily ±USD on the
+   phone) approved as idea; cheapest impl spec'd in §A13 (watchdog
+   heartbeat + hodl-history rows), pending operator approval.
+
+Communication: fifth RULE #1 offense logged to memory (design discussions
+must use the same plain register as number reports; thresholds in dollars,
+never bins; restate the operator's idea in plain words first).
+
 ### Session 24 (addendum) — CAMPAIGN 3 CLOSED, CAMPAIGN 4 STARTED (operator order: «слишком много неправильных факторов, начнём заново»)
 
 After reading the срез-#4 report the operator rejected the Campaign-3

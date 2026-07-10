@@ -107,6 +107,25 @@ pub struct StrategyParams {
     /// wallet (the pre-recorded grids; also breaks the −35% trade-count
     /// caveat of the stage-3 gate).
     pub swap_skip: bool,
+    /// Discrete protective step on the hidden live-vs-input gap (operator
+    /// proposal 2026-07-10, «риск в долларах»). The midpoint hedge leaves a
+    /// gap = LP's LIVE delta − hedge input (up to ~half the LP value at a
+    /// range edge). When |gap − current offset| exceeds this many dollars,
+    /// an offset joins the hedge input sized to leave `risk_release_usd` of
+    /// raw gap; the offset drops once |gap| < `risk_release_usd`. Two
+    /// thresholds = the anti-flap hysteresis; the band/cooldown still gate
+    /// the actual perp trades. 0 = off (production).
+    pub risk_engage_usd: f64,
+    pub risk_release_usd: f64,
+    /// Profitability governor (operator proposal 2026-07-10): sample the
+    /// realized net edge (equity − hold-as-is) once a day; after
+    /// `governor_neg_windows` consecutive negative days, recenters redeposit
+    /// only this fraction of the principal (the rest waits in the wallet);
+    /// the first positive day restores full size at the next recenter.
+    /// 0 = off (production). Requires swap_skip (the dynamic wallet holds
+    /// the withheld cash).
+    pub governor_frac: f64,
+    pub governor_neg_windows: u32,
 }
 
 impl Default for StrategyParams {
@@ -150,6 +169,10 @@ impl Default for StrategyParams {
             trend_calm_ms: 1_800_000,
             target_delta_sol: 0.0,
             swap_skip: false,
+            risk_engage_usd: 0.0,
+            risk_release_usd: 0.0,
+            governor_frac: 0.0,
+            governor_neg_windows: 2,
         }
     }
 }
@@ -181,6 +204,16 @@ pub struct SimReport {
     pub swaps_executed: u32,
     /// Share of simulated time spent with the LP shrunk (0..1).
     pub time_shrunk_frac: f64,
+    /// Protective-step layer (risk_engage_usd > 0): offset state changes.
+    pub protect_steps: u32,
+    pub protect_releases: u32,
+    /// Share of simulated time with a protective offset active (0..1).
+    pub time_protected_frac: f64,
+    /// Profitability governor (governor_frac > 0): degrade/restore events
+    /// and the share of time spent degraded.
+    pub governor_degrades: u32,
+    pub governor_restores: u32,
+    pub time_degraded_frac: f64,
 }
 
 struct ShortState {
@@ -197,6 +230,10 @@ pub fn run(params: &StrategyParams, points: &[(i64, f64)]) -> SimReport {
     assert!(
         !(params.swap_skip && params.trend_shrink_streak > 0),
         "swap_skip does not support trend_shrink (rejected feature; extend the calm-restore settlement first)"
+    );
+    assert!(
+        params.governor_frac == 0.0 || params.swap_skip,
+        "the profitability governor needs the swap_skip wallet model (withheld cash lives in the wallet)"
     );
     let g = BinGeometry::from_bps(params.bin_step_bps);
     let p0 = points[0].1;
@@ -231,6 +268,16 @@ pub fn run(params: &StrategyParams, points: &[(i64, f64)]) -> SimReport {
     let mut last_dir_down: Option<bool> = None;
     let mut last_recenter_at: Option<i64> = None;
     let mut time_shrunk_ms = 0i64;
+    let mut protect_offset_sol = 0.0_f64;
+    let mut time_protected_ms = 0i64;
+    // Profitability governor state: daily edge samples, degradation latch,
+    // and the cash withheld from degraded redeposits (waits in the wallet).
+    let mut gov_next_sample_at = points[0].0 + 86_400_000;
+    let mut gov_prev_edge: Option<f64> = None;
+    let mut gov_neg_streak = 0u32;
+    let mut gov_degraded = false;
+    let mut gov_withheld_usd = 0.0_f64;
+    let mut time_degraded_ms = 0i64;
     let total_ms = points.last().unwrap().0 - points[0].0;
 
     let mut prev_t = points[0].0;
@@ -252,6 +299,50 @@ pub fn run(params: &StrategyParams, points: &[(i64, f64)]) -> SimReport {
         report.carry_paid_usd += carry;
         if shrunk {
             time_shrunk_ms += dt_ms as i64;
+        }
+        if protect_offset_sol != 0.0 {
+            time_protected_ms += dt_ms as i64;
+        }
+        if gov_degraded {
+            time_degraded_ms += dt_ms as i64;
+        }
+        // Governor daily sample: realized net edge vs hold-as-is,
+        // mark-to-market. Two negative days in a row → degrade; the first
+        // positive day → restore (both take effect at the next recenter).
+        if params.governor_frac > 0.0 && t >= gov_next_sample_at {
+            gov_next_sample_at += 86_400_000;
+            let unclaimed = lp.fees_usd - claimed_fees_marker;
+            let upnl = if short.notional_usd > 0.0 {
+                (short.entry_price - price) / short.entry_price * short.notional_usd
+            } else {
+                0.0
+            };
+            let equity = wallet_usdc
+                + wallet_sol * price
+                + lp.value_usd(price)
+                + unclaimed
+                + short.collateral_usd
+                + upnl;
+            // Sample raw equity: the daily difference IS the operator's
+            // metric («заработал или потерял за сутки, в долларах») — for a
+            // hedged book the price term nets out, leaving fees − IL − costs.
+            let edge = equity;
+            if let Some(prev) = gov_prev_edge {
+                if edge - prev < 0.0 {
+                    gov_neg_streak += 1;
+                    if !gov_degraded && gov_neg_streak >= params.governor_neg_windows {
+                        gov_degraded = true;
+                        report.governor_degrades += 1;
+                    }
+                } else {
+                    gov_neg_streak = 0;
+                    if gov_degraded {
+                        gov_degraded = false;
+                        report.governor_restores += 1;
+                    }
+                }
+            }
+            gov_prev_edge = Some(edge);
         }
         prev_t = t;
 
@@ -329,6 +420,18 @@ pub fn run(params: &StrategyParams, points: &[(i64, f64)]) -> SimReport {
                     }
                     // While shrunk and the trend continues, redeposit the
                     // (already small) principal; the parked USDC stays put.
+                }
+                // Profitability governor: while degraded, only `governor_frac`
+                // of the full bankroll (principal + previously withheld cash)
+                // goes back into the LP; healthy recenters redeposit all of
+                // it. `gov_withheld_usd` is bookkeeping only — the actual
+                // cash sits in the wallet (swap_skip settlement).
+                if params.governor_frac > 0.0 {
+                    let bankroll = deposit + gov_withheld_usd;
+                    let target =
+                        if gov_degraded { bankroll * params.governor_frac } else { bankroll };
+                    gov_withheld_usd = bankroll - target;
+                    deposit = target;
                 }
 
                 let network = params.network_fee_usd_per_recenter;
@@ -486,6 +589,27 @@ pub fn run(params: &StrategyParams, points: &[(i64, f64)]) -> SimReport {
             }
             lp_delta_for_regime(lp_regime, lp.total_sol(), lp.total_usdc(), pool_price)
         };
+        // Discrete protective step (operator proposal 2026-07-10): bound the
+        // hidden gap between the LP's LIVE delta and the hedge input, in
+        // dollars. gap = live − input; it is zero by construction in the
+        // clamp regimes (input IS live there), so the offset self-releases
+        // when a clamp engages or a recenter resets the position. One step
+        // in / one step out, two thresholds so the boundary doesn't flap;
+        // the band + cooldown still gate the actual perp trades.
+        if params.risk_engage_usd > 0.0 && params.clamp_ramp_lo == 0.0 {
+            let gap_sol = lp.total_sol() - lp_delta;
+            let engage_sol = params.risk_engage_usd / price;
+            let release_sol = params.risk_release_usd / price;
+            if (gap_sol - protect_offset_sol).abs() > engage_sol {
+                protect_offset_sol = gap_sol - gap_sol.signum() * release_sol;
+                report.protect_steps += 1;
+            } else if gap_sol.abs() < release_sol && protect_offset_sol != 0.0 {
+                protect_offset_sol = 0.0;
+                report.protect_releases += 1;
+            }
+        } else {
+            protect_offset_sol = 0.0;
+        }
         // Idle wallet SOL above reserves joins the hedge input (ADR-021).
         // Constant on the legacy path (wallet-neutral recenters), LIVE on
         // the swap_skip path — that step is the A10 shuttle signal.
@@ -499,7 +623,7 @@ pub fn run(params: &StrategyParams, points: &[(i64, f64)]) -> SimReport {
         );
 
         let input = HedgeInput {
-            lp_sol: lp_delta + idle_now,
+            lp_sol: lp_delta + protect_offset_sol + idle_now,
             long_sol: 0.0,
             short_sol: short.sol,
             long_notional_usd: 0.0,
@@ -584,6 +708,10 @@ pub fn run(params: &StrategyParams, points: &[(i64, f64)]) -> SimReport {
     report.final_net_delta_sol =
         final_lp_delta + (wallet_sol - params.wallet_reserve_sol).max(0.0) - short.sol;
     report.time_shrunk_frac = if total_ms > 0 { time_shrunk_ms as f64 / total_ms as f64 } else { 0.0 };
+    report.time_protected_frac =
+        if total_ms > 0 { time_protected_ms as f64 / total_ms as f64 } else { 0.0 };
+    report.time_degraded_frac =
+        if total_ms > 0 { time_degraded_ms as f64 / total_ms as f64 } else { 0.0 };
     report
 }
 

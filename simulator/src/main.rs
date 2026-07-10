@@ -94,6 +94,19 @@ fn main() {
         if let Some(v) = flag(&args, "--lp-value") {
             params.lp_value_usd = v.parse().expect("--lp-value <USD>");
         }
+        if let Some(v) = flag(&args, "--risk-engage-usd") {
+            params.risk_engage_usd = v.parse().expect("--risk-engage-usd <USD, 0=off>");
+            params.risk_release_usd = params.risk_engage_usd / 2.0;
+        }
+        if let Some(v) = flag(&args, "--risk-release-usd") {
+            params.risk_release_usd = v.parse().expect("--risk-release-usd <USD>");
+        }
+        if let Some(v) = flag(&args, "--governor-frac") {
+            params.governor_frac = v.parse().expect("--governor-frac <kept fraction, e.g. 0.5; 0=off>");
+        }
+        if let Some(v) = flag(&args, "--governor-days") {
+            params.governor_neg_windows = v.parse().expect("--governor-days <consecutive negative days>");
+        }
         let r = run_strategy(&params, &points);
         println!(
             "strategy replay: {} candles, confirm {}m, {} bins, band {}, target {} | pool: step {} bps, fee(net) {:.1} bps, deadband {:.1} bps",
@@ -125,6 +138,26 @@ fn main() {
             println!(
                 "swap-skip (A10): {} recenter deposits fit the wallet (no swap), {} needed the alignment swap",
                 r.swaps_skipped, r.swaps_executed
+            );
+        }
+        if params.risk_engage_usd > 0.0 {
+            println!(
+                "protective step: engage ${:.0} / release ${:.0} | steps {} | releases {} | time protected {:.1}%",
+                params.risk_engage_usd,
+                params.risk_release_usd,
+                r.protect_steps,
+                r.protect_releases,
+                r.time_protected_frac * 100.0
+            );
+        }
+        if params.governor_frac > 0.0 {
+            println!(
+                "governor: keep {:.0}% after {} negative days | degrades {} | restores {} | time degraded {:.1}%",
+                params.governor_frac * 100.0,
+                params.governor_neg_windows,
+                r.governor_degrades,
+                r.governor_restores,
+                r.time_degraded_frac * 100.0
             );
         }
         if params.trend_shrink_streak > 0 {

@@ -187,6 +187,48 @@ Offered as «решить 14 июля»; operator chose «переключить
 NOTE for the weekly verdict: the live week now mixes two выдержка regimes —
 split any recenter-cadence comparison at 2026-07-10T09:58Z.
 
+### A12. Protective step on the hidden live-vs-midpoint gap — TESTED & REJECTED 2026-07-10
+Operator proposal (after the Kamino review): the midpoint hedge leaves a
+hidden gap = LP live delta − hedge input (up to ~half LP value ≈ 48 USD at
+a range edge); add a discrete protective perp step with dollar hysteresis
+(engage/release) when it grows. Built into the simulator
+(`--risk-engage-usd E --risk-release-usd R`, release defaults E/2) and run
+on the three reference windows (prod config, swap-skip, LP 95/USDC
+180/idle 0):
+
+| window | baseline | 20/10 | 30/15 | 45/22 |
+|---|---|---|---|---|
+| crash month −25% | +28.84 | +24.96 | +21.78 | +27.27 |
+| rally month +21% | +6.29 | +0.52 | — | +6.29 (0 сраб.) |
+| whipsaw 65h | +2.98 | +2.54 | — | +2.98 (0 сраб.) |
+
+LOSES at every threshold on every regime — including the crash month, its
+best case. Mechanism: edge-touches mostly revert → the step sells low and
+buys back higher (~0.3–0.5 USD per false episode, dozens/month at tight
+thresholds); genuinely dangerous continuations are already owned by the
+storm pause + ADR-021 clamp + recenter. Structural note: at 20-bin
+geometry the max hidden gap (10 bins' worth) is only 1.25× the band
+(8 bins) — there is almost no room between «noise we deliberately
+tolerate» and «max possible gap». Flags stay in the simulator for
+re-tests at other geometries (wider positions raise the ceiling).
+
+### A13. Profitability governor — auto-action REJECTED 2026-07-10; daily-PnL табло OPEN
+Same session, same proposal batch. (a) AUTO-ACTION (sample daily Δequity;
+after N consecutive negative days redeposit only 50% at recenters, restore
+on the first positive day) — built (`--governor-frac 0.5 --governor-days
+N`, requires --swap-skip) and run: crash month +25.74 vs baseline +28.84
+(−3.10; the lagging-signal trap: it downsizes into the post-drawdown
+recovery days where the machine earns), rally +6.59 vs +6.29 (noise),
+whipsaw: never fired. 3-day variant no better (crash −2.98). REJECTED as
+an actuator. (b) THE METRIC IS APPROVED as an idea: «сколько бот
+заработал/потерял за сутки и из чего сложилось» — cheapest
+implementation: the 00:17Z hodl cron row already IS the daily sample;
+extend the watchdog 08:05Z heartbeat to append «за сутки: ±X USD» from
+the last two hodl-history.jsonl rows (guard: both rows must share
+baselineCapturedAt; skip the line otherwise). ~6 lines in
+deploy/hetzner/watchdog.sh + scp; no bot restart needed. Not built yet —
+operator to approve.
+
 ### A8. Scaling 130 → 300+ (operator decision, after clean срезы)
 Everything auto-scales (cap ADR-022, band ADR-025, collateral = ratio). The
 ONLY knobs to change: `AUTO_TUNE_DEPOSIT_AMOUNT` (currently 0.61 SOL) and
