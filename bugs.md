@@ -6,6 +6,55 @@
 
 ## Active Bugs
 
+### BUG-019: Watchdog pushed «✅ восстановился» while a latched VITALS breach was still active
+**Status:** Fixed in `26e9319` (2026-07-10, Session 24), deployed same day.
+**Severity:** Low-Medium (no funds at risk, but the alert layer told the operator a standing breach had cleared — trust erosion, the exact thing the trust-revocation layer exists to prevent)
+**Reported:** 2026-07-10 (Session 24, срез #4 verification block)
+
+**Description:** The VitalsLatch (A5) fires one breach line, then stays
+SILENT until the metric clears the release level (1.1× threshold). The
+watchdog, however, judged health by grepping the last 10 minutes of logs —
+so once the single breach line aged out of that window, `problems` went
+empty and the bad→ok transition pushed «✅ восстановился: циклы идут, ошибок
+нет». Observed 2026-07-10: breach 01:53:57Z (wallet SOL 0.25561465 < 0.30
+reserve), watchdog BAD 01:55/02:00, false «восстановился» 02:05:02Z — while
+the wallet was still at 0.2556 nine hours later.
+
+**Fix:** watchdog keeps an open-episode ledger (`vitals_open` in
+`data/watchdog.state`, rule text extracted from the breach line); ONLY the
+bot's explicit «✅ VITALS recovered — <rule>» line closes an episode. While
+an episode is open the bad→ok transition pushes «🟡 бот жив (циклы идут),
+но тревога ещё держится: <rules>» and the daily heartbeat turns 💛 with the
+same suffix. Recovery pushes (A6) unchanged.
+
+---
+
+### BUG-018: Swap planner did not budget the position rent — every swap-assisted recenter landed the wallet below the reserve floor
+**Status:** Fixed in `26e9319` (2026-07-10, Session 24), deployed same day. 4 new unit tests (incl. the exact on-chain regression numbers); 118 vitest green.
+**Severity:** Low (funds safe — the rent is refundable and comes back at the next position close; the cost was a guaranteed false «wallet SOL below reserves» VITALS alert waking the operator after every swap-assisted recenter, plus the wallet sitting ~0.044 SOL under its configured floor until the next close)
+**Reported:** 2026-07-10 (Session 24, срез #4 — night alert 01:53:57Z)
+
+**Description:** `planSwapForDeposit` sized the USDC→SOL buy as
+`targetSol + totalReserve − walletSol` — correct for the deposit, but the
+create TX also locks ~0.0574179 SOL of refundable position-account rent
+(measured on both window creates). Night of 2026-07-10 01:53: wallet
+0.47394 SOL after Phase-1, planner said «Insufficient SOL (need 0.4379
+more)», bought 0.450909170 SOL (3% buffer), create pulled 0.669226639
+(deposit 0.611808744 + rent 0.057406) → wallet 0.25561465 < 0.30 floor →
+🚨 VITALS BREACH. The design intent was that the rent comes out of
+RENT_RESERVE_SOL, but the VITALS rule (correctly) treats
+`MINIMUM_WALLET_BALANCE_SOL + RENT_RESERVE_SOL` as an always-on floor.
+
+**Fix:** new `METEORA_POSITION_RENT_SOL = 0.0575` exported from
+`swapPlanner.ts`; the planner counts it in the SOL requirement (shortfall
+AND total-value pre-flight), and the orchestrator's `maxDepositableSol`
+holds it back too — post-create wallet now lands AT the full reserve floor
+instead of rent below it. NOTE: the latch release needs wallet > 1.1× floor
+(0.33), so the standing episode clears at the next recenter whose Phase-1
+credit lifts the wallet above 0.33 (typical: any swap-free shuttle recenter).
+
+---
+
 ### BUG-017: Rebalance swap planner reads wallet balances before the Phase-1 withdraw is visible — plans an unnecessary swap
 **Status:** Fixed in `ee26f02` (2026-07-07 evening) and **VERIFIED IN PRODUCTION overnight Jul 7→8**: all 4 below-range recenters of the falling night (21:25:34Z @ $80.65, 01:35:43Z @ $79.82, 01:42:58Z @ $79.10, 05:48:06Z @ $78.31) logged `✅ Phase-1 credit visible in wallet` (barrier passed on attempt 1, 48–80ms — near-zero cost), every alignment swap ran in the CORRECT direction (SOL → USDC, converting the withdrawn surplus into the deposit's USDC side: 0.5248→40.67, 0.5554→42.65, 0.6159→46.83), and the hedge stayed in band through recenters 2–4 (1 trade all night vs 4 pre-fix trades the previous chop day). Fix: `waitForBalanceCredit` (`src/utils/balanceBarrier.ts`) polls after Phase-1 confirmation until the wallet shows a rent-sized SOL credit (plus the USDC principal when the closed position was USDC-heavy), 500ms polls / 12s budget, fail-OPEN with a `⚠️ Phase-1 credit NOT visible` errorBanner. 6 unit tests; 109 vitest green.
 **Severity:** Medium (wrong-direction swap on out-of-range recenters → surplus wallet SOL → oversized follow-up hedge trade + extra collateral lock; self-neutralized by ADR-021 accounting, but each occurrence costs a swap fee + a larger perp round trip, and it inflates the ADR-022 auto-cap so the churn vitals rule silently loosens)

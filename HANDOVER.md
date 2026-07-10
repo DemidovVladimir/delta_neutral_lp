@@ -1,71 +1,65 @@
 # HANDOVER — Delta-Neutral Bot (LP + Jupiter Perps hedge, both sides)
 
-**Last updated:** 2026-07-09 (Session 23, end of day).
+**Last updated:** 2026-07-10 (Session 24, midday).
 
-## NEXT SESSION (Jul 10) — план на завтра, по порядку
+## NEXT SESSION (Jul 11) — план, по порядку
 
-1. **Liveness (2 мин):** did both heartbeats reach the operator's phone —
-   the 00:17Z hodl-cron row AND the 08:05Z «💚 живой»? Then
-   `bash scripts/triage.sh --chain`: expect container Up (started
-   2026-07-09T08:49Z, restarts 0), cycles ~15s, netΔ in band, 0 unexplained
-   VITALS. A churn/reserves 🚨 is EXPLAINED noise only if every live trade
-   matches a recenter ±1 cycle (shuttle, BACKLOG §A10 — decided, keep) —
-   verify, don't assume.
-2. **Срез #4 (the main deliverable).** `pnpm hodl` — baseline is
-   **336.7102143406818** (ADJUSTED −30 USDC on Jul 9 for two operator
-   outflows, both sigs in the baseline's note field; do NOT re-init, do
-   NOT "fix" it back). Compare against the REFERENCE POINT
-   **2026-07-09T13:26:36Z: equity 331.5388 @ price 77.8027, vs-as-is
-   +1.8451, skill −5.1715**. The number that answers «выгоден ли бот»:
-   Δ(vs-USDC) over ~24h (numerically = Δskill; **vs-USDC is the HEADLINE
-   of every срез since Jul 9 evening** — operator restated the goal as
-   stable USD growth, SOL indifferent; hodl-check verdict block updated);
-   positive or ~0 on a calm day = the machine earns its
-   keep; ≪0 → decompose before touching anything (C2 template).
-   Mandatory verification block per hodl-check SKILL.md: tx-audit
-   `--since 2026-07-09T13:26:36Z` (срез times come from elapsedDays, NOT
-   the CLI's local-time log stamps — the −15-USDC near-miss trap,
-   progress.md session 23 addendum 3), log density, formulas, norms.
-3. **Первый день на зоне 8 бинов (band ≈0.49, live since 08:49Z Jul 9):**
-   count live hedge trades vs recenters — expect ~1 shuttle trade per
-   swap-free recenter (step ~0.55–0.62 > band), NO trades between
-   recenters; churn/day expected well under 3× auto-cap. If trades appear
-   with no recenter and no manual tx near them — investigate (that's the
-   only pattern A10 did NOT explain).
-4. **Ledger watch:** LP fee pace (was $1.88/day, norm band $2–3.5 — two
-   days below norm = note it, D2 recalibration after the live week decides
-   the pool thesis); liq ≥1.3× spot (was 1.70×); wallet USDC ≥ 0.33×LP
-   (~$32; was $117); collateral ratio migrating 0.71→0.33 (by design).
-5. **After the срез:** strategy-analyzer standing order. Expected verdict
-   on a calm day: «keep, no lever». The live week runs to ~Jul 14 → then
-   D2 fee recalibration (simulator skill, stage-3 procedure) → then the
-   §A9 pool-switch decision (step 20 / fee 0.2%, ~+12 USD/month in sim).
-   Scaling talk (§A8) only after clean срезы.
-6. **If the operator swapped/withdrew again:** find EVERY outflow on-chain
-   (walk pre/post token balances until the identity closes), adjust the
-   baseline by exactly the flow, note the sigs — BEFORE quoting any verdict.
+1. **Liveness (2 мин):** both heartbeats on the operator's phone — 00:17Z
+   hodl-cron row AND the 08:05Z heartbeat (may be **💛 with «тревога ещё
+   держится: wallet SOL below the configured reserves»** — that is the NEW
+   correct behavior, BUG-019 fix, while the wallet-reserve episode stays
+   open). Then `bash scripts/triage.sh --chain`: container Up (started
+   2026-07-10 ~09:58Z, deploy `26e9319`), restarts 0, cycles ~15s, netΔ in
+   band.
+2. **Срез #5.** `pnpm hodl` — baseline **336.7102143406818** (do NOT
+   re-init). REFERENCE POINT: **2026-07-10T09:26:09Z: equity 331.8047 @
+   price 79.0647, vs-USDC −4.9055, vs-as-is −0.4761**. Headline =
+   Δ(vs-USDC); срез #4 was the FIRST positive window (+0.27/20h) — does
+   the trend hold? Mandatory verification block per hodl-check SKILL.md:
+   tx-audit `--since 2026-07-10T09:26:09Z`, snapshot density, formulas,
+   norms (fee-pace norm now **$1.2–2.2/day**, C4 recalibrated).
+3. **BUG-018 fix field check (first swap-assisted recenter):** grep the
+   window's recenters; any recenter whose flow includes an alignment swap
+   must land the wallet AT ≥0.30 SOL (was: 0.30 − rent). The standing
+   wallet-reserve VITALS episode should CLOSE at the first recenter whose
+   Phase-1 credit lifts the wallet above 0.33 — expect the bot's
+   «✅ VITALS recovered» line + a low-priority push, and the watchdog's
+   `vitals_open` (in `/opt/delta-bot/data/watchdog.state`) going empty.
+   If instead a NEW breach fires after a swap-recenter → the fix missed a
+   path, reopen BUG-018.
+4. **Выдержка 10 мин, day 1 (live since 09:58Z Jul 10, §A11):** recenter
+   cadence should drop vs the ~6/day of the 5-min regime; «recenter
+   skipped» lines should grow. ANY weekly comparison must split at
+   2026-07-10T09:58Z — the live week now mixes two выдержка regimes.
+5. **After the срез:** strategy-analyzer standing order. Ledger watch: liq
+   ≥1.3× spot (was 1.65×); wallet USDC ≥ 0.33×LP (~$32; was $182);
+   collateral blend 0.685→0.33 (by design — the hedge-cost share >30% red
+   line clears with it). Live week verdict ~Jul 14; §A9 pool switch is
+   REJECTED/FROZEN (candidate pool dead: 36 tx/h, 69% failed — see
+   BACKLOG); scaling talk (§A8) after clean срезы.
+6. **If the operator swapped/withdrew:** find EVERY outflow on-chain,
+   adjust the baseline by exactly the flow, note the sigs — BEFORE any
+   verdict.
 
-Session 23 delta (Jul 9): churn VITALS fired (24h $448.28 vs 3×cap $359.11)
-— **explained, no defect**: 51% = the Jul-8 operator manual-swap pair
-still in the rolling window, 49% = the **swap-skip shuttle** (fat
-idle-USDC buffer → recenter deposits skip the alignment swap → ~0.61 SOL
-moves wallet↔LP → hedge re-trades the step one cycle later; ~43 USD each).
-**§A10 DECIDED with the simulator the same day** (`--swap-skip` mode
-built + live-window-validated, stage-3 trade-count caveat closed): forcing
-the swap LOSES on both reference months (spot ~10 bps > perp 6 bps) —
-the shuttle stays; band 10 bins ties 8 — no change; churn norm
-recalibrated (C4). Also: the Jul-8-approved `HEDGE_BAND_BINS` 4→8 was
-found NOT deployed (last deploy predated the .env edit) — **deployed
-08:49Z Jul 9** (`333d2b2`, verified in container). Over-short tilt
-(«cover IL with a bigger hedge») tested and REJECTED with numbers
-(progress.md addendum 2; two-month-sum trap recorded in the simulator
-skill). Operator outflows −30 USDC found on-chain, baseline adjusted
-(addendum 3). Both VITALS latches self-released. Runbooks + both skills
-updated. Evening (addendum 4): operator restated the goal — stable USD
-growth, SOL indifferent («долларов через месяц больше, солана побоку») —
-**vs-USDC promoted to the headline срез number** (hodl-check verdict block
-reordered, strategy-analyzer/BACKLOG §C1+§B2 updated); profit-skimming
-policy (сливки в USDC) discussed, DEFERRED — no design yet.
+Session 24 delta (Jul 10): **срез #4 = first positive window** (Δ vs-USDC
++0.27/20h; campaign −4.91, of which −4.7 = the Jul-8→9 night). Night
+wallet-reserve VITALS mechanically explained → **BUG-018** (planner didn't
+budget position rent 0.0574) + **BUG-019** (watchdog false «восстановился»
+02:05Z while the latch held) — both FIXED in `26e9319`, deployed 09:58Z,
+verified (118 vitest, watchdog episode ledger `vitals_open`). Deploy
+restart re-fired the standing breach once (expected). **Выдержка 5→10 мин
+deployed same commit** (operator chose «сейчас»; sim: wins both reference
+months, +1.8–2.8 sim-USD/mo, under noise but consistent — §A11).
+Simulator: second D2 fee-optimism point (+68% on the срез window; now
+×1.5–1.7 at 10 bps) → **C4 fee norm recalibrated $2–3.5 → $1.2–2.2/day**
+(real $1.64/day is mid-band — the pool is fine, the norm was inflated);
+bins-30 REJECTED (loses the rally month); **§A9 pool REJECTED/FROZEN** —
+sim still loves it (+43.94/+19.15) but the live pool
+`BVRbyLjjfSBcoyiYFuxbgKYnWuiFaF9CSXEa5vdSZ9Hh` is dead on-chain (36
+successful tx/h, 693/1000 recent sigs failed, price lagging) vs our
+`BGm1tav58oGcsQJehL9WXBFXF7D27vZsKefj4xJKD5Y` at 34,527 tx/h. Analyzer
+verdict: keep, no lever. Hedge trades day-1 on the 8-bin band: 2, both
+recenter-tied, zero in between — shuttle cheaper than expected.
 
 Session 22 delta (Jul 8): month backtests both regimes; trend-shrink
 REJECTED for good (§A7); `HEDGE_BAND_BINS` 4→8 deployed (band ≈0.49);

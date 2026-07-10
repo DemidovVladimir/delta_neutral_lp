@@ -5,6 +5,62 @@
 
 ---
 
+## 2026-07-10
+
+### Session 24 — срез #4: first positive window (+0.27 vs USDC / 20h); BUG-018+019 fixed & deployed; выдержка → 10 мин; A9 pool rejected (dead on-chain); fee norm recalibrated
+
+**Срез #4 (09:26:09Z, full verification block passed).** Campaign totals:
+vs-USDC −4.91 / vs-as-is −0.48 / vs-SOL +4.05 (equity 331.8047 @ 79.0647,
+2.82d). The headline: Δ(vs-USDC) over the 20h window from срез #3 =
+**+0.27 USD — the first positive window of Campaign 3** (decomposition
+closes to 0.0001: Δas-is −2.32 = mechanical −2.59 on the +1.26 price rise
++ skill +0.27). Verification: 4802 snapshots, zero gaps >90s; both
+recenters (18:12:42Z, 01:53:42Z) have ⚠️→✅ pairs; выдержка filtered 2
+recenters (13:55, 14:06) and timed the 01:53 one at exactly 300s; clamp
+candidate «above» reached 285/300s and was resolved by the recenter — no
+commits, no 🧊, no storms; tx-audit: 9 txs all classified (2 failed keeper
+TX2 cost us nothing); fees 0.000042854 SOL; no external flows. Day 1 of
+the 8-bin band: 3 recenters, 2 hedge trades (both ±16s of a recenter,
+zero in between), churn $91.98 vs 3×cap ≈ $530.
+
+**Night incident explained mechanically (01:53:57Z wallet-SOL VITALS):**
+the swap planner sized the USDC→SOL buy without the position rent
+(0.0574) → post-create wallet 0.2556 < 0.30 floor → **BUG-018**, fixed:
+`METEORA_POSITION_RENT_SOL` budgeted into shortfall + pre-flight +
+deposit cap; 4 regression tests (118 vitest green). The watchdog then
+pushed «✅ восстановился» at 02:05 while the latched breach still held →
+**BUG-019**, fixed: open-episode ledger (`vitals_open` in watchdog.state),
+episodes close ONLY on the bot's «✅ VITALS recovered» line; 🟡/💛
+«тревога ещё держится» messaging while open. Both deployed in `26e9319`
+(09:58Z), verified live; the restart re-fired the standing breach once
+(expected — latch reset, wallet still 0.2556 until the next Phase-1 credit
+lifts it above the 0.33 release).
+
+**Strategy-analyzer verdict: keep — no lever moved.** All invariants green;
+hedge cost 45% of LP fees/day is above the 30% line but decomposed: the
+dominant term is locked-collateral opportunity ($0.56/day at blended ratio
+0.685), which the by-design migration to 0.33 halves; churn term already
+fell to ~$0.06/day with the 8-bin band. Mirror check: neutrality holds.
+
+**Simulator session (D2 + grid + A9):** live-window replay of the срез
+window gave the SECOND fee-optimism measurement: sim LP fees +68% vs real
+(1.69 vs 1.01) → D2 updated (×1.5–1.7 at 10 bps) → **C4 fee-pace norm
+recalibrated $2–3.5 → $1.2–2.2/day**; the real $1.64/day is mid-band —
+the «fees below norm» worry was the norm's fault, not the pool's. Grid
+(both reference months, `--swap-skip`, LP 95/USDC 180/idle 0): confirm-10
+beats confirm-5 on BOTH months (+31.64/+8.06 vs +28.84/+6.29) — under the
+noise threshold but consistent; bins-30 REJECTED (−1.88 on the rally
+month); pool A9 20/20/bins10 wins big in sim (+43.94/+19.15) BUT
+`pool-activity.ts` shows the live pool is DEAD: 36 successful tx/h, 69%
+of the last 1000 sigs failed, vs our pool's 34,527 tx/h → **§A9
+REJECTED/FROZEN** (sim fees there are fiction without arb flow).
+
+**Operator decisions:** both fixes approved; выдержка 5→10 мин approved
+«сейчас» (over the recommended Jul-14 wait) → `TREND_CONFIRM_MS=600000`
+live since 09:58Z (§A11; weekly comparisons must split at that timestamp).
+Docs: BUG-018/019, BACKLOG §A9/§A11/§C4/§D2/§A10, HANDOVER rewritten for
+Jul 11.
+
 ## 2026-07-09
 
 ### Session 23 (addendum 4) — operator restated the goal → vs-USDC promoted to the headline срез number

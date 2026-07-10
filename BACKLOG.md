@@ -114,7 +114,22 @@ still (−17.11, 97 trades). The C3 episode-accumulation protocol is
 superseded by this month test — do NOT port; keep delta-neutral (operator
 explicitly rejected directional bets 2026-07-08).
 
-### A9. Pool-switch candidate: step 20 / fee 0.2% — AFTER the D2 recalibration
+### A9. Pool-switch candidate: step 20 / fee 0.2% — REJECTED/FROZEN 2026-07-10 (target pool is dead on-chain)
+**2026-07-10 (Session 24) verdict: the sim keeps liking it, the CHAIN kills
+it.** Re-run in the production `--swap-skip` mode (both reference months,
+LP 95 / USDC 180 / idle 0, band 0.49): crash month +43.94 vs prod +28.84,
+rally month +19.15 vs prod +6.29 — direction confirmed again. BUT the live
+pool check the same hour (`npx tsx scripts/pool-activity.ts
+BVRbyLjjfSBcoyiYFuxbgKYnWuiFaF9CSXEa5vdSZ9Hh`) shows **36 successful tx/h
+with 693 of the last 1000 signatures FAILED (69%)**, pool price lagging
+$79.2248 vs $79.2829, while our pool `BGm1tav58oGcsQJehL9WXBFXF7D27vZsKefj4xJKD5Y`
+does **34,527 successful tx/h**. LP fees are paid by OTHER PEOPLE'S flow
+through our bins; the sim's fee model assumes arbs keep the pool at par —
+at 36 tx/h that flow does not exist and the simulated fee income there is
+fiction. FROZEN until that pool (or another fat-fee SOL/USDC pool) shows
+real volume; recheck with pool-activity.ts before ever re-opening. Original
+Jul-8 evidence kept below for context.
+
 Two-month sim evidence (Jul 8, post-ADR-025 defaults, same paths as the
 month grids): step20/fee20/bins10 (same 2% width, same ~8 recenters/day as
 prod) beats prod 10/10/bins20 on BOTH regimes — rally month +0.70 vs
@@ -124,12 +139,7 @@ portfolio. Live target pool found and verified active Jul 8:
 baseFee=0.2%, 62 successful tx/h, fresh price; current pool does 525
 tx/h). bins4 scores similar but runs 819–913 recenters/month (pro-narrow —
 distrust per D1). GATE: the fee model at fat fees is D2-extrapolated
-(sim already +50% optimistic at 10 bps). Sequence: (1) live week on
-Campaign 3 → recalibrate deadband/fee at 10 bps vs pnl.db (stage-3
-procedure in the simulator skill); (2) re-run this comparison with the
-recalibrated model; (3) if it still wins ≥ ~5 USD/month, propose the
-migration to the operator (close-lp.ts + METEORA_POOL_ADDRESS change,
-~1 USD cost, baseline re-init decision per hodl-check skill).
+(sim already +50% optimistic at 10 bps).
 
 ### A10. Recenter rebalancing venue: swap-skip shuttle — DECIDED 2026-07-09 (keep it; option c)
 Found during the Jul-9 churn VITALS incident (progress.md session 23).
@@ -160,7 +170,22 @@ recenters 12 vs 14 real, machine trades 9 vs 10, machine churn 456 vs
 optimism, reconfirmed) — the stage-3 «perp trade count −35%» caveat is
 CLOSED when running `--swap-skip`. Residual ops note: wallet SOL can
 drift below reserve after consecutive top-exit recenters (self-heals on
-a bottom-exit; ~0.1 SOL manual top-up silences the latch early).
+a bottom-exit; ~0.1 SOL manual top-up silences the latch early). Since
+`26e9319` (BUG-018 fix, 2026-07-10) the planner budgets the position rent,
+so swap-assisted recenters land AT the floor instead of ~0.044 below it.
+
+### A11. Выдержка (TREND_CONFIRM_MS) 5 → 10 мин — DEPLOYED 2026-07-10 (operator choice)
+Sim signal: confirm-10 beat confirm-5 on BOTH reference months in the
+production `--swap-skip` mode (crash +31.64 vs +28.84, rally +8.06 vs
++6.29) — consistent direction, but +1.8–2.8 sim-USD/month is UNDER the
+~10 USD/month noise threshold (D2); also top-tier in the pre-ADR-025 Jul-6
+grid (bins20/confirm10 +4.07 vs +2.61 on 65h). Mechanism: fewer recenters
+(186 vs 239 crash / 214 vs 250 rally) and less churn (crash $1170 vs
+$2027); storms bypass the выдержка so crash reaction stays immediate.
+Offered as «решить 14 июля»; operator chose «переключить сейчас» →
+`TREND_CONFIRM_MS=600000` live since 2026-07-10 ~09:58Z (deploy `26e9319`).
+NOTE for the weekly verdict: the live week now mixes two выдержка regimes —
+split any recenter-cadence comparison at 2026-07-10T09:58Z.
 
 ### A8. Scaling 130 → 300+ (operator decision, after clean срезы)
 Everything auto-scales (cap ADR-022, band ADR-025, collateral = ratio). The
@@ -234,10 +259,14 @@ flags `--bin-step 10 --fee-bps 10`). Decision rule: deploy only if
 Σ(variant − baseline) over ALL episodes > +$1 per 3 days of covered time
 AND no single episode loses more than $0.60.
 
-### C4. Norms (the срез check list, current values 2026-07-08)
+### C4. Norms (the срез check list, current values 2026-07-10)
 - Network fees: 0.001–0.005 SOL/day (alert 0.05/24h).
-- LP fees pace: Campaign-3 reference ≈ $2–3.5/day on the ~$99 slice; falling
-  fee pace + rising recenter count = pool thesis needs a look.
+- LP fees pace: **RECALIBRATED 2026-07-10 to ≈ $1.2–2.2/day** on the
+  ~$95–100 slice (scale with LP value). The old $2–3.5 band was set from
+  sim dollars, which run ×1.5–1.7 above reality at 10 bps (D2); the honest
+  sim-derived expectation is 2.09–2.66 sim-USD/day ÷ 1.6 ≈ $1.3–1.7, and
+  the measured campaign pace is $1.64/day — mid-band. Falling fee pace +
+  rising recenter count together still = pool thesis needs a look.
 - Recenters: 2–40/day red lines; sim promise for this pool ≈ 4.4/day —
   judge only on calm days.
 - Hedge churn 24h: ≤ 3× auto-cap (watch the CAVEAT: surplus wallet SOL
@@ -262,10 +291,14 @@ AND no single episode loses more than $0.60.
   pro-tight need extra scrutiny.
 - **D2. Simulator fee model at 10 bps is EXTRAPOLATED** (deadband=fee/2
   validated only at 4 bps). Absolute fee dollars on Campaign-3 windows run
-  ~50% above reality (sim 2.54 vs real 1.63 on the Jul 7-8 window). Relative
-  comparisons on the same window remain valid. Re-calibrate against
-  Campaign-3 pnl.db before any pool-switch or scaling grid (stage-3
-  procedure in the simulator skill).
+  **×1.5–1.7 above reality — two live measurements now:** +49% on the 42h
+  Jul 7→9 window (A10 replay) and +68% on the 20h срез-#4 window
+  (2026-07-09T13:26 → +20h replay: sim fees 1.69 vs real 1.01; on that
+  quiet window counts were noisy too — recenters 1 vs 2, trades 2 vs 1 —
+  single threshold crossings dominate short windows). Relative comparisons
+  on the same window remain valid; divide sim fee advantages by ~1.6
+  before quoting dollars. The C4 fee-pace norm was recalibrated from this
+  (2026-07-10). Full stage-3 refit still worthwhile before any scaling grid.
 - **D3. `hedge_actions` records only non-`none` decisions** — hedge liveness
   is verified from `data/logs/bot.log` heartbeat lines, never from db row
   density (strategy-analyzer skill has the exact procedure).
