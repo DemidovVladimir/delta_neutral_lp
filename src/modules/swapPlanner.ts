@@ -16,6 +16,16 @@
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
 const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 
+/**
+ * Refundable rent locked in a Meteora DLMM position account at create,
+ * returned at withdraw+close. Measured on-chain 2026-07-09/10 (two creates,
+ * 0.0574179 SOL each); padded slightly for the create-TX fee dust. The
+ * planner budgets it as a wallet outflow of position creation — without it
+ * every swap-assisted recenter lands the wallet ~rent below the configured
+ * reserve floor and trips the wallet-reserve VITALS alert (2026-07-10 01:53).
+ */
+export const METEORA_POSITION_RENT_SOL = 0.0575;
+
 export type SwapDirection = 'SOL_TO_USDC' | 'USDC_TO_SOL';
 
 export type SwapPlanContext = 'initial-position' | 'rebalance';
@@ -34,6 +44,14 @@ export interface SwapPlanInput {
 
   /** Temporary SOL reserve held back for rent + transaction fees during position creation. */
   rentReserveSol: number;
+
+  /**
+   * SOL the position creation itself will lock as refundable account rent
+   * (see METEORA_POSITION_RENT_SOL). Budgeted as part of the SOL requirement
+   * so the post-create wallet stays at the full reserve floor instead of
+   * dipping by the rent. Defaults to 0 (legacy behavior) when omitted.
+   */
+  positionRentSol?: number;
 
   /** Current SOL/USD price for shortfall valuation. */
   currentPrice: number;
@@ -114,6 +132,7 @@ export function planSwapForDeposit(input: SwapPlanInput): SwapPlan {
     targetUsdc,
     permanentMinimumSol,
     rentReserveSol,
+    positionRentSol = 0,
     currentPrice,
     slippageBufferPct,
     context,
@@ -132,7 +151,10 @@ export function planSwapForDeposit(input: SwapPlanInput): SwapPlan {
   const totalReserve = permanentMinimumSol + rentReserveSol;
   const availableSolForSwap = Math.max(0, walletSol - totalReserve);
 
-  const solShortfall = Math.max(0, targetSol - availableSolForSwap);
+  // The create transaction pulls targetSol AND the refundable position rent
+  // out of the wallet, so the rent is part of the SOL requirement here.
+  const requiredSol = targetSol + positionRentSol;
+  const solShortfall = Math.max(0, requiredSol - availableSolForSwap);
   const usdcShortfall = Math.max(0, targetUsdc - walletUsdc);
 
   // Fast-path: no swap needed.
@@ -152,14 +174,14 @@ export function planSwapForDeposit(input: SwapPlanInput): SwapPlan {
   // Jupiter's order-response error code.
   // ────────────────────────────────────────────────────────────────────────
   const walletValueUsd = availableSolForSwap * currentPrice + walletUsdc;
-  const requiredValueUsd = targetSol * currentPrice + targetUsdc;
+  const requiredValueUsd = requiredSol * currentPrice + targetUsdc;
   if (walletValueUsd < requiredValueUsd) {
     throw new Error(
       `Wallet does not have enough total value for ${context}. ` +
       `Available: $${walletValueUsd.toFixed(2)} ` +
       `(${availableSolForSwap.toFixed(4)} SOL after ${totalReserve.toFixed(2)} SOL reserves + ${walletUsdc.toFixed(2)} USDC @ $${currentPrice.toFixed(2)}/SOL). ` +
       `Required: $${requiredValueUsd.toFixed(2)} ` +
-      `(${targetSol.toFixed(4)} SOL + ${targetUsdc.toFixed(2)} USDC). ` +
+      `(${targetSol.toFixed(4)} SOL + ${positionRentSol.toFixed(4)} SOL position rent + ${targetUsdc.toFixed(2)} USDC). ` +
       `No swap can resolve this. ${formatTunableHint(autoTuneDepositAmount, 'funds')}`
     );
   }

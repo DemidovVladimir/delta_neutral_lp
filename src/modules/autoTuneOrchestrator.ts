@@ -56,7 +56,7 @@ import { getAssociatedTokenAddress } from '@solana/spl-token';
 import { MeteoraAdapter } from './meteoraAdapter.js';
 import { JupiterSwapper } from './jupiterSwapper.js';
 import { JupiterPerpsEngine } from './jupiterPerpsEngine.js';
-import { planSwapForDeposit, type SwapPlan } from './swapPlanner.js';
+import { planSwapForDeposit, METEORA_POSITION_RENT_SOL, type SwapPlan } from './swapPlanner.js';
 import { getConfig } from '../config/env.js';
 import { log } from '../utils/logger.js';
 import { VitalsLatch } from '../utils/vitalsLatch.js';
@@ -1560,9 +1560,11 @@ export class AutoTuneOrchestrator {
         actualUsdc = credit.usdc;
       }
 
-      // Calculate maximum depositable SOL (respecting reserves)
+      // Calculate maximum depositable SOL (respecting reserves + the refundable
+      // rent the create TX will lock — so a wallet-constrained deposit still
+      // leaves the full reserve floor after creation)
       const totalReserve = this.config.minimumWalletBalanceSol + this.config.rentReserveSol;
-      const maxDepositableSol = Math.max(0, actualSol - totalReserve);
+      const maxDepositableSol = Math.max(0, actualSol - totalReserve - METEORA_POSITION_RENT_SOL);
 
       // Check if we have enough balance to cover reserves
       if (maxDepositableSol <= 0) {
@@ -1742,6 +1744,7 @@ export class AutoTuneOrchestrator {
           targetUsdc: usdcAmount,
           permanentMinimumSol: this.config.minimumWalletBalanceSol,
           rentReserveSol: this.config.rentReserveSol,
+          positionRentSol: METEORA_POSITION_RENT_SOL,
           currentPrice,
           slippageBufferPct: this.config.swapSlippageBufferPct / 100,
           context: 'rebalance',
@@ -1887,6 +1890,7 @@ export class AutoTuneOrchestrator {
               targetUsdc: usdcAmount,
               permanentMinimumSol: this.config.minimumWalletBalanceSol,
               rentReserveSol: this.config.rentReserveSol,
+              positionRentSol: METEORA_POSITION_RENT_SOL,
               currentPrice,
               slippageBufferPct: this.config.swapSlippageBufferPct / 100,
               context: 'rebalance',
@@ -2170,6 +2174,7 @@ export class AutoTuneOrchestrator {
         targetUsdc: usdcAmount,
         permanentMinimumSol: this.config.minimumWalletBalanceSol,
         rentReserveSol: this.config.rentReserveSol,
+        positionRentSol: METEORA_POSITION_RENT_SOL,
         currentPrice: activeBinPrice,
         slippageBufferPct: this.config.swapSlippageBufferPct / 100,
         context: 'initial-position',

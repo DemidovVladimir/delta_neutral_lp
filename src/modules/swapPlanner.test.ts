@@ -552,6 +552,93 @@ describe('planSwapForDeposit', () => {
       )
     ).toThrow(/Wallet does not have enough total value for rebalance/);
   });
+
+  // ───────────────────────────────────────────────────────────────────────
+  // positionRentSol — the create TX locks refundable rent; the planner must
+  // fund it or the post-create wallet lands below the reserve floor.
+  // Regression for the 2026-07-10 01:53 wallet-reserve VITALS false alarm.
+  // ───────────────────────────────────────────────────────────────────────
+
+  it('night regression 2026-07-10 01:53 — rent budgeted into the USDC → SOL buy keeps the post-create wallet at the reserve floor', () => {
+    // Exact on-chain numbers from the incident: wallet 0.47394 SOL after
+    // Phase-1 credit, target deposit 0.611809 SOL, reserves 0.2 + 0.1,
+    // rent 0.0575. Legacy shortfall was 0.4379 → post-create 0.2556 < 0.30.
+    const rent = 0.0575;
+    const plan = planSwapForDeposit(
+      makeInput({
+        walletSol: 0.47394,
+        walletUsdc: 145,
+        targetSol: 0.611809,
+        targetUsdc: 48.703757,
+        permanentMinimumSol: 0.2,
+        rentReserveSol: 0.1,
+        positionRentSol: rent,
+        currentPrice: 79.29,
+        slippageBufferPct: 0.03,
+      })
+    );
+
+    expect(plan.needed).toBe(true);
+    expect(plan.swap?.direction).toBe('USDC_TO_SOL');
+    // shortfall = (target + rent) − (wallet − reserves) = 0.669309 − 0.17394
+    expect(plan.shortfall.sol).toBeCloseTo(0.495369, 6);
+    // Buying exactly the shortfall (no slippage windfall) leaves the wallet
+    // at the FULL reserve floor after the create pulls deposit + rent.
+    const postCreateWallet = 0.47394 + plan.shortfall.sol - 0.611809 - rent;
+    expect(postCreateWallet).toBeCloseTo(0.3, 8);
+  });
+
+  it('omitted positionRentSol keeps legacy sizing (default 0)', () => {
+    const plan = planSwapForDeposit(
+      makeInput({
+        walletSol: 0.47394,
+        walletUsdc: 145,
+        targetSol: 0.611809,
+        targetUsdc: 48.703757,
+        permanentMinimumSol: 0.2,
+        rentReserveSol: 0.1,
+        currentPrice: 79.29,
+        slippageBufferPct: 0.03,
+      })
+    );
+    // The incident's actual (under-sized) shortfall: 0.611809 − 0.17394
+    expect(plan.shortfall.sol).toBeCloseTo(0.437869, 6);
+  });
+
+  it('rent alone flips needed to true when the target would otherwise just fit', () => {
+    // available = 1.0 − 0.3 = 0.7 covers target 0.68 but NOT target + rent.
+    const plan = planSwapForDeposit(
+      makeInput({
+        walletSol: 1.0,
+        walletUsdc: 100,
+        targetSol: 0.68,
+        targetUsdc: 0,
+        positionRentSol: 0.0575,
+        currentPrice: 100,
+        slippageBufferPct: 0,
+      })
+    );
+    expect(plan.needed).toBe(true);
+    expect(plan.shortfall.sol).toBeCloseTo(0.0375, 8);
+    expect(plan.swap?.direction).toBe('USDC_TO_SOL');
+  });
+
+  it('total-value pre-flight counts the rent as required value', () => {
+    // Wallet value exactly covers target but not target + rent → throw.
+    expect(() =>
+      planSwapForDeposit(
+        makeInput({
+          walletSol: 0.3, // available 0 after reserves
+          walletUsdc: 68,
+          targetSol: 0.68,
+          targetUsdc: 0,
+          positionRentSol: 0.0575,
+          currentPrice: 100,
+          slippageBufferPct: 0,
+        })
+      )
+    ).toThrow(/position rent/);
+  });
 });
 
 describe('checkSwapOracleGate (ADR-020)', () => {

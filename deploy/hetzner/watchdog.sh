@@ -53,6 +53,8 @@ state_get() { grep "^$1=" "$STATE_FILE" 2>/dev/null | head -1 | cut -d= -f2-; }
 cid=$(docker compose ps -q 2>/dev/null | head -1)
 restarts=-1
 problems=""
+breach_rule=""
+recovered_rule=""
 
 if [ -z "$cid" ]; then
   problems="контейнер не запущен;"
@@ -82,6 +84,14 @@ else
   # two 5-min cron runs — without memory the same line would push twice).
   recovered=$(printf '%s' "$logs10m" | grep "VITALS recovered" | head -1)
 
+  # 2026-07-10: a latched breach is SILENT while it holds — the breach line
+  # ages out of the 10m window long before the condition clears, and the
+  # watchdog used to push «✅ восстановился» while the metric was still bad
+  # (wallet-reserve episode, 02:05Z). Track open episodes by rule text in the
+  # state file; only the bot's explicit «✅ VITALS recovered» line closes one.
+  [ -n "$vitals" ] && breach_rule=$(printf '%s' "$vitals" | sed -n 's/.*VITALS BREACH — \([^{]*\){.*/\1/p' | sed 's/ *$//')
+  [ -n "${recovered:-}" ] && recovered_rule=$(printf '%s' "$recovered" | sed -n 's/.*VITALS recovered — \([^{]*\){.*/\1/p' | sed 's/ *$//')
+
   [ "$cycles" -eq 0 ] && problems="${problems}0 завершённых циклов за 10 мин — бот стоит;"
   [ "$quota" -gt 0 ] && problems="${problems}RPC отвечает 'max usage reached' (квота исчерпана!);"
   [ "$errors" -gt 20 ] && [ "$quota" -eq 0 ] && problems="${problems}${errors} строк с error за 10 мин;"
@@ -102,12 +112,36 @@ if [ -f "$BOT_DIR/data/hodl-history.jsonl" ]; then
   [ "$hodl_age" -gt 90000 ] && problems="${problems}hodl-history.jsonl не обновлялся $((hodl_age/3600))ч — дневной срез не пишется;"
 fi
 
+# ── open-vitals-episode ledger (2026-07-10) ─────────────────────────────────
+# vitals_open holds `|`-separated rule texts of latched breaches whose
+# recovery line has not been seen yet. A breach opens an episode; ONLY the
+# bot's «✅ VITALS recovered — <rule>» line closes it.
+vitals_open=$(state_get vitals_open)
+if [ -n "$breach_rule" ] && ! printf '%s' "$vitals_open" | grep -qF "$breach_rule"; then
+  vitals_open="${vitals_open:+$vitals_open|}$breach_rule"
+fi
+if [ -n "$recovered_rule" ] && [ -n "$vitals_open" ]; then
+  vitals_open=$(printf '%s' "$vitals_open" | tr '|' '\n' | grep -vF "$recovered_rule" | paste -sd'|' -)
+fi
+
 # ── heartbeat mode: one quiet daily "still alive" push ──────────────────────
 if [ "${1:-}" = "--heartbeat" ]; then
   if [ -z "$problems" ]; then
     iter=$(grep -o '"iteration":[0-9]*' "$BOT_DIR/data/auto-tune-state.json" 2>/dev/null | head -1 | cut -d: -f2)
-    notify default "💚 живой: итерация ${iter:-?}, рестартов ${restarts}, проблем нет"
+    if [ -n "$vitals_open" ]; then
+      notify default "💛 живой: итерация ${iter:-?}, рестартов ${restarts}; тревога ещё держится: ${vitals_open}"
+    else
+      notify default "💚 живой: итерация ${iter:-?}, рестартов ${restarts}, проблем нет"
+    fi
   fi
+  # persist the episode ledger even on heartbeat runs
+  {
+    echo "status=$(state_get status)"
+    echo "restarts=$restarts"
+    echo "last_alert=$(state_get last_alert)"
+    echo "recovered=$(state_get recovered)"
+    echo "vitals_open=$vitals_open"
+  } > "$STATE_FILE"
   exit 0
 fi
 
@@ -129,8 +163,15 @@ if [ -n "$problems" ]; then
   new_status=bad
 else
   if [ "$prev_status" = "bad" ]; then
-    notify default "✅ восстановился: циклы идут, ошибок нет"
-    echo "$(date -u +%FT%TZ) RECOVERED" >> "$LOG_FILE"
+    if [ -n "$vitals_open" ]; then
+      # the 10m log window went quiet but a latched breach never released —
+      # do NOT claim recovery (02:05Z 2026-07-10 false «восстановился»)
+      notify default "🟡 бот жив (циклы идут), но тревога ещё держится: ${vitals_open}"
+      echo "$(date -u +%FT%TZ) OK-BUT-VITALS-OPEN: ${vitals_open}" >> "$LOG_FILE"
+    else
+      notify default "✅ восстановился: циклы идут, ошибок нет"
+      echo "$(date -u +%FT%TZ) RECOVERED" >> "$LOG_FILE"
+    fi
   fi
   new_status=ok
 fi
@@ -140,4 +181,5 @@ fi
   echo "restarts=$restarts"
   echo "last_alert=$last_alert"
   echo "recovered=${recovered:-}"
+  echo "vitals_open=$vitals_open"
 } > "$STATE_FILE"
