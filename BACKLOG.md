@@ -260,6 +260,49 @@ watchdog death in one signal.
 `/opt/delta-bot/watchdog.env` (server-only secrets file, rsync-excluded —
 BUG-016). Verify: the check turns green within 5 min; `docker` not needed.
 
+### A15. «Выдержка на вход» (re-entry confirm) — SIM CANDIDATE 2026-07-13, wins 3 of 4 windows under D2 calibration
+**Idea (Session 25, after срез #1's 13-traversal saw):** the storm pause
+only sees FAST moves (2%/5min); slow saws and trends — the actual killers —
+sail under it. New mechanism: after a recenter CLOSES the old position,
+do NOT open the new one; park the inventory in the wallet (ADR-021 keeps it
+hedged/neutral), and open only once the price has stayed within
+±(0.15 × range width) of an anchor for 120 min. The anchor resets on every
+breakout — a running trend keeps the machine out of the pool until it
+pauses. Auto-scales with geometry (no hand constants).
+**Simulator evidence (built + committed `95fe61c`; flags `--reentry-min
+120 --reentry-tol 0.15`, REQUIRES `--swap-skip`; fee 6.5 bps + deadband
+pinned 5 bps = the D2 discount applied IN-model):** EDGE vs hold-as-is,
+reentry-120/0.15 vs deployed config: crash month (May 8→Jun 8) **+21.48 vs
++14.24**; rally month (Jun 8→Jul 8) **−12.56 vs −20.87**; C3 week incl.
+the crash night (Jul 7→10) +2.27 vs +1.93; C4 saw window (Jul 10→13)
++2.24 vs +3.03 (the one loss: −0.8/3d in a pure-saw regime). Two-month
+sum flips −6.6 → **+8.9**. Also beats the pure-cash benchmark (never
+re-enter: −10.57/+14.41, sum +3.8). Time out of pool: 76% rally / 52%
+crash / 55% saw — this is a «mostly-hedged-cash, opportunistically-LP»
+machine.
+**Crux caveat:** the ranking holds ONLY under the D2 fee calibration
+(sim fees ×1.49/×1.68/×1.55 too high on three measured real windows; at
+raw 10 bps sim fees the deployed config wins). Crossover ≈ optimism
+factor 1.3. Secondary bias in our favor: the sim UNDERestimates shuttle
+churn (249 vs 475 real on the saw window), which penalizes re-entry less
+than reality penalizes the baseline.
+**Production build spec (needs operator approval):** orchestrator wait
+state between Phase 1 (close) and Phase 2 (create): persist
+`reentryWait {anchorPrice, sinceTs, parkedDepositUsd}` in AutoTuneState
+(restart-safe); each cycle, if |price/anchor − 1| > 0.15 × width → reset
+anchor, else if held ≥ `REENTRY_CONFIRM_MS` (default 0 = off) → run the
+normal Phase-2 (swap plan incl. BUG-020 reserve + create). While waiting:
+hedge runs on wallet-only input (ADR-021 already supports LP=0), auto-band
+floors at DELTA_THRESHOLD_SOL, and the auto-create path MUST be gated
+(positionCount 0 + wait state ≠ «create initial position»). Storms extend
+the wait. Rollback = REENTRY_CONFIRM_MS=0.
+**Also checked & closed this session:** live fat-fee pool re-scan — the
+entire fat tier is still dead on-chain (A9 pool now 47 tx/h with 80%
+failures and a 2%-stale price vs our 34.5k tx/h; step 15/25/30 pools all
+0 tx/h) — the pool lever stays exhausted; and the existing-knob grid on
+the saw window (confirm 20/30, band 0.62, bins 28) found nothing better
+than deployed.
+
 ### A8. Scaling 130 → 300+ (operator decision, after clean срезы)
 Everything auto-scales (cap ADR-022, band ADR-025, collateral = ratio). The
 ONLY knobs to change: `AUTO_TUNE_DEPOSIT_AMOUNT` (currently 0.61 SOL) and
