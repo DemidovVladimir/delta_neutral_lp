@@ -40,12 +40,14 @@ consumed wallet USDC down to 7.47 while the hedge needed ~15.2 collateral;
 wallet ended at 0 USDC. Planner now takes `reserveUsdc` (USDC mirror of the
 BUG-018 rent budget) = 0.5 × deposit value × collateral ratio, live+non-dry
 only, all three call sites + scale-down check. 6 new tests, 124 vitest
-green. **Deploy pending** — this session's deploy also restamps
-STRATEGY_LABEL to `campaign-4-clean-restart-2026-07-10`.
+green. **DEPLOYED same day ~18:18Z** (`d304ea2`; operator ran the deploy) —
+STRATEGY_LABEL now stamps `campaign-4-clean-restart-2026-07-10`; container
+verified Up, cycles 15s, netΔ +0.25 in band, banner values correct.
 
-Watch-fors: wallet USDC currently 0 (self-heals at the first post-deploy
-SOL-side recenter via the now-bigger alignment swap); netΔ +0.30 residual
-in band since 02:05Z; fee pace below norm — market-dependent, not a lever.
+Watch-fors: wallet USDC currently 0 (self-heals at the first SOL-side
+recenter via the now-bigger alignment swap — that recenter is also the
+BUG-020 field check: extra ~$8–16 swap + FULL-size hedge increase); fee
+pace below norm — market-dependent, not a lever.
 
 ---
 

@@ -7,7 +7,7 @@
 ## Active Bugs
 
 ### BUG-020: Swap planner did not reserve the hedge's post-recenter collateral — deposit consumed the wallet's last USDC and the hedge increase filled half its size
-**Status:** Fixed 2026-07-13 (Session 25), deploy pending. 6 new unit tests (incl. the exact 02:05Z regression numbers); 124 vitest green.
+**Status:** Fixed in `d304ea2` (2026-07-13, Session 25), **deployed same day ~18:18Z** (operator ran `pnpm deploy:hetzner`; container verified: version stamp `d304ea2`, label `campaign-4-clean-restart-2026-07-10`, first cycles in band). 6 new unit tests (incl. the exact 02:05Z regression numbers); 124 vitest green. Field check pending: first SOL-side recenter must swap extra ~$8–16 and the follow-up hedge increase must fill FULL size.
 **Severity:** Medium (funds safe, but neutrality degrades: a collateral-capped increase leaves part of the portfolio unhedged until the next recenter's alignment swap replenishes USDC — on a fast down-move that residual is real exposure, and a fully-blocked increase would sit out of band until the blocked-streak VITALS fires)
 **Reported:** 2026-07-13 (Session 25, срез #1 Campaign 4 verification block)
 

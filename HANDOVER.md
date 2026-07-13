@@ -13,14 +13,15 @@ Cause: 13 full range traversals (saw 76–79) — IL+shuttle ≈ −4.3 vs fees
 cap). Analyzer: parameters confirmed, no lever. **Live-week verdict Jul 14.**
 
 **Найдено и сделано (оба одобрены оператором):**
-1. **BUG-020 FIXED (deploy pending):** recenter deposit ate the wallet's
-   last USDC; the 02:05Z Jul 13 increase_short filled 0.296/0.599 SOL
-   (posted the final 7.465486 USDC), wallet now 0 USDC. Planner takes
-   `reserveUsdc` = 0.5 × deposit value × collateral ratio (live+non-dry).
-   6 new tests, 124 vitest green. **NEXT DEPLOY picks this up + restamps
-   STRATEGY_LABEL campaign-4.** Watch after deploy: first SOL-side recenter
-   should swap extra ~$8–16 SOL→USDC and the follow-up hedge increase must
-   fill FULL size.
+1. **BUG-020 FIXED + DEPLOYED ~18:18Z Jul 13 (`d304ea2`):** recenter
+   deposit ate the wallet's last USDC; the 02:05Z Jul 13 increase_short
+   filled 0.296/0.599 SOL (posted the final 7.465486 USDC), wallet went to
+   0 USDC. Planner takes `reserveUsdc` = 0.5 × deposit value × collateral
+   ratio (live+non-dry). 6 new tests, 124 vitest green. STRATEGY_LABEL now
+   stamps `campaign-4-clean-restart-2026-07-10`; post-deploy cycles
+   verified in band. **Field check open: first SOL-side recenter should
+   swap extra ~$8–16 SOL→USDC and the follow-up hedge increase must fill
+   FULL size.**
 2. **Silent VM reboot 2026-07-12 19:50:42→20:32:59Z (42 min, zero alerts —
    watchdog lives on the same host).** Dead-man ping added to watchdog.sh
    (`WATCHDOG_PING_URL` in server-side watchdog.env; no-op until set).
