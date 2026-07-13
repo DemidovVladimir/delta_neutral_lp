@@ -1268,6 +1268,22 @@ export class AutoTuneOrchestrator {
   }
 
   /**
+   * Projected USDC the hedge will pull from the wallet as short collateral
+   * right after a position (re)create (BUG-020). The controller's typical
+   * post-recenter move is an increase of ~the SOL half of the new position
+   * (the A10 shuttle — measured $42–47 on a ~$94 deposit), and a live short
+   * increase posts sizeUsd × targetCollateralRatio from wallet USDC the very
+   * next cycle. Reserving it in the swap plan keeps the deposit from
+   * consuming the wallet to zero first (2026-07-13 02:05Z: the increase
+   * needed ~15.2 USDC, found 7.47, and the hedge filled only half its size).
+   * Zero when the hedge cannot pull USDC (disabled or dry-run).
+   */
+  private hedgeCollateralReserveUsdc(depositValueUsd: number): number {
+    if (!this.config.hedgeEnabled || this.config.hedgeDryRun) return 0;
+    return 0.5 * depositValueUsd * this.config.hedgeTargetCollateralRatio;
+  }
+
+  /**
    * Log a successful swap and emit a loud warning when Jupiter's reported
    * price impact exceeds the configured threshold. Used by all three
    * swap-execute call sites (initial-position, rebalance, Phase 2 retry) so
@@ -1585,9 +1601,14 @@ export class AutoTuneOrchestrator {
       let solAmount = desiredSol;
       let usdcAmount = desiredUsdc;
 
-      // Calculate total wallet value (respecting reserves)
-      const totalWalletValueUsd = (maxDepositableSol * currentPrice) + actualUsdc;
+      // Calculate total wallet value (respecting reserves). The hedge's
+      // post-recenter collateral reserve (BUG-020) is held back from the
+      // USDC side the same way the SOL reserves are held back from SOL —
+      // both the scale-down check and the swap plan below must see the
+      // wallet WITHOUT it, or the deposit eats the hedge's collateral.
       const desiredPositionValueUsd = (desiredSol * currentPrice) + desiredUsdc;
+      const hedgeReserveUsdc = this.hedgeCollateralReserveUsdc(desiredPositionValueUsd);
+      const totalWalletValueUsd = (maxDepositableSol * currentPrice) + Math.max(0, actualUsdc - hedgeReserveUsdc);
 
       // If desired position exceeds total wallet value, scale down proportionally.
       // The bot continues with a smaller position rather than failing, but the
@@ -1632,6 +1653,7 @@ export class AutoTuneOrchestrator {
         final: { sol: solAmount, usdc: usdcAmount },
         wallet: { sol: actualSol, usdc: actualUsdc },
         maxDepositableSol,
+        hedgeReserveUsdc,
       });
 
       // Get pool info for price range (reuse connection from above)
@@ -1745,6 +1767,7 @@ export class AutoTuneOrchestrator {
           permanentMinimumSol: this.config.minimumWalletBalanceSol,
           rentReserveSol: this.config.rentReserveSol,
           positionRentSol: METEORA_POSITION_RENT_SOL,
+          reserveUsdc: hedgeReserveUsdc,
           currentPrice,
           slippageBufferPct: this.config.swapSlippageBufferPct / 100,
           context: 'rebalance',
@@ -1891,6 +1914,7 @@ export class AutoTuneOrchestrator {
               permanentMinimumSol: this.config.minimumWalletBalanceSol,
               rentReserveSol: this.config.rentReserveSol,
               positionRentSol: METEORA_POSITION_RENT_SOL,
+              reserveUsdc: hedgeReserveUsdc,
               currentPrice,
               slippageBufferPct: this.config.swapSlippageBufferPct / 100,
               context: 'rebalance',
@@ -2175,6 +2199,7 @@ export class AutoTuneOrchestrator {
         permanentMinimumSol: this.config.minimumWalletBalanceSol,
         rentReserveSol: this.config.rentReserveSol,
         positionRentSol: METEORA_POSITION_RENT_SOL,
+        reserveUsdc: this.hedgeCollateralReserveUsdc(solAmount * activeBinPrice + usdcAmount),
         currentPrice: activeBinPrice,
         slippageBufferPct: this.config.swapSlippageBufferPct / 100,
         context: 'initial-position',

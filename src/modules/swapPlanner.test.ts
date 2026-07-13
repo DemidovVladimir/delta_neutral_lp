@@ -641,6 +641,122 @@ describe('planSwapForDeposit', () => {
   });
 });
 
+describe('planSwapForDeposit — reserveUsdc (BUG-020 hedge-collateral reserve)', () => {
+  // Regression pin: 2026-07-13 02:05Z. Post-Phase-1 wallet 3.4 SOL +
+  // 54.05 USDC, deposit target 0.668 SOL + 46.54 USDC @ ~$76.2. Without a
+  // reserve the planner said needed=false, the deposit consumed the wallet
+  // to ~7.5 USDC, and the hedge increase (needed ~15.2 USDC collateral)
+  // could only fill half its size.
+  it('forces a SOL→USDC top-up swap when the deposit alone is covered but the hedge reserve is not', () => {
+    const plan = planSwapForDeposit(
+      makeInput({
+        walletSol: 3.4,
+        walletUsdc: 54.05,
+        targetSol: 0.668,
+        targetUsdc: 46.54,
+        permanentMinimumSol: 0.3,
+        rentReserveSol: 0.1,
+        positionRentSol: 0.0575,
+        reserveUsdc: 16.1,
+        currentPrice: 76.2,
+      })
+    );
+
+    expect(plan.needed).toBe(true);
+    expect(plan.swap?.direction).toBe('SOL_TO_USDC');
+    // shortfall = 46.54 − (54.05 − 16.1) = 8.59 USDC
+    expect(plan.shortfall.usdc).toBeCloseTo(8.59, 6);
+    expect(plan.swap?.expectedOutput).toBeCloseTo(8.59, 6);
+    expect(plan.swap?.amount).toBeCloseTo((8.59 / 76.2) * 1.02, 8);
+  });
+
+  it('is a no-op when the wallet covers deposit + reserve (USDC-side recenter)', () => {
+    const plan = planSwapForDeposit(
+      makeInput({
+        walletSol: 0.6,
+        walletUsdc: 94,
+        targetSol: 0.06,
+        targetUsdc: 47,
+        permanentMinimumSol: 0.3,
+        rentReserveSol: 0.1,
+        positionRentSol: 0.0575,
+        reserveUsdc: 16.1,
+        currentPrice: 78,
+      })
+    );
+
+    expect(plan.needed).toBe(false);
+    expect(plan.shortfall).toEqual({ sol: 0, usdc: 0 });
+  });
+
+  it('counts the reserve in the total-value pre-flight', () => {
+    // Wallet value covers the deposit WITHOUT the reserve (60 + 50 = 110 ≥
+    // 105); with 16 reserved it does not (60 + 34 = 94 < 105) — the
+    // pre-flight must throw instead of planning an unfundable swap.
+    const input = {
+      walletSol: 1.0,
+      walletUsdc: 50,
+      targetSol: 0.6,
+      targetUsdc: 45,
+      permanentMinimumSol: 0.3,
+      rentReserveSol: 0.1,
+      positionRentSol: 0,
+      currentPrice: 100,
+    };
+    expect(planSwapForDeposit(makeInput(input)).needed).toBe(false);
+    expect(() =>
+      planSwapForDeposit(makeInput({ ...input, reserveUsdc: 16 }))
+    ).toThrow(/does not have enough total value/);
+  });
+
+  it('keeps reserved USDC out of the USDC→SOL swap input guard', () => {
+    // SOL shortfall 0.29 → swap input 14.5 × 1.02 buffer = 14.79 USDC.
+    // Spendable is 30.6 − 16 = 14.6: enough for the total-value pre-flight
+    // (20 + 14.6 ≥ 34.5) but not for the buffered swap input — the guard
+    // must throw, naming the reserve.
+    expect(() =>
+      planSwapForDeposit(
+        makeInput({
+          walletSol: 0.5,
+          walletUsdc: 30.6,
+          targetSol: 0.69,
+          targetUsdc: 0,
+          permanentMinimumSol: 0.05,
+          rentReserveSol: 0.05,
+          positionRentSol: 0,
+          reserveUsdc: 16,
+          currentPrice: 50,
+          slippageBufferPct: 0.02,
+        })
+      )
+    ).toThrow(/Insufficient USDC .* reserved for hedge collateral/);
+  });
+
+  it('reserveUsdc omitted or 0 keeps legacy behavior (02:05Z inputs → needed=false)', () => {
+    const legacyInput = {
+      walletSol: 3.4,
+      walletUsdc: 54.05,
+      targetSol: 0.668,
+      targetUsdc: 46.54,
+      permanentMinimumSol: 0.3,
+      rentReserveSol: 0.1,
+      positionRentSol: 0.0575,
+      currentPrice: 76.2,
+    };
+    const legacy = planSwapForDeposit(makeInput(legacyInput));
+    expect(legacy.needed).toBe(false);
+
+    const explicitZero = planSwapForDeposit(makeInput({ ...legacyInput, reserveUsdc: 0 }));
+    expect(explicitZero).toEqual(legacy);
+  });
+
+  it('throws on negative reserveUsdc', () => {
+    expect(() =>
+      planSwapForDeposit(makeInput({ reserveUsdc: -1 }))
+    ).toThrow(/reserveUsdc must be >= 0/);
+  });
+});
+
 describe('checkSwapOracleGate (ADR-020)', () => {
   it('passes a quote at oracle price', () => {
     // sell 1 SOL for 82 USDC at oracle $82 → 0 bps deviation

@@ -6,6 +6,37 @@
 
 ## Active Bugs
 
+### BUG-020: Swap planner did not reserve the hedge's post-recenter collateral — deposit consumed the wallet's last USDC and the hedge increase filled half its size
+**Status:** Fixed 2026-07-13 (Session 25), deploy pending. 6 new unit tests (incl. the exact 02:05Z regression numbers); 124 vitest green.
+**Severity:** Medium (funds safe, but neutrality degrades: a collateral-capped increase leaves part of the portfolio unhedged until the next recenter's alignment swap replenishes USDC — on a fast down-move that residual is real exposure, and a fully-blocked increase would sit out of band until the blocked-streak VITALS fires)
+**Reported:** 2026-07-13 (Session 25, срез #1 Campaign 4 verification block)
+
+**Description:** After a SOL-side recenter the controller's next move is an
+increase_short of ~the SOL half of the new position (the A10 shuttle,
+measured $42–47 on a ~$94 deposit), which posts
+`sizeUsd × HEDGE_TARGET_COLLATERAL_RATIO` of wallet USDC one cycle later.
+`planSwapForDeposit` budgeted the deposit (and, since BUG-018, the position
+rent) but NOT that collateral. Observed 2026-07-13 02:05Z: post-Phase-1
+wallet 3.4 SOL + 54.05 USDC, deposit target 0.668 SOL + 46.54 USDC → planner
+said needed=false (54.05 covers 46.54), deposit left 7.51 USDC, hedge needed
+~15.2 USDC collateral for a 0.599-SOL increase → posted the last 7.465486
+USDC and filled only 0.296 SOL (TX1
+`3Lib4aJ9uXEb7gSjy3CJiy5ZM9GCQZpe1XrgQSeErXSikPyX3ngP7AoYe5CifrmXQphpMi1Zp4Gut85sGLciJx9i`).
+netΔ landed at +0.30 — inside the 0.49 band only by geometry luck. Wallet
+USDC = 0 afterwards. Same family as BACKLOG §A2 (BUG-013): this fix is the
+PREVENTION layer; §A2's controller-side recovery guard remains open design.
+
+**Fix:** `reserveUsdc` input on `planSwapForDeposit` — the USDC mirror of
+`positionRentSol`: reserved USDC is invisible to the shortfall, the
+total-value pre-flight, and the USDC→SOL input guard. The orchestrator
+passes `0.5 × depositValueUsd × hedgeTargetCollateralRatio` (zero when the
+hedge is disabled or dry-run) at all three call sites (rebalance, Phase-2
+retry, initial position) and holds it back from the scale-down check too.
+Effect on the 02:05Z inputs: shortfall 8.59 USDC → one extra ~0.115-SOL
+alignment swap, hedge fully funded.
+
+---
+
 ### BUG-019: Watchdog pushed «✅ восстановился» while a latched VITALS breach was still active
 **Status:** Fixed in `26e9319` (2026-07-10, Session 24), deployed same day.
 **Severity:** Low-Medium (no funds at risk, but the alert layer told the operator a standing breach had cleared — trust erosion, the exact thing the trust-revocation layer exists to prevent)

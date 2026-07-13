@@ -20,6 +20,7 @@ cd "$BOT_DIR" || exit 1
 NTFY_TOPIC=""
 TELEGRAM_BOT_TOKEN=""
 TELEGRAM_CHAT_ID=""
+WATCHDOG_PING_URL=""
 [ -f "$BOT_DIR/watchdog.env" ] && . "$BOT_DIR/watchdog.env"
 if [ -z "$NTFY_TOPIC" ] && { [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; }; then
   echo "$(date -u +%FT%TZ) no alert channel configured — create /opt/delta-bot/watchdog.env" >&2
@@ -49,6 +50,17 @@ notify() { # $1 = priority, $2 = message
 }
 
 state_get() { grep "^$1=" "$STATE_FILE" 2>/dev/null | head -1 | cut -d= -f2-; }
+
+# Dead-man ping (2026-07-13): every run pings an EXTERNAL monitor
+# (healthchecks.io-style URL in watchdog.env). The watchdog lives on the
+# same VM as the bot, so a host death silences ALL push channels — the
+# 2026-07-12 19:50→20:33Z Hetzner reboot produced zero alerts. The external
+# service alerts when pings STOP; the ping itself carries no bot state
+# (bot problems already push via ntfy/Telegram above). No-op when unset.
+deadman_ping() {
+  [ -n "$WATCHDOG_PING_URL" ] || return 0
+  curl -fsS -m 10 --retry 3 -o /dev/null "$WATCHDOG_PING_URL" 2>/dev/null || true
+}
 
 cid=$(docker compose ps -q 2>/dev/null | head -1)
 restarts=-1
@@ -171,6 +183,7 @@ if [ "${1:-}" = "--heartbeat" ]; then
     echo "recovered=$(state_get recovered)"
     echo "vitals_open=$vitals_open"
   } > "$STATE_FILE"
+  deadman_ping
   exit 0
 fi
 
@@ -212,3 +225,5 @@ fi
   echo "recovered=${recovered:-}"
   echo "vitals_open=$vitals_open"
 } > "$STATE_FILE"
+
+deadman_ping

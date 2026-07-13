@@ -5,6 +5,50 @@
 
 ---
 
+## 2026-07-13
+
+### Session 25 — срез #1 Кампании 4 (−2.59 vs USDC / 2.89d), BUG-020 (hedge-collateral reserve) fixed, external dead-man monitor added
+
+**Срез #1 Campaign 4** (window 2026-07-10T10:48:08Z → 2026-07-13T10:06Z,
+2.89d, full verification block passed): vs-USDC **−2.59** / vs-as-is −0.32
+(mechanical +2.27, skill −2.59 — matches vs-USDC to 4 decimals, no
+neutrality leak) / vs-SOL +9.98. Trend via 00:17Z rows: −0.73 → −1.96 →
+−2.07 → −2.59 (≈ −0.9 USD/day, does NOT breathe with price). Mechanism:
+price 79.48→76.47 as a saw — **13 full range traversals** (8 down, 5 up);
+fees +2.87 ($0.99/day — BELOW the C4 norm $1.2–2.2, weekend) vs IL ≈ −3.0 +
+shuttle ≈ −1.0 + perp fees −0.28 + carry −0.07 + network/swap −0.03; ~0.7
+residual = trend tax + fill slippage. LP-side per closed position: Σ value
+change −6.04 + fees +2.51 = −3.53. tx-audit: 71 txs, ALL classified, 0
+unexplained; wallet fees 0.000294681 SOL. Logs: 13/13 ⚠️→✅ recenter pairs,
+0 VITALS BREACH, 0 storms/freezes, выдержка filtered 15/28 triggers
+(recenters 4.5/day vs ~6 at 5-min). Liq 1.43× spot; collateral blend 0.424
+→0.33; churn24h $211.74 ≪ 3×cap. Analyzer verdict: **parameters confirmed,
+no lever moved** (live-week verdict due Jul 14).
+
+**Incident found: silent VM reboot.** Hetzner host rebooted 2026-07-12
+19:50:42→20:32:59Z (42.3 min gap, no clean-shutdown record in `last -x` —
+host-level event, not our code). Docker restored the bot; first cycle in
+band. ZERO alerts — the watchdog dies with the host. **Fix (approved
+«настроить сейчас»):** dead-man ping in `watchdog.sh` — every run curls
+`WATCHDOG_PING_URL` (healthchecks.io-style, secret in server-side
+`watchdog.env`); the external service alerts when pings stop. No-op until
+the operator creates the check and adds the URL.
+
+**BUG-020 found & fixed (approved «фиксить сейчас»):** the 02:05Z
+increase_short filled 0.296 of 0.599 SOL — the recenter deposit had
+consumed wallet USDC down to 7.47 while the hedge needed ~15.2 collateral;
+wallet ended at 0 USDC. Planner now takes `reserveUsdc` (USDC mirror of the
+BUG-018 rent budget) = 0.5 × deposit value × collateral ratio, live+non-dry
+only, all three call sites + scale-down check. 6 new tests, 124 vitest
+green. **Deploy pending** — this session's deploy also restamps
+STRATEGY_LABEL to `campaign-4-clean-restart-2026-07-10`.
+
+Watch-fors: wallet USDC currently 0 (self-heals at the first post-deploy
+SOL-side recenter via the now-bigger alignment swap); netΔ +0.30 residual
+in band since 02:05Z; fee pace below norm — market-dependent, not a lever.
+
+---
+
 ## 2026-07-10
 
 ### Session 24 (addendum 2) — operator's Kamino-review ideas: both auto-mechanisms TESTED & REJECTED same day (A12/A13); daily-PnL табло approved as idea

@@ -36,7 +36,18 @@ feeburn 0.05/0.045 SOL). Deploy = operator runs `pnpm deploy:hetzner`, then
 verify per the rules above. Post-deploy watch: the first real episode should
 produce exactly ONE 🚨 push and one ✅ line in `data/logs/bot.log`.
 
-### A2. Collateral starvation guard (BUG-013 family) — DESIGN, needs approval
+### A2. Collateral starvation guard (BUG-013 family) — PREVENTION SHIPPED 2026-07-13 (BUG-020); controller-side recovery still DESIGN
+**2026-07-13 (Session 25): the starvation materialized** — the 02:05Z
+recenter deposit consumed wallet USDC to 7.47, the follow-up increase_short
+filled 0.296 of 0.599 SOL, wallet ended at 0 USDC (BUG-020 in bugs.md).
+**Prevention layer SHIPPED (operator-approved, deploy pending):**
+`planSwapForDeposit` now reserves `0.5 × deposit value ×
+HEDGE_TARGET_COLLATERAL_RATIO` of wallet USDC (`reserveUsdc` — the
+proportional rule below applied at the exact moment it matters, the
+alignment-swap sizing), live+non-dry only, all three call sites. The
+controller-side RECOVERY guard below (partial decrease to free collateral
+when already starved) remains open design — still useful for starvation
+paths that bypass recenters (e.g. a storm-clamp jump with a dry wallet).
 **Problem:** shorts post USDC collateral. Recenters + collateral posts drain
 wallet USDC (2026-07-08 morning: $6.37 left). When the controller wants
 `increase_short` and USDC < size×ratio, it blocks (`blocked_reason:
@@ -231,6 +242,23 @@ cases incl. the campaign-boundary fallback). KNOWN LIMIT (accepted): a
 manual mid-campaign withdrawal shows as that day's «loss» (baseline
 adjustments keep their capturedAt) — the срез procedure owns that case,
 the табло does not.
+
+### A14. External dead-man monitor (host-death blind spot) — CODE SHIPPED 2026-07-13, WAITING ON OPERATOR PING URL
+**Incident:** Hetzner VM rebooted 2026-07-12 19:50:42→20:32:59Z (42 min
+down, no clean-shutdown record in `last -x` — host-level event). ZERO
+alerts: the watchdog + all its push channels live on the same VM. The only
+detection today is a missing 08:05Z 💚 (up to ~12h blind).
+**Shipped (Session 25, operator «настроить сейчас»):** `watchdog.sh` runs
+`deadman_ping()` at the end of every */5 and heartbeat run — a
+`curl -fsS -m 10 --retry 3` to `WATCHDOG_PING_URL` from server-side
+`/opt/delta-bot/watchdog.env`. No-op while the var is unset. The EXTERNAL
+service alerts when pings stop, covering host death, cron death, and
+watchdog death in one signal.
+**Operator TODO:** create a free healthchecks.io check (period 5 min, grace
+5–10 min, alert to email/Telegram), then append
+`WATCHDOG_PING_URL=https://hc-ping.com/<uuid>` to
+`/opt/delta-bot/watchdog.env` (server-only secrets file, rsync-excluded —
+BUG-016). Verify: the check turns green within 5 min; `docker` not needed.
 
 ### A8. Scaling 130 → 300+ (operator decision, after clean срезы)
 Everything auto-scales (cap ADR-022, band ADR-025, collateral = ratio). The

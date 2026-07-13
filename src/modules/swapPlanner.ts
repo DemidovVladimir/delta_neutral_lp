@@ -53,6 +53,17 @@ export interface SwapPlanInput {
    */
   positionRentSol?: number;
 
+  /**
+   * USDC held back from deposit funding — the wallet must still hold this
+   * much after the deposit (and any swap) settles. The USDC mirror of
+   * positionRentSol: the hedge's post-recenter short increase posts
+   * collateral from the wallet the very next cycle, and without this
+   * reserve the deposit can consume the wallet down to zero first
+   * (BUG-020: 2026-07-13 02:05Z increase needed ~15.2 USDC collateral,
+   * found 7.47). Defaults to 0 (legacy behavior) when omitted.
+   */
+  reserveUsdc?: number;
+
   /** Current SOL/USD price for shortfall valuation. */
   currentPrice: number;
 
@@ -133,6 +144,7 @@ export function planSwapForDeposit(input: SwapPlanInput): SwapPlan {
     permanentMinimumSol,
     rentReserveSol,
     positionRentSol = 0,
+    reserveUsdc = 0,
     currentPrice,
     slippageBufferPct,
     context,
@@ -147,15 +159,23 @@ export function planSwapForDeposit(input: SwapPlanInput): SwapPlan {
   if (slippageBufferPct < 0) {
     throw new Error(`planSwapForDeposit: slippageBufferPct must be >= 0 (got ${slippageBufferPct})`);
   }
+  if (reserveUsdc < 0) {
+    throw new Error(`planSwapForDeposit: reserveUsdc must be >= 0 (got ${reserveUsdc})`);
+  }
 
   const totalReserve = permanentMinimumSol + rentReserveSol;
   const availableSolForSwap = Math.max(0, walletSol - totalReserve);
+
+  // USDC spendable on the deposit — the reserved amount (hedge collateral,
+  // see reserveUsdc doc) is invisible to every calculation below, exactly
+  // like reserve SOL is on the SOL side.
+  const spendableUsdc = Math.max(0, walletUsdc - reserveUsdc);
 
   // The create transaction pulls targetSol AND the refundable position rent
   // out of the wallet, so the rent is part of the SOL requirement here.
   const requiredSol = targetSol + positionRentSol;
   const solShortfall = Math.max(0, requiredSol - availableSolForSwap);
-  const usdcShortfall = Math.max(0, targetUsdc - walletUsdc);
+  const usdcShortfall = Math.max(0, targetUsdc - spendableUsdc);
 
   // Fast-path: no swap needed.
   if (solShortfall === 0 && usdcShortfall === 0) {
@@ -173,13 +193,14 @@ export function planSwapForDeposit(input: SwapPlanInput): SwapPlan {
   // actionable error instead of a downstream "Insufficient funds" from
   // Jupiter's order-response error code.
   // ────────────────────────────────────────────────────────────────────────
-  const walletValueUsd = availableSolForSwap * currentPrice + walletUsdc;
+  const walletValueUsd = availableSolForSwap * currentPrice + spendableUsdc;
   const requiredValueUsd = requiredSol * currentPrice + targetUsdc;
   if (walletValueUsd < requiredValueUsd) {
+    const usdcReserveNote = reserveUsdc > 0 ? ` after ${reserveUsdc.toFixed(2)} USDC hedge-collateral reserve` : '';
     throw new Error(
       `Wallet does not have enough total value for ${context}. ` +
       `Available: $${walletValueUsd.toFixed(2)} ` +
-      `(${availableSolForSwap.toFixed(4)} SOL after ${totalReserve.toFixed(2)} SOL reserves + ${walletUsdc.toFixed(2)} USDC @ $${currentPrice.toFixed(2)}/SOL). ` +
+      `(${availableSolForSwap.toFixed(4)} SOL after ${totalReserve.toFixed(2)} SOL reserves + ${spendableUsdc.toFixed(2)} USDC${usdcReserveNote} @ $${currentPrice.toFixed(2)}/SOL). ` +
       `Required: $${requiredValueUsd.toFixed(2)} ` +
       `(${targetSol.toFixed(4)} SOL + ${positionRentSol.toFixed(4)} SOL position rent + ${targetUsdc.toFixed(2)} USDC). ` +
       `No swap can resolve this. ${formatTunableHint(autoTuneDepositAmount, 'funds')}`
@@ -230,10 +251,11 @@ export function planSwapForDeposit(input: SwapPlanInput): SwapPlan {
   const expectedOutput = solShortfall;
   const amount = solShortfall * currentPrice * bufferMultiplier;
 
-  if (walletUsdc < amount) {
+  if (spendableUsdc < amount) {
+    const usdcReserveNote = reserveUsdc > 0 ? ` (${reserveUsdc.toFixed(2)} USDC reserved for hedge collateral)` : '';
     throw new Error(
       `Insufficient USDC for ${context} swap. Need ${amount.toFixed(2)} USDC ` +
-      `to swap for ${expectedOutput.toFixed(4)} SOL, but only have ${walletUsdc.toFixed(2)} USDC. ` +
+      `to swap for ${expectedOutput.toFixed(4)} SOL, but only have ${spendableUsdc.toFixed(2)} USDC spendable${usdcReserveNote}. ` +
       `Wallet: ${walletSol.toFixed(4)} SOL, ${walletUsdc.toFixed(2)} USDC. ` +
       `${formatTunableHint(autoTuneDepositAmount, 'USDC')}`
     );

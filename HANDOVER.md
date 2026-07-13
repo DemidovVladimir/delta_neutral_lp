@@ -1,6 +1,36 @@
 # HANDOVER — Delta-Neutral Bot (LP + Jupiter Perps hedge, both sides)
 
-**Last updated:** 2026-07-10 (Session 24, after the campaign restart).
+**Last updated:** 2026-07-13 (Session 25, срез #1 of Campaign 4).
+
+## Session 25 delta (Jul 13) — read this first
+
+**Срез #1 Campaign 4 (2.89d):** vs-USDC **−2.59** / vs-as-is −0.32
+(mechanical +2.27 + skill −2.59, no neutrality leak) / vs-SOL +9.98. Trend
+00:17Z rows −0.73 → −1.96 → −2.07 → −2.59 ≈ −0.9/day, price-independent.
+Cause: 13 full range traversals (saw 76–79) — IL+shuttle ≈ −4.3 vs fees
++2.87 ($0.99/day, below C4 norm — weekend). Verification block fully green
+(71 txs all classified; 13/13 recenter pairs; 0 VITALS; liq 1.43×; churn ≪
+cap). Analyzer: parameters confirmed, no lever. **Live-week verdict Jul 14.**
+
+**Найдено и сделано (оба одобрены оператором):**
+1. **BUG-020 FIXED (deploy pending):** recenter deposit ate the wallet's
+   last USDC; the 02:05Z Jul 13 increase_short filled 0.296/0.599 SOL
+   (posted the final 7.465486 USDC), wallet now 0 USDC. Planner takes
+   `reserveUsdc` = 0.5 × deposit value × collateral ratio (live+non-dry).
+   6 new tests, 124 vitest green. **NEXT DEPLOY picks this up + restamps
+   STRATEGY_LABEL campaign-4.** Watch after deploy: first SOL-side recenter
+   should swap extra ~$8–16 SOL→USDC and the follow-up hedge increase must
+   fill FULL size.
+2. **Silent VM reboot 2026-07-12 19:50:42→20:32:59Z (42 min, zero alerts —
+   watchdog lives on the same host).** Dead-man ping added to watchdog.sh
+   (`WATCHDOG_PING_URL` in server-side watchdog.env; no-op until set).
+   **OPERATOR TODO: create a healthchecks.io check (period 5 min, grace
+   5–10 min) and put its ping URL into /opt/delta-bot/watchdog.env as
+   `WATCHDOG_PING_URL=…`.**
+
+Watch-fors: wallet USDC 0 until the first post-deploy SOL-side recenter;
+netΔ residual +0.30 (in band 0.49) since 02:05Z Jul 13; fee pace below norm
+is market, not a lever.
 
 ## ⚡ CAMPAIGN 4 — live since 2026-07-10T10:48:08.395Z (operator: «начнём заново»)
 
