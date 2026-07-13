@@ -57,6 +57,7 @@ import { MeteoraAdapter } from './meteoraAdapter.js';
 import { JupiterSwapper } from './jupiterSwapper.js';
 import { JupiterPerpsEngine } from './jupiterPerpsEngine.js';
 import { planSwapForDeposit, METEORA_POSITION_RENT_SOL, type SwapPlan } from './swapPlanner.js';
+import { evaluateReentryGate } from './reentryGate.js';
 import { getConfig } from '../config/env.js';
 import { log } from '../utils/logger.js';
 import { VitalsLatch } from '../utils/vitalsLatch.js';
@@ -559,8 +560,60 @@ export class AutoTuneOrchestrator {
         // leftover perp with no LP is naked directional risk to unwind. Skip
         // only when we create a position below (exposure would be stale).
 
-        // Auto-create initial position if enabled
-        if (this.config.autoCreatePositions && this.config.meteoraPoolAddress) {
+        // «Выдержка на вход» (A15): a deliberate no-LP state — the wait owns
+        // position creation, auto-create must NOT fire underneath it.
+        if (this.state.reentryWait) {
+          const wait = this.state.reentryWait;
+          const decision = evaluateReentryGate({
+            nowMs: Date.now(),
+            price: currentPrice,
+            anchorPrice: wait.anchorPrice,
+            stableSinceMs: wait.stableSinceMs,
+            tolPriceFrac: wait.tolPriceFrac,
+            confirmMs: this.config.reentryConfirmMs,
+            stormActive: this.isVolStormActive(currentPrice),
+          });
+
+          if (decision.action === 'rearm') {
+            log.info('⏸ Выдержка на вход: цена вышла из коридора — якорь сброшен, ждём заново (A15)', {
+              oldAnchor: wait.anchorPrice,
+              newAnchor: decision.anchorPrice,
+              corridorPct: (wait.tolPriceFrac * 100).toFixed(3),
+              waitingSinceClose: Date.now() - wait.closedAtMs,
+            });
+            wait.anchorPrice = decision.anchorPrice;
+            wait.stableSinceMs = decision.stableSinceMs;
+            saveAutoTuneState(this.state);
+          } else if (decision.action === 'open') {
+            log.warn('▶️ Выдержка на вход: цена устоялась — пересоздаём позицию (A15)', {
+              anchorPrice: wait.anchorPrice,
+              heldMs: Date.now() - wait.stableSinceMs,
+              totalWaitMs: Date.now() - wait.closedAtMs,
+            });
+            try {
+              await this.createInitialPosition();
+              lpMutatedThisCycle = true;
+              this.state.reentryWait = undefined;
+              saveAutoTuneState(this.state);
+              log.info('✅ Выдержка на вход завершена — позиция создана (A15)');
+            } catch (error) {
+              // Keep the wait armed — the next cycle retries the open (the
+              // gate will still say 'open' unless the price broke out).
+              log.error('Failed to re-open position after re-entry wait (A15) — will retry', {
+                error: error instanceof Error ? error.message : String(error),
+              });
+              this.state.consecutiveErrors++;
+            }
+          } else {
+            log.infoSampled('⏸ Выдержка на вход: ждём спокойной цены (A15)', {
+              anchorPrice: wait.anchorPrice,
+              heldMs: Date.now() - wait.stableSinceMs,
+              confirmMs: this.config.reentryConfirmMs,
+              corridorPct: (wait.tolPriceFrac * 100).toFixed(3),
+            });
+          }
+        } else if (this.config.autoCreatePositions && this.config.meteoraPoolAddress) {
+          // Auto-create initial position if enabled.
           // Safety check: discover positions one more time before creating
           // This prevents duplicate position creation if position exists but wasn't found
           const discoveredBeforeCreate = await this.meteoraAdapter.discoverPositionsFromBlockchain();
@@ -609,6 +662,10 @@ export class AutoTuneOrchestrator {
         this.consecutiveNoLpCycles++;
         if (
           lpMutatedThisCycle ||
+          // A15: a re-entry wait is a DELIBERATE no-LP state that can last
+          // hours — the wallet bag must stay hedged the whole time, so the
+          // failed-creation grace does not apply.
+          this.state.reentryWait !== undefined ||
           this.consecutiveNoLpCycles >= AutoTuneOrchestrator.NO_LP_HEDGE_GRACE_CYCLES
         ) {
           await this.maybeRebalanceHedge(exposure, lpMutatedThisCycle);
@@ -626,6 +683,18 @@ export class AutoTuneOrchestrator {
 
       // An LP position exists again — the no-LP grace counter starts over.
       this.consecutiveNoLpCycles = 0;
+
+      // Self-heal (A15): a position exists on-chain while a re-entry wait is
+      // armed — either the open succeeded but the state save raced a crash,
+      // or the operator created a position manually. The chain wins.
+      if (this.state.reentryWait) {
+        log.warn('⏸→✅ Выдержка на вход снята — на цепи уже есть позиция (self-heal, A15)', {
+          positionMints: exposure?.positions.map(p => p.mint) ?? [],
+          waitedMs: Date.now() - this.state.reentryWait.closedAtMs,
+        });
+        this.state.reentryWait = undefined;
+        saveAutoTuneState(this.state);
+      }
 
       if (!this.watchMode) {
         // ALWAYS log at INFO (not sampled) — this is the precondition state
@@ -729,7 +798,11 @@ export class AutoTuneOrchestrator {
 
           this.state.rebalanceCount++;
           this.state.lastRebalance = Date.now();
-          this.state.currentPositionMint = result.newPositionMint;
+          if (!result.closeOnly) {
+            // A15 close-only recenters have no new position — executeRebalance
+            // already cleared currentPositionMint and armed reentryWait.
+            this.state.currentPositionMint = result.newPositionMint;
+          }
           this.state.consecutiveErrors = 0;
           this.imbalanceSince = null; // ADR-023: fresh position starts balanced
 
@@ -755,15 +828,18 @@ export class AutoTuneOrchestrator {
             result.signatures[0] // Use first signature (withdraw+claim+close tx)
           );
 
-          // Save last position created details
-          this.state.lastPositionCreated = {
-            positionMint: result.newPositionMint,
-            initialDeposit: {
-              sol: result.deposited.sol,
-              usdc: result.deposited.usdc,
-            },
-            timestamp: Date.now(),
-          };
+          // Save last position created details (not applicable to an A15
+          // close-only recenter — nothing was created).
+          if (!result.closeOnly) {
+            this.state.lastPositionCreated = {
+              positionMint: result.newPositionMint,
+              initialDeposit: {
+                sol: result.deposited.sol,
+                usdc: result.deposited.usdc,
+              },
+              timestamp: Date.now(),
+            };
+          }
 
           // Track transaction fees for rebalance operations
           // Using price fetched at start of check cycle
@@ -1574,6 +1650,67 @@ export class AutoTuneOrchestrator {
         }
         actualSol = credit.sol;
         actualUsdc = credit.usdc;
+      }
+
+      // ──────────────────────────────────────────────────────────────────
+      // «Выдержка на вход» (re-entry gate, BACKLOG A15, operator-approved
+      // 2026-07-13): with REENTRY_CONFIRM_MS > 0 the recenter stops HERE —
+      // the old position is closed (IL stopped), the inventory sits in the
+      // wallet where the hedge keeps it neutral (ADR-021), and the check
+      // cycle's no-LP branch re-opens only after the price holds inside a
+      // calm corridor for the confirm window. The corridor width derives
+      // from the closed position's own range — no hand constants.
+      // ──────────────────────────────────────────────────────────────────
+      if (this.config.reentryConfirmMs > 0) {
+        const widthFrac =
+          triggerBalance &&
+          triggerBalance.upperPrice > triggerBalance.lowerPrice &&
+          currentPrice > 0
+            ? (triggerBalance.upperPrice - triggerBalance.lowerPrice) / currentPrice
+            : 0.02; // fallback ≈ 20 bins × 10 bps
+        this.state.reentryWait = {
+          anchorPrice: currentPrice,
+          stableSinceMs: Date.now(),
+          tolPriceFrac: this.config.reentryTolFrac * widthFrac,
+          claimedFeesSol: withdrawResult.claimedFees.sol,
+          claimedFeesUsdc: withdrawResult.claimedFees.usdc,
+          closedAtMs: Date.now(),
+          oldPositionMint,
+        };
+        this.state.currentPositionMint = undefined;
+        saveAutoTuneState(this.state);
+
+        const durationMs = Date.now() - startTime;
+        log.warn('⏸ Выдержка на вход: позиция ЗАКРЫТА, ждём спокойной цены перед пересозданием (A15)', {
+          anchorPrice: currentPrice,
+          corridorPct: (this.config.reentryTolFrac * widthFrac * 100).toFixed(3),
+          confirmMs: this.config.reentryConfirmMs,
+          claimedFees: withdrawResult.claimedFees,
+          withdrawSignature: withdrawResult.signature,
+        });
+
+        if (rebalanceDbId !== null) {
+          recordRebalanceCompleted({
+            rebalanceId: rebalanceDbId,
+            newPositionId: null,
+            claimedFeesSol: withdrawResult.claimedFees.sol,
+            claimedFeesUsdc: withdrawResult.claimedFees.usdc,
+            withdrawSignature: withdrawResult.signature,
+            success: true,
+            durationMs,
+          });
+        }
+
+        return {
+          success: true,
+          closeOnly: true,
+          oldPositionMint,
+          newPositionMint: '',
+          claimedFees: withdrawResult.claimedFees,
+          deposited: { sol: 0, usdc: 0 },
+          signatures: [withdrawResult.signature],
+          durationMs,
+        };
       }
 
       // Calculate maximum depositable SOL (respecting reserves + the refundable

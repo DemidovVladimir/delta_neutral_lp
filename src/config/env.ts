@@ -159,6 +159,25 @@ export interface BotConfig {
    */
   trendConfirmMs: number;
   /**
+   * «Выдержка на вход» (re-entry gate, BACKLOG A15): after a recenter
+   * CLOSES the old position, the inventory parks in the wallet (hedged,
+   * ADR-021) and the new position opens only once the price has stayed
+   * within ±(reentryTolFrac × range width) of an anchor for this long.
+   * The anchor resets on every breakout — a running trend/saw keeps the
+   * machine out of the pool until it pauses (the slow-saw counterpart of
+   * the 5-minute storm pause). 0 = off (immediate reopen — production
+   * behavior before 2026-07-13, and the rollback switch: setting 0 while
+   * a wait is active opens on the next cycle).
+   * Env: REENTRY_CONFIRM_MS (default 0; sim-backed candidate 7200000 = 120 min)
+   */
+  reentryConfirmMs: number;
+  /**
+   * Calm-corridor half-width for the re-entry gate, as a fraction of the
+   * FULL range width — auto-scales with position geometry, no hand
+   * constants. Env: REENTRY_TOL_FRAC (default 0.15).
+   */
+  reentryTolFrac: number;
+  /**
    * Target collateral ratio (collateral / notional) the controller sizes
    * collateral to on an increase. 1.0 = fully collateralized (~1x); ADR-016
    * chose 0.33 (~3x) for capital efficiency — set it in .env.
@@ -378,6 +397,14 @@ function loadConfigFromEnv(): BotConfig {
   if (trendConfirmMs < 0) {
     throw new Error('TREND_CONFIRM_MS must be >= 0 (0 disables the confirmation delay)');
   }
+  const reentryConfirmMs = parseEnvNumber('REENTRY_CONFIRM_MS', 0);
+  if (reentryConfirmMs < 0) {
+    throw new Error('REENTRY_CONFIRM_MS must be >= 0 (0 disables the re-entry gate)');
+  }
+  const reentryTolFrac = parseEnvNumber('REENTRY_TOL_FRAC', 0.15);
+  if (reentryTolFrac <= 0 || reentryTolFrac >= 1) {
+    throw new Error('REENTRY_TOL_FRAC must be in (0, 1) — a fraction of the range width');
+  }
   const deltaThresholdSol = parseEnvNumber('DELTA_THRESHOLD_SOL', 2);
   const minCollateralRatio = parseEnvNumber('MIN_COLLATERAL_RATIO', 0.15);
   // Renamed from MAX_SHORT_NOTIONAL_USD when the hedge gained the long side;
@@ -487,6 +514,8 @@ function loadConfigFromEnv(): BotConfig {
     hedgeIncludeWalletSol,
     lpVolPausePct5m,
     trendConfirmMs,
+    reentryConfirmMs,
+    reentryTolFrac,
     deltaThresholdSol,
     hedgeBandBins,
     minCollateralRatio,

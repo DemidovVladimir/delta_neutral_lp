@@ -352,10 +352,28 @@ export interface AutoTuneState {
     lastAction: string; // e.g. 'increase_short'
     lastSignatures?: string[]; // TX1 signature(s) of that mutation
   };
+
+  // «Выдержка на вход» (re-entry gate, BACKLOG A15): set when a recenter
+  // closed the old position and the new one is deliberately NOT created yet
+  // — the machine waits for the price to hold still. Persisted so a restart
+  // mid-wait resumes the wait instead of auto-creating into the move.
+  reentryWait?: {
+    anchorPrice: number; // Calm-corridor center (reset on every breakout)
+    stableSinceMs: number; // When the price last (re)entered the corridor
+    tolPriceFrac: number; // Corridor half-width as a price fraction (from range geometry at close)
+    claimedFeesSol: number; // Fees claimed at the close (already in the wallet)
+    claimedFeesUsdc: number;
+    closedAtMs: number; // When the close-only recenter ran
+    oldPositionMint: string; // The position that was closed (forensics)
+  };
 }
 
 export interface RebalanceResult {
   success: boolean;
+  /** True when the re-entry gate (A15) closed the old position WITHOUT
+   * creating a new one — newPositionMint is empty and the check cycle's
+   * no-LP branch owns the eventual re-open. */
+  closeOnly?: boolean;
   oldPositionMint: string; // Position that was closed
   newPositionMint: string; // New position created
   claimedFees: {

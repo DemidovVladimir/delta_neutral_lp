@@ -260,7 +260,21 @@ watchdog death in one signal.
 `/opt/delta-bot/watchdog.env` (server-only secrets file, rsync-excluded —
 BUG-016). Verify: the check turns green within 5 min; `docker` not needed.
 
-### A15. «Выдержка на вход» (re-entry confirm) — SIM CANDIDATE 2026-07-13, wins 3 of 4 windows under D2 calibration
+### A15. «Выдержка на вход» (re-entry confirm) — BUILT & APPROVED 2026-07-13 (ADR-026), deploy pending
+**STATUS UPDATE (same day, operator «Строить сейчас»):** production
+implementation DONE — pure core `src/modules/reentryGate.ts` (11 tests),
+orchestrator wait state persisted in `AutoTuneState.reentryWait`
+(restart-safe; gates auto-create; self-heals when a position appears
+on-chain; hedge runs on the wallet-only input throughout — no BUG-011
+grace deferral; storms extend the wait). Env: `REENTRY_CONFIRM_MS=7200000`
++ `REENTRY_TOL_FRAC=0.15` set in .env — **goes live on the next
+`pnpm deploy:hetzner`**; rollback = set 0 + redeploy (a wait in progress
+opens next cycle). Field checks after the first triggered recenter:
+(1) «⏸ Выдержка на вход: позиция ЗАКРЫТА» line, netΔ stays in band while
+waiting (wallet bag hedged); (2) «▶️ … пересоздаём позицию» only after
+120 min of calm; (3) recenter rate should DROP in saws/trends; (4) fees
+will drop too — judge by vs-USDC trend, not fee pace (C4 norm does not
+apply while out of pool). Original sim evidence below.
 **Idea (Session 25, after срез #1's 13-traversal saw):** the storm pause
 only sees FAST moves (2%/5min); slow saws and trends — the actual killers —
 sail under it. New mechanism: after a recenter CLOSES the old position,

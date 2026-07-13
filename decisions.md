@@ -1982,6 +1982,50 @@ true`, freeze window = imbalance-pending ∪ in-flight, minus storms);
 
 ---
 
+## ADR-026: «Выдержка на вход» — re-entry gate after recenter closes (Accepted 2026-07-13)
+
+**Context.** Срез #1 of Campaign 4 (2.89d): −2.59 vs USDC, driven by 13
+full range traversals of a slow 76–79 saw — the machine recreated the
+position instantly after every close and paid the next traversal's IL
+within hours. The storm pause (ADR-021) never fired: it watches 5-minute
+moves; a slow saw moves 0.03–0.13%/5min. The fat-fee pool lever is dead
+market-wide (2026-07-13 re-scan: every live-volume SOL/USDC DLMM pool is
+≤0.1% base fee; the A9 candidate runs 47 tx/h with 80% failures), and the
+existing-knob grid (confirm 20/30, band 0.62, bins 28) found nothing above
+the deployed config.
+
+**Decision.** Asymmetric response: close fast, re-open slow. With
+`REENTRY_CONFIRM_MS > 0`, a confirmed recenter runs Phase 1 only (close —
+IL stops), parks the inventory in the wallet where ADR-021 keeps it
+neutral, and creates the new position only after the price holds inside a
+calm corridor of ±(`REENTRY_TOL_FRAC` × range width) around an anchor for
+the confirm window. Every breakout re-anchors and restarts the clock — a
+running trend keeps the machine out of the pool until it pauses. Storms
+extend the wait. The wait state persists in `auto-tune-state.json`
+(restart-safe), gates auto-create, self-heals if a position appears
+on-chain, and the hedge runs on the wallet-only input throughout (no
+BUG-011 grace deferral). Pure decision core `src/modules/reentryGate.ts`
+(11 table-driven tests). Rollback: `REENTRY_CONFIRM_MS=0` — a wait in
+progress opens on the next cycle.
+
+**Evidence (simulator `95fe61c`, calibrated fees = D2 discount in-model,
+reentry 120m / tol 0.15 vs deployed):** crash month +21.48 vs +14.24;
+rally month −12.56 vs −20.87; C3 crash-night week +2.27 vs +1.93; C4 saw
+window +2.24 vs +3.03. Two-month sum −6.6 → +8.9 (and first config to
+beat the pure-cash-hedged benchmark's +3.8). Caveat: valid under the D2
+fee calibration (×1.49/1.68/1.55 measured); at raw sim fees the ranking
+inverts (crossover ≈ ×1.3). The sim also UNDERSTATES shuttle churn, which
+biases against this feature — margin, not risk.
+
+**Consequences.** In trend months the machine spends 50–75% of the time
+out of the pool: less fee income, less IL, wallet bag hedged throughout —
+«mostly-hedged-cash, opportunistically-LP». Claimed fees from the close
+stay in the wallet (the re-open deposits the configured amount, not
+принципал+fees — pennies, swept by scaling decisions later). Deployed
+with 7200000/0.15 per operator approval («строить сейчас», 2026-07-13).
+
+---
+
 ## Decision Index
 
 - ADR-001: Use solana-agent-kit for Transaction Execution *(superseded — direct @solana/web3.js)*
@@ -2009,12 +2053,13 @@ true`, freeze window = imbalance-pending ∪ in-flight, minus storms);
 - ADR-023: Trend confirmation window («выдержка») for recenters and clamp commits (Accepted)
 - ADR-024: Host-level watchdog with push alerts (ntfy.sh) (Accepted)
 - ADR-025: Hedge liveness during imbalance (BUG-015) + clamp-commit freeze + auto-band + 3× collateral (Accepted)
+- ADR-026: «Выдержка на вход» — re-entry gate after recenter closes (Accepted)
 
 ---
 
 ## Decision Status
 
-- **Accepted:** 22 (incl. ADR-025 — BUG-015 fix + clamp freeze + auto-band + 3× collateral)
+- **Accepted:** 23 (incl. ADR-026 — re-entry gate, the slow-saw counterpart of the storm pause)
 - **Superseded:** 3 (ADR-001 by direct web3.js, ADR-010 by removal of Jito, ADR-014 as active venue by ADR-015)
 - **Proposed:** 0
 - **Deprecated:** 0

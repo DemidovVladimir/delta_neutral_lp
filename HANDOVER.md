@@ -33,6 +33,19 @@ Watch-fors: wallet USDC 0 until the first post-deploy SOL-side recenter;
 netΔ residual +0.30 (in band 0.49) since 02:05Z Jul 13; fee pace below norm
 is market, not a lever.
 
+3. **ADR-026 «выдержка на вход» BUILT (operator «Строить сейчас») —
+   NEXT DEPLOY ENABLES IT** (`REENTRY_CONFIRM_MS=7200000`,
+   `REENTRY_TOL_FRAC=0.15` staged in .env): recenters now CLOSE fast and
+   re-open only after 120 min of calm price (±0.15×range width, anchor
+   resets on breakout; storms extend; wait survives restarts; hedge keeps
+   the wallet bag neutral throughout). Sim (calibrated, 4 windows): wins
+   crash +21.48/+14.24, rally −12.56/−20.87, C3-week +2.27/+1.93, loses
+   saw +2.24/+3.03; caveat: ranking inverts without the D2 fee discount.
+   Field checks: ⏸/▶️ log pair around the first triggered recenter; netΔ
+   in band while waiting; DON'T apply the C4 fee-pace norm to out-of-pool
+   hours. Rollback: REENTRY_CONFIRM_MS=0 + redeploy. Full spec: ADR-026 +
+   BACKLOG §A15.
+
 ## ⚡ CAMPAIGN 4 — live since 2026-07-10T10:48:08.395Z (operator: «начнём заново»)
 
 Campaign 3's frame was rejected by the operator (crash night + baseline

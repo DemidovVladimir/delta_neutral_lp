@@ -49,6 +49,29 @@ recenter via the now-bigger alignment swap — that recenter is also the
 BUG-020 field check: extra ~$8–16 swap + FULL-size hedge increase); fee
 pace below norm — market-dependent, not a lever.
 
+### Session 25 addendum — «ищи прибыльную стратегию»: search executed, ADR-026 «выдержка на вход» built (deploy pending)
+
+Operator demanded a profitable strategy. Search: (1) **fat-pool lever re-
+scanned and closed** — all 127 SOL/USDC DLMM pools checked; every fat-fee
+pool is dead on-chain (A9 candidate: 47 tx/h, 80% failures, price 2%
+stale; step 15/25/30: 0 tx/h) — the market routes only through ≤0.1%
+pools; (2) existing-knob grid on the saw window (confirm 20/30, band
+0.62, bins 28) — nothing beats deployed; (3) **new mechanism found: the
+storm pause can't see slow saws** (2%/5min vs the saw's 0.03–0.13%/5min).
+Built «выдержка на вход» into the simulator (`--reentry-min/--reentry-tol`,
+commit `95fe61c`): close fast, re-open only after 120 min of calm inside
+±0.15×width; anchor resets on breakout. Calibrated verdict (fee 6.5 bps
+in-model = D2 discount; 4 real windows): **crash month +21.48 vs +14.24,
+rally month −12.56 vs −20.87, C3 crash-night week +2.27 vs +1.93, C4 saw
++2.24 vs +3.03** — flips the 2-month sum −6.6 → +8.9 and first config to
+beat the pure-cash-hedged benchmark. Caveat: inverts without the D2
+discount (crossover ×1.3; measured ×1.49/1.68/1.55). **Operator approved
+(«Строить сейчас») → production build ADR-026**: `reentryGate.ts` pure
+core (11 tests, 135 vitest total), persisted wait state, auto-create
+gate, self-heal, hedge-on-wallet during wait; `REENTRY_CONFIRM_MS=7200000`
++ `REENTRY_TOL_FRAC=0.15` staged in .env — **live on the next deploy**;
+rollback = 0.
+
 ---
 
 ## 2026-07-10
