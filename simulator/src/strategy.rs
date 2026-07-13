@@ -41,6 +41,20 @@ pub struct StrategyParams {
     pub cap_mult: f64,
     /// ADR-021 storm mode threshold, percent per 5 minutes. 0 disables.
     pub vol_pause_pct_5m: f64,
+    /// «Выдержка на вход» (re-entry confirm, probed 2026-07-13): after a
+    /// recenter CLOSES the old position, park the inventory in the wallet
+    /// (the hedge keeps it neutral) and only OPEN the new position once the
+    /// price has stayed within ±(reentry_tol_frac × full range width) of an
+    /// anchor for this long. The anchor resets on every breakout, so a
+    /// running trend/saw keeps the machine out of the pool until it pauses —
+    /// the slow-saw counterpart of the storm pause (which only sees fast
+    /// 5-minute moves). 0 = off (immediate reopen, production behavior).
+    /// Requires swap_skip (the wallet must be dynamic to hold the parked
+    /// inventory).
+    pub reentry_confirm_ms: i64,
+    /// Price-stability tolerance for the re-entry anchor, as a fraction of
+    /// the FULL range width (auto-scales with geometry — no hand constant).
+    pub reentry_tol_frac: f64,
     /// Jupiter perps fee on traded notional (6 bps).
     pub perp_fee_rate: f64,
     pub network_fee_usd_per_recenter: f64,
@@ -147,6 +161,8 @@ impl Default for StrategyParams {
             carry_cap_bps: 5000.0,
             cap_mult: 1.25,
             vol_pause_pct_5m: 2.0,
+            reentry_confirm_ms: 0,
+            reentry_tol_frac: 0.25,
             perp_fee_rate: 0.0006,
             network_fee_usd_per_recenter: 0.005,
             swap_fee_rate: 0.001,
@@ -214,6 +230,10 @@ pub struct SimReport {
     pub governor_degrades: u32,
     pub governor_restores: u32,
     pub time_degraded_frac: f64,
+    /// Re-entry выдержка (reentry_confirm_ms > 0): close-then-wait episodes
+    /// and the share of simulated time spent OUT of the pool waiting (0..1).
+    pub reentry_waits: u32,
+    pub time_waiting_frac: f64,
 }
 
 struct ShortState {
@@ -278,6 +298,9 @@ pub fn run(params: &StrategyParams, points: &[(i64, f64)]) -> SimReport {
     let mut gov_degraded = false;
     let mut gov_withheld_usd = 0.0_f64;
     let mut time_degraded_ms = 0i64;
+    // Re-entry выдержка: (anchor price, stable-since ts, parked deposit USD).
+    let mut reentry_wait: Option<(f64, i64, f64)> = None;
+    let mut time_waiting_ms = 0i64;
     let total_ms = points.last().unwrap().0 - points[0].0;
 
     let mut prev_t = points[0].0;
@@ -305,6 +328,9 @@ pub fn run(params: &StrategyParams, points: &[(i64, f64)]) -> SimReport {
         }
         if gov_degraded {
             time_degraded_ms += dt_ms as i64;
+        }
+        if reentry_wait.is_some() {
+            time_waiting_ms += dt_ms as i64;
         }
         // Governor daily sample: realized net edge vs hold-as-is,
         // mark-to-market. Two negative days in a row → degrade; the first
@@ -363,9 +389,59 @@ pub fn run(params: &StrategyParams, points: &[(i64, f64)]) -> SimReport {
             }
         }
 
+        // --- Re-entry выдержка: waiting out the saw, then reopening ---------
+        if let Some((anchor, since, parked)) = reentry_wait {
+            // Tolerance is a fraction of the FULL range width, in price terms.
+            let tol = params.n_bins as f64 * (g.step - 1.0) * params.reentry_tol_frac;
+            if (price / anchor - 1.0).abs() > tol {
+                // Breakout — the move is still running; re-anchor and re-arm.
+                reentry_wait = Some((price, t, parked));
+            } else if !storm_active && t - since >= params.reentry_confirm_ms {
+                // Calm confirmed — open the parked deposit at the current
+                // price with the same swap-skip settlement as a recenter.
+                let avail_sol = (wallet_sol - params.wallet_reserve_sol).max(0.0);
+                let deposit = parked.min(avail_sol * pool_price + wallet_usdc.max(0.0));
+                let next = SpotPosition::open(g, pool_price, params.n_bins, deposit, params.fee_rate_net);
+                let sol_leg = next.deposit_sol;
+                let usdc_leg = next.deposit_usdc;
+                let swap_cost = if avail_sol >= sol_leg && wallet_usdc >= usdc_leg {
+                    report.swaps_skipped += 1;
+                    0.0
+                } else {
+                    report.swaps_executed += 1;
+                    let notional = if avail_sol < sol_leg {
+                        let n = ((sol_leg - avail_sol) * pool_price).min(wallet_usdc.max(0.0));
+                        wallet_sol += n / pool_price;
+                        wallet_usdc -= n;
+                        n
+                    } else {
+                        let n = (usdc_leg - wallet_usdc).max(0.0);
+                        wallet_sol -= n / pool_price;
+                        wallet_usdc += n;
+                        n
+                    };
+                    notional * params.swap_fee_rate
+                };
+                wallet_sol -= sol_leg;
+                wallet_usdc -= usdc_leg + swap_cost;
+                report.swap_cost_usd += swap_cost;
+                lp = next;
+                claimed_fees_marker = 0.0;
+                last_recenter_at = Some(t);
+                reentry_wait = None;
+                // The LP mutated — skip triggers and the hedge this tick,
+                // exactly like a recenter cycle.
+                continue;
+            }
+        }
+
         // --- LP recenter with выдержка + execution latency ------------------
+        // While the re-entry wait holds an EMPTY position, there is nothing
+        // to recenter — and sol_percent of a zero position reads as one-sided,
+        // which would fire phantom triggers every confirm window.
         let sol_pct = lp.sol_percent(pool_price) / 100.0;
-        let imbalanced = sol_pct >= params.imbalance_threshold || sol_pct <= 1.0 - params.imbalance_threshold;
+        let imbalanced = reentry_wait.is_none()
+            && (sol_pct >= params.imbalance_threshold || sol_pct <= 1.0 - params.imbalance_threshold);
         if imbalanced {
             imbalance_since.get_or_insert(t);
         } else {
@@ -435,7 +511,21 @@ pub fn run(params: &StrategyParams, points: &[(i64, f64)]) -> SimReport {
                 }
 
                 let network = params.network_fee_usd_per_recenter;
-                if params.swap_skip {
+                if params.swap_skip && params.reentry_confirm_ms > 0 {
+                    // Re-entry выдержка: CLOSE only. The inventory parks in
+                    // the wallet (the hedge input steps to the wallet SOL one
+                    // tick later and keeps the bag neutral); the new position
+                    // opens in the per-tick block below once the price holds
+                    // still long enough. Network fee charged in full here
+                    // (conservative: the reopen TX is not billed again).
+                    wallet_sol += withdrawn_sol;
+                    wallet_usdc += withdrawn_usdc - network;
+                    report.lp_fees_usd += fresh_fees;
+                    report.network_cost_usd += network;
+                    lp = SpotPosition::open(g, pool_price, params.n_bins, 0.0, params.fee_rate_net);
+                    reentry_wait = Some((pool_price, t, deposit));
+                    report.reentry_waits += 1;
+                } else if params.swap_skip {
                     // A10: production swapPlanner. Credit the withdraw to the
                     // wallet, then skip the alignment swap when both legs of
                     // the new deposit already fit — the deposit shuttles the
@@ -712,6 +802,8 @@ pub fn run(params: &StrategyParams, points: &[(i64, f64)]) -> SimReport {
         if total_ms > 0 { time_protected_ms as f64 / total_ms as f64 } else { 0.0 };
     report.time_degraded_frac =
         if total_ms > 0 { time_degraded_ms as f64 / total_ms as f64 } else { 0.0 };
+    report.time_waiting_frac =
+        if total_ms > 0 { time_waiting_ms as f64 / total_ms as f64 } else { 0.0 };
     report
 }
 

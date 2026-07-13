@@ -75,7 +75,9 @@ impl SpotPosition {
         // "a deposit worth value_usd right now", like the bot's 50/50 sizing.
         let raw_value: f64 =
             sol.iter().sum::<f64>() * price + usdc.iter().sum::<f64>();
-        let scale = value_usd / raw_value;
+        // Zero-value open (the re-entry wait parks ALL funds in the wallet
+        // and holds an empty position) must not normalize 0/0 into NaNs.
+        let scale = if raw_value > 0.0 { value_usd / raw_value } else { 0.0 };
         for i in 0..n_bins {
             sol[i] *= scale;
             usdc[i] *= scale;

@@ -107,6 +107,16 @@ fn main() {
         if let Some(v) = flag(&args, "--governor-days") {
             params.governor_neg_windows = v.parse().expect("--governor-days <consecutive negative days>");
         }
+        if let Some(v) = flag(&args, "--reentry-min") {
+            params.reentry_confirm_ms =
+                v.parse::<i64>().expect("--reentry-min <minutes, 0=off>") * 60_000;
+        }
+        if let Some(v) = flag(&args, "--reentry-tol") {
+            params.reentry_tol_frac = v.parse().expect("--reentry-tol <fraction of range width>");
+        }
+        if params.reentry_confirm_ms > 0 && !params.swap_skip {
+            panic!("--reentry-min requires --swap-skip (the wallet must hold the parked inventory)");
+        }
         let r = run_strategy(&params, &points);
         println!(
             "strategy replay: {} candles, confirm {}m, {} bins, band {}, target {} | pool: step {} bps, fee(net) {:.1} bps, deadband {:.1} bps",
@@ -138,6 +148,15 @@ fn main() {
             println!(
                 "swap-skip (A10): {} recenter deposits fit the wallet (no swap), {} needed the alignment swap",
                 r.swaps_skipped, r.swaps_executed
+            );
+        }
+        if params.reentry_confirm_ms > 0 {
+            println!(
+                "re-entry выдержка: {}m / tol {:.0}% of width | waits {} | time out of pool {:.1}%",
+                params.reentry_confirm_ms / 60_000,
+                params.reentry_tol_frac * 100.0,
+                r.reentry_waits,
+                r.time_waiting_frac * 100.0
             );
         }
         if params.risk_engage_usd > 0.0 {
