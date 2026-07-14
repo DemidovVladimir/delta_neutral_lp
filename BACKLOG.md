@@ -318,6 +318,19 @@ the saw window (confirm 20/30, band 0.62, bins 28) found nothing better
 than deployed.
 
 ### A8. Scaling 130 → 300+ (operator decision, after clean срезы)
+**2026-07-14 sim probe (Session 26, calibrated fees, A15 120/0.15 on):**
+deposit scaling is THE percent lever — lp-value 190 (deposit ≈ 1.25 SOL)
+vs 95: crash month +42.18 vs +21.48, rally −27.47 vs −12.56, saw +2.47 vs
++2.24 → two-month avg **+7.35/мес ≈ 2.2%/мес on the $330 portfolio** (lp95:
++4.45 ≈ 1.35%/мес), at the cost of a DOUBLED bad-month drawdown (−27.5 ≈
+−8.3%/мес on the rally month). Same-session negatives: Kamino-style wide
+ranges LOSE even with A15 (bins28: crash +16.95/rally −13.05/saw +1.78;
+bins40: +14.18/−13.21/+1.67 — concentration at 20 bins stays optimal);
+fine A15 grid (60–180 min × tol 0.10–0.20) is jagged within the model's
+noise band (~±10/мес) — 120/0.20 looked best on months (+13.8 sum) but
+loses on the saw; **kept 120/0.15, no overfit chase**. All numbers under
+the D2 calibration assumption — validate A15 live (2–3 clean срезы)
+before bumping the deposit.
 Everything auto-scales (cap ADR-022, band ADR-025, collateral = ratio). The
 ONLY knobs to change: `AUTO_TUNE_DEPOSIT_AMOUNT` (currently 0.61 SOL) and
 the wallet funding itself. Protocol: (1) at least 2 clean срезы on Campaign
