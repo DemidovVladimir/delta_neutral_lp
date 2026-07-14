@@ -74,6 +74,40 @@ rollback = 0.
 
 ---
 
+## 2026-07-14
+
+### Session 26 — night alert triage: false 🔴 (BUG-021 fixed+deployed), first live A15 wait rode out the saw, campaign FIRST POSITIVE (+1.16 vs USDC)
+
+Operator pasted «🔴 0 завершённых циклов — бот стоит» + «ты потерял крупную
+сумму, на хедже проебал?». Triage (runbook): **bot was healthy the whole
+night** — cycles every 15s, hedge heartbeat, netΔ −0.16 in band, 0 VITALS.
+**BUG-021:** the watchdog greps «Auto-tune check cycle completed»; the
+no-LP branch early-returned before that line, and ADR-026 made no-LP an
+hours-long deliberate state → a night of false 🔴 (hourly re-alerts). The
+watchdog's independent signal (auto-tune-state.json age) correctly stayed
+green. Fixed (`logCycleCompleted()` on all exit paths, `988ef23`),
+deployed ~07:19Z; the wait RESUMED across the restart (same anchor
+74.999, heldMs continuing) — restart-safety field-confirmed.
+
+**Money question refuted with the audit:** since the ADR-026 deploy there
+is exactly ONE wallet transaction — the 01:05:19Z A15 close
+`iCLSKbBjeaVNyBYSGabVv5X8JUrsM339oVVaZR9roMBudMz8BBxryTwVVocE1yxrduBKhQSQKkxy5y2iETuxi2v`
+(+0.195274347 SOL, +82.019487 USDC INTO the wallet, fee 0.000007123 SOL);
+hedge traded $0 all night (uPnL +4.43 as price fell — the mirror). Wallet
+2.339083007 SOL + 83.329999 USDC, LP deliberately 0 (wait), perp 70.01 +
+4.43 − 0.03. **Equity $333.12 vs baseline $331.96 → vs-USDC +1.16 — the
+campaign's first positive reading** (yesterday's срез: −2.59; overnight
++3.75). Night mechanics: price sawed 74.59–75.30 (±0.3–0.5%) — the exact
+regime that cost −2.59 last weekend; A15 closed at 01:05 and sat it out
+hedged: 14 anchor resets, 0 recenters, 0 traversal IL.
+
+Watch: the wait needs 120 min inside ±0.268% to re-open — in a persistent
+saw the machine stays in cash (by design; sim said 50–75% out-of-pool in
+trend months). Do NOT judge fee pace (C4) while out of pool; judge the
+vs-USDC trend.
+
+---
+
 ## 2026-07-10
 
 ### Session 24 (addendum 2) — operator's Kamino-review ideas: both auto-mechanisms TESTED & REJECTED same day (A12/A13); daily-PnL табло approved as idea

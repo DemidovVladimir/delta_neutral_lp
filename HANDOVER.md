@@ -1,6 +1,19 @@
 # HANDOVER — Delta-Neutral Bot (LP + Jupiter Perps hedge, both sides)
 
-**Last updated:** 2026-07-13 (Session 25, срез #1 of Campaign 4).
+**Last updated:** 2026-07-14 (Session 26, night-alert triage + BUG-021).
+
+## Session 26 flash (Jul 14 morning) — status: LIVE, `988ef23`, A15 wait ACTIVE
+
+Night 🔴 «бот стоит» was FALSE (BUG-021: the A15 no-LP wait skipped the
+watchdog's liveness line; fixed+deployed ~07:19Z). The first live A15 wait
+closed the position 01:05:19Z and rode out a ±0.3–0.5% saw night in cash,
+hedged (0 VITALS, 0 hedge trades, netΔ in band). **Campaign 4 first
+positive: equity $333.12 vs baseline $331.96 (vs-USDC +1.16; was −2.59 at
+срез #1).** Wallet 2.339083007 SOL + 83.329999 USDC, LP deliberately 0
+(wait active, anchor ~75, needs 120 min inside ±0.268% to re-open — may
+sit in cash for hours/days in a saw, BY DESIGN). Do not judge C4 fee pace
+while out of pool. Live-week verdict of the OLD machine still due today —
+window must END at 2026-07-13T21:36Z (ADR-026 deploy = regime boundary).
 
 ## Session 25 delta (Jul 13) — read this first
 
