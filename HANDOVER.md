@@ -15,6 +15,15 @@ sit in cash for hours/days in a saw, BY DESIGN). Do not judge C4 fee pace
 while out of pool. Live-week verdict of the OLD machine still due today —
 window must END at 2026-07-13T21:36Z (ADR-026 deploy = regime boundary).
 
+Session 26 research (operator «нужен 1%/мес», Kamino comparison): Kamino
+vault APY = fee yield without IL and without the SOL beta — not our
+metric; our fee yield on LP dollars (~32%/мес at 20 bins) EXCEEDS their
+headline; wide Kamino-style ranges LOSE on all 3 paths even with A15.
+The percent lever = deposit size: lp95 ≈ 1.35%/мес, lp190 ≈ 2.2%/мес
+(calibrated model, doubled drawdowns). **Operator decision: scale 0.61 →
+1.25 SOL AFTER 2–3 clean срезы of the A15 machine (≈ Jul 17–18)** — see
+BACKLOG §A8.
+
 ## Session 25 delta (Jul 13) — read this first
 
 **Срез #1 Campaign 4 (2.89d):** vs-USDC **−2.59** / vs-as-is −0.32

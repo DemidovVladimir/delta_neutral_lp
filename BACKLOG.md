@@ -318,6 +318,11 @@ the saw window (confirm 20/30, band 0.62, bins 28) found nothing better
 than deployed.
 
 ### A8. Scaling 130 → 300+ (operator decision, after clean срезы)
+**OPERATOR DECISION 2026-07-14 («После 2–3 чистых срезов»):** bump
+`AUTO_TUNE_DEPOSIT_AMOUNT` 0.61 → 1.25 SOL only after 2–3 clean срезы
+prove the A15 machine positive LIVE (≈ Jul 17–18). Criterion: vs-USDC
+trend ≥ 0 across the срезы, no new incidents. Then one .env change + one
+deploy — everything else auto-scales.
 **2026-07-14 sim probe (Session 26, calibrated fees, A15 120/0.15 on):**
 deposit scaling is THE percent lever — lp-value 190 (deposit ≈ 1.25 SOL)
 vs 95: crash month +42.18 vs +21.48, rally −27.47 vs −12.56, saw +2.47 vs
