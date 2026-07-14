@@ -6,6 +6,29 @@
 
 ## Active Bugs
 
+### BUG-021: Watchdog false «бот стоит» all night — the A15 wait path never logged «Auto-tune check cycle completed»
+**Status:** Fixed 2026-07-14 morning (Session 26), deploy pending. 135 vitest green.
+**Severity:** Low (no funds at risk — the bot was fully healthy and hedged the whole time; cost = repeated false 🔴 pushes to the operator overnight + operator trust scare «ты потерял крупную сумму», refuted by audit: equity was UP)
+**Reported:** 2026-07-14 (operator pasted the 🔴 push)
+
+**Description:** the watchdog's liveness detector counts «Auto-tune check
+cycle completed» lines in the last 10 min of logs. That line was emitted
+only at the END of `runCheckCycleInner`'s main path; the no-LP branch
+exits via early `return` (pre-existing, harmless while no-LP states lasted
+seconds). ADR-026's re-entry wait made no-LP a DELIBERATE hours-long state
+— the first live wait (01:05Z close, saw night, 14 anchor resets) produced
+6+ hours of perfectly healthy cycles with zero «completed» lines →
+watchdog: «0 завершённых циклов — бот стоит», re-alerted hourly. The
+watchdog's independent signal (auto-tune-state.json age) correctly stayed
+green — the bot saved state every cycle.
+
+**Fix:** `logCycleCompleted(startTime)` helper emitted on ALL
+`runCheckCycleInner` exit paths (main path, no-LP branch, safety-check
+return). The watchdog itself is untouched — one liveness line, uniformly
+emitted.
+
+---
+
 ### BUG-020: Swap planner did not reserve the hedge's post-recenter collateral — deposit consumed the wallet's last USDC and the hedge increase filled half its size
 **Status:** Fixed in `d304ea2` (2026-07-13, Session 25), **deployed same day ~18:18Z** (operator ran `pnpm deploy:hetzner`; container verified: version stamp `d304ea2`, label `campaign-4-clean-restart-2026-07-10`, first cycles in band). 6 new unit tests (incl. the exact 02:05Z regression numbers); 124 vitest green. Field check pending: first SOL-side recenter must swap extra ~$8–16 and the follow-up hedge increase must fill FULL size.
 **Severity:** Medium (funds safe, but neutrality degrades: a collateral-capped increase leaves part of the portfolio unhedged until the next recenter's alignment swap replenishes USDC — on a fast down-move that residual is real exposure, and a fully-blocked increase would sit out of band until the blocked-streak VITALS fires)

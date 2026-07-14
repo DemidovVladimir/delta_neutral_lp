@@ -477,6 +477,23 @@ export class AutoTuneOrchestrator {
     await closeEmptyTokenAccounts(getConnection(), getWalletKeypair(), false);
   }
 
+  /**
+   * The watchdog's liveness detector greps for this EXACT line — every
+   * runCheckCycleInner exit path must emit it. The A15 re-entry wait keeps
+   * the loop in the no-LP branch for hours, and that branch's early return
+   * used to skip the line: the watchdog false-alarmed «0 завершённых циклов
+   * — бот стоит» all night 2026-07-14 while the bot was perfectly healthy
+   * (BUG-021).
+   */
+  private logCycleCompleted(startTime: number): void {
+    if (this.watchMode) return;
+    log.infoSampled('Auto-tune check cycle completed', {
+      iteration: this.state.iteration,
+      durationMs: Date.now() - startTime,
+      nextCheckIn: this.config.autoTuneCheckIntervalMs,
+    });
+  }
+
   private async runCheckCycleInner(): Promise<void> {
     const startTime = Date.now();
     this.state.iteration++;
@@ -625,6 +642,7 @@ export class AutoTuneOrchestrator {
             });
             this.state.consecutiveErrors = 0;
             saveAutoTuneState(this.state);
+            this.logCycleCompleted(startTime);
             return;
           }
 
@@ -678,6 +696,7 @@ export class AutoTuneOrchestrator {
 
         this.state.consecutiveErrors = 0;
         saveAutoTuneState(this.state);
+        this.logCycleCompleted(startTime);
         return;
       }
 
@@ -894,13 +913,7 @@ export class AutoTuneOrchestrator {
       // Display watch mode or log
       this.displayWatchMode(balance, elapsed);
 
-      if (!this.watchMode) {
-        log.infoSampled('Auto-tune check cycle completed', {
-          iteration: this.state.iteration,
-          durationMs: elapsed,
-          nextCheckIn: this.config.autoTuneCheckIntervalMs,
-        });
-      }
+      this.logCycleCompleted(startTime);
     } catch (error) {
       log.error('Auto-tune check cycle failed', {
         error: error instanceof Error ? error.message : String(error),
