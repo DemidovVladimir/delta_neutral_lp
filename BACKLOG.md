@@ -317,6 +317,66 @@ failures and a 2%-stale price vs our 34.5k tx/h; step 15/25/30 pools all
 the saw window (confirm 20/30, band 0.62, bins 28) found nothing better
 than deployed.
 
+### A15.1. Re-entry loosened 0.15 → 0.20 — DEPLOYED 2026-07-15 (operator «ослабить вход в пул»)
+
+After 40h+ of the first live wait with zero re-entries the operator ordered
+a loosening. Sim (pinned flag set, 4 windows, EDGE / time-out-of-pool):
+120min/0.20 beats deployed 120/0.15 on BOTH axes — sum +5.74 vs +1.05 AND
+less time out everywhere (43–85% vs 56–96%). Shortening the clock is the
+WRONG loosening: 60min re-enters into trend pauses (rally −18.7/−19.2 vs
+−10.9) — REJECTED. Mechanism: a wider corridor stops harmless wiggles from
+resetting the anchor; the long clock still keeps trends out.
+`REENTRY_TOL_FRAC=0.20` deployed ~17:50Z (`622d72c` env, then `3776f5b`).
+**Code fix shipped with it:** the corridor used to be BAKED into the
+persisted wait state at close time — an operator tol change only applied to
+the NEXT wait. Now the wait persists the closed position's `widthFrac` and
+the corridor recomputes as config-tol × width every cycle (legacy states
+reconstruct width from the stored corridor / 0.15). Verified live: running
+wait corridor 0.295% → 0.394%, anchor + heldMs preserved. Rollback:
+REENTRY_TOL_FRAC=0.15 + redeploy (applies mid-wait now).
+
+### A17. Full-grid sweep 2026-07-15 (operator «вытащи все возможные варианты») — production composite CONFIRMED OPTIMAL
+
+37 configs × 4 pinned windows (saw 72h / C3-week 68h / crash month 744h /
+rally month 720h), calibrated fees 6.5 bps, deadband 5, swap-skip, lp95,
+idle 0, USDC 180, confirm 10 unless varied. EDGE-vs-hold sums (per-window
+detail in progress.md Session 27 / the sweep script in the session
+scratchpad; re-runnable — all flags recorded here):
+
+- **Re-entry grid (5 tol × 4 wait + off, 21 configs): deployed 120min/0.20
+  is the MAX (+5.74)**; runners-up are all «practically never re-enter»
+  configs (240/0.15 +4.70, 180/0.10 +4.37 — 93–100% out of pool); every
+  60-min wait is deeply negative (−7…−13, re-enters into trend pauses);
+  off = −13.72. Surface is JAGGED (120/0.25 → −0.87 one tol-step from the
+  max) — treat ±3–4 USD as path noise, don't chase maxima.
+- **Bins × выдержка (under 120/0.20):** bins20 wins (cm10 +5.74 ≈ cm5
+  +5.73; cm20 +4.06); bins14 loses (+0.28…+2.79), bins28 loses
+  (−0.67…+2.82). Deployed 20/10мин confirmed.
+- **Hedge band:** 0.49 (= production 8-bin auto-band) beats the 0.25 floor
+  — sum **+10.73 vs +5.74**, crash +19.59 vs +14.66 with 21 vs 36 trades
+  (better on BOTH months — not direction luck); 0.75 (≈15 bins' worth at
+  lp95) DANGEROUS: crash collapses to +6.63 (netΔ drifts unhedged).
+  ADR-025's 8-bin choice validated; the DELTA_THRESHOLD floor should never
+  be the binding value at healthy LP sizes.
+- **Deposit ×2 (lp190) with PROPORTIONAL band 0.97 (auto-band reality):**
+  sum **+17.34** (saw +2.48 / c3week +1.50 / crash +37.10 / rally −23.74)
+  ≈ 1.8–2%/мес on the ~370 portfolio, rally-month drawdown ≈ −6.5%.
+  lp190 WITHOUT A15: −30.11 — the re-entry gate is MANDATORY at scale.
+- **Wide-wait re-checked under 0.20:** still rejected (wide40 −9.48,
+  wide-once +2.40 vs cash +5.74).
+- **Pure-cash benchmark honesty:** the never-re-enter corner sits at
+  +4…+4.7 — the LP layer adds only ~+1…+6 over «hedge and sit» at lp95
+  under D2-calibrated fees; the machine's trend-month value is protection,
+  its earning shows in chop. At raw (uncalibrated) fees the LP share grows.
+
+**Verdict: NOTHING new to deploy** — production already runs the sweep's
+best composite (bins 20, выдержка 10м, 8-bin auto-band, re-entry 120/0.20
+after A15.1). The one remaining lever is §A8 (deposit 0.61 → 1.25 after
+2–3 clean срезы). Previously rejected and NOT re-run: pool switch (A9,
+market dead), trend-shrink (A7), protective step (A12), governor (A13),
+target tilt (sum-trap), clamp ramp/slow-exit. Caveats: single price path
+per window; D2 calibration assumed; ties within a few USD are noise.
+
 ### A16. Wide-wait («расширять вместо выхода») — TESTED & REJECTED 2026-07-15
 
 **Operator question (Session 27):** DLMM bins/positions CAN be resized

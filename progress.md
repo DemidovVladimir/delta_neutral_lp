@@ -119,6 +119,28 @@ width, 81 wide recenters); wide-once escalation = TIE with deployed
 (4-window sum −0.01 vs +1.05, ≪ noise). **Cash-wait (ADR-026 as deployed)
 stays.** Revisit condition recorded in §A16.
 
+**Session 27 addendum 2 — re-entry loosened (operator «ослабить вход в
+пул»):** sim of 3 loosening candidates on the 4 pinned windows:
+120min/tol 0.20 wins BOTH axes (sum +5.74 vs deployed +1.05; time out of
+pool 43–85% vs 56–96%); 60-min variants REJECTED (re-enter into trend
+pauses, rally −18.7…−19.2). `REENTRY_TOL_FRAC=0.20` deployed; found+fixed
+along the way: the corridor was baked into the persisted wait at close
+time (config changes didn't touch a running wait) — now `widthFrac` is
+persisted and the corridor recomputes from live config every cycle
+(`3776f5b`). Verified live mid-wait: 0.295% → 0.394%, anchor+clock
+preserved. BACKLOG §A15.1.
+
+**Session 27 addendum 3 — operator-ordered full sweep («вытащи все
+возможные варианты»):** 37 configs × 4 windows + 1 follow-up (149 runs;
+grids: re-entry 5×4+off, bins×confirm 3×3, band ×3, deposit ×2, wide-wait
+×2, scaled-machine lp190/band0.97). Result: **production composite
+CONFIRMED OPTIMAL** — 120/0.20 tops the re-entry grid (+5.74), bins20/10м
+top the LP grid, band 8 корзин (0.49) beats the 0.25 floor +10.73 vs
++5.74 (and 0.75 is dangerous: crash +6.63), deposit ×2 with proportional
+band → sum +17.34 ≈ 1.8–2%/мес with −6.5% rally-month drawdown, and lp190
+WITHOUT A15 = −30.11 (gate mandatory at scale). Full record + caveats:
+BACKLOG §A17. Nothing new to deploy; the remaining lever is §A8.
+
 **A15 first-live-wait observation:** in 31h of waiting the price NEVER
 held 120 min inside the ±0.268% corridor (anchor migrated 75.30 → 78.06
 with the rise; heldMs peaked in minutes). Sim predicted 50–75% out-of-pool
