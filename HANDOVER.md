@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-07-15 (Session 27, срез #2 + BUG-022).
 
-## Session 27 flash (Jul 15) — BUG-022: «first positive» was FAKE; honest срез #2 = −2.70 vs USDC; fix built, DEPLOY PENDING
+## Session 27 flash (Jul 15) — BUG-022: «first positive» was FAKE; honest срез #2 = −2.70 vs USDC; fix DEPLOYED `65f2661` ~06:33Z
 
 Срез #2 verification caught a measurement hole: the **0.05740608 SOL
 position-account rent** (refundable, comes back on close) was invisible to
@@ -16,10 +16,10 @@ vitest; invariant: equity identical before/after a close) and the baseline
 was adjusted by exactly the omission on BOTH copies: **totalUsd
 331.958196546895 → 336.52055387901737** (solSide 0.755234909 →
 0.812640989; capturedAt UNCHANGED — still the history filter key; note
-field documents it). **Deploy pending (operator: with the next deploy)** —
-until then server cron rows are correct while out of pool but will
-UNDERSTATE ~4.5 while in-LP, and the табло will show a fake −4.5 day at
-the first re-entry; correct manually if re-entry lands first.
+field documents it). **DEPLOYED `65f2661` ~06:33Z Jul 15** (container
+verified: version stamp, A15 wait resumed anchor 78.52881252, cycles +
+hedge in band, new code in the container) — all measurement paths honest
+from here, incl. tonight's 00:17Z cron row and the табло.
 
 Honest trend = the real story: old machine bleeding in the saw −0.9/day
 (−2.59 → −3.23 in the window's first 14h in-pool); since the A15 close

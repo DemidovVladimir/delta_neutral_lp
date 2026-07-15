@@ -7,7 +7,7 @@
 ## Active Bugs
 
 ### BUG-022: Equity formula omitted the refundable LP position-account rent — every close «created» ~4.5 USD and Campaign 4's «first positive» was an artifact
-**Status:** Fixed 2026-07-15 (Session 27), deploy pending (operator: «чинить сейчас + поправить базу», deploy with the next one). 136 vitest green. Baseline adjusted on BOTH copies (local + server) same day.
+**Status:** Fixed 2026-07-15 (Session 27) and **DEPLOYED same day ~06:33Z (`65f2661`, operator «задеплой»)** — container verified: version stamp, A15 wait resumed (anchor 78.52881252, heldMs accumulating), cycles + hedge heartbeat in band, new code present in the container (hodl cron now measures honestly). 136 vitest green. Baseline adjusted on BOTH copies (local + server) same day.
 **Severity:** Medium (no funds at risk — pure measurement; but it flipped срез verdicts: the celebrated «first positive +1.16 vs USDC» of 2026-07-14 was really ≈ −3.1, and срез #2 printed +1.79 while the honest number was −2.70)
 **Reported:** 2026-07-15 (Session 27, срез #2 verification block)
 
