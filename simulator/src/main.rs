@@ -114,8 +114,17 @@ fn main() {
         if let Some(v) = flag(&args, "--reentry-tol") {
             params.reentry_tol_frac = v.parse().expect("--reentry-tol <fraction of range width>");
         }
+        if let Some(v) = flag(&args, "--wait-wide-bins") {
+            params.wait_wide_bins = v.parse().expect("--wait-wide-bins <n bins, 0=cash wait>");
+        }
+        if args.iter().any(|a| a == "--wide-once") {
+            params.wide_once = true;
+        }
         if params.reentry_confirm_ms > 0 && !params.swap_skip {
             panic!("--reentry-min requires --swap-skip (the wallet must hold the parked inventory)");
+        }
+        if params.wait_wide_bins > 0 && params.reentry_confirm_ms == 0 {
+            panic!("--wait-wide-bins requires --reentry-min (it replaces the cash wait)");
         }
         let r = run_strategy(&params, &points);
         println!(
@@ -157,6 +166,12 @@ fn main() {
                 params.reentry_tol_frac * 100.0,
                 r.reentry_waits,
                 r.time_waiting_frac * 100.0
+            );
+        }
+        if params.wait_wide_bins > 0 {
+            println!(
+                "wide-wait: {} bins while waiting | wide recenters {}",
+                params.wait_wide_bins, r.wide_recenters
             );
         }
         if params.risk_engage_usd > 0.0 {

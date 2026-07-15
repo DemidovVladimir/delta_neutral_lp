@@ -55,6 +55,22 @@ pub struct StrategyParams {
     /// Price-stability tolerance for the re-entry anchor, as a fraction of
     /// the FULL range width (auto-scales with geometry — no hand constant).
     pub reentry_tol_frac: f64,
+    /// Wide-wait candidate (probed 2026-07-15, «расширять вместо выхода»):
+    /// while the re-entry wait is active, hold the parked deposit in a WIDE
+    /// position of this many bins instead of cash. Earns at ~n_bins/W of the
+    /// narrow fee rate; a saw contained inside ±(W/2 × step) realizes no IL
+    /// (round trips restore inventory), and only a continued trend recenters
+    /// the wide position (its own 92% trigger + выдержка). The calm-confirm
+    /// transition back to the narrow position is a full recenter (network
+    /// fee + possible alignment swap). 0 = off (cash wait, ADR-026).
+    /// Requires reentry_confirm_ms > 0 and swap_skip.
+    pub wait_wide_bins: usize,
+    /// Wide-once escalation: the FIRST close of a wait episode parks in the
+    /// wide position (a saw stays contained and keeps earning), but if the
+    /// trend pushes the WIDE position to its own recenter trigger, escalate
+    /// to the plain cash wait instead of re-widening — a trend pays one wide
+    /// traversal and then steps aside. false = re-widen every time.
+    pub wide_once: bool,
     /// Jupiter perps fee on traded notional (6 bps).
     pub perp_fee_rate: f64,
     pub network_fee_usd_per_recenter: f64,
@@ -163,6 +179,8 @@ impl Default for StrategyParams {
             vol_pause_pct_5m: 2.0,
             reentry_confirm_ms: 0,
             reentry_tol_frac: 0.25,
+            wait_wide_bins: 0,
+            wide_once: false,
             perp_fee_rate: 0.0006,
             network_fee_usd_per_recenter: 0.005,
             swap_fee_rate: 0.001,
@@ -234,6 +252,9 @@ pub struct SimReport {
     /// and the share of simulated time spent OUT of the pool waiting (0..1).
     pub reentry_waits: u32,
     pub time_waiting_frac: f64,
+    /// Wide-wait mode (wait_wide_bins > 0): recenters of the WIDE position
+    /// while waiting (a trend pushed the wide range one-sided too).
+    pub wide_recenters: u32,
 }
 
 struct ShortState {
@@ -254,6 +275,10 @@ pub fn run(params: &StrategyParams, points: &[(i64, f64)]) -> SimReport {
     assert!(
         params.governor_frac == 0.0 || params.swap_skip,
         "the profitability governor needs the swap_skip wallet model (withheld cash lives in the wallet)"
+    );
+    assert!(
+        params.wait_wide_bins == 0 || (params.reentry_confirm_ms > 0 && params.swap_skip),
+        "wait_wide_bins needs the re-entry выдержка (reentry_confirm_ms > 0) and swap_skip"
     );
     let g = BinGeometry::from_bps(params.bin_step_bps);
     let p0 = points[0].1;
@@ -396,9 +421,27 @@ pub fn run(params: &StrategyParams, points: &[(i64, f64)]) -> SimReport {
             if (price / anchor - 1.0).abs() > tol {
                 // Breakout — the move is still running; re-anchor and re-arm.
                 reentry_wait = Some((price, t, parked));
-            } else if !storm_active && t - since >= params.reentry_confirm_ms {
+            } else if !storm_active
+                && pending_recenter.is_none()
+                && t - since >= params.reentry_confirm_ms
+            {
                 // Calm confirmed — open the parked deposit at the current
                 // price with the same swap-skip settlement as a recenter.
+                // (pending_recenter guard: a wide-wait recenter already in
+                // flight must land before the narrow reopen may run.)
+                if params.wait_wide_bins > 0 && lp.value_usd(pool_price) > 1e-9 {
+                    // Wide-wait: withdraw the wide position first (claim its
+                    // fees); the wide→narrow transition is a full recenter,
+                    // so it pays its own network fee. (Value guard: under
+                    // wide_once the escalated cash phase holds an empty
+                    // position — nothing to withdraw, no fee to charge.)
+                    let fresh = lp.fees_usd - claimed_fees_marker;
+                    wallet_sol += lp.total_sol();
+                    wallet_usdc += lp.total_usdc() + fresh - params.network_fee_usd_per_recenter;
+                    report.lp_fees_usd += fresh;
+                    report.network_cost_usd += params.network_fee_usd_per_recenter;
+                    claimed_fees_marker = 0.0;
+                }
                 let avail_sol = (wallet_sol - params.wallet_reserve_sol).max(0.0);
                 let deposit = parked.min(avail_sol * pool_price + wallet_usdc.max(0.0));
                 let next = SpotPosition::open(g, pool_price, params.n_bins, deposit, params.fee_rate_net);
@@ -438,9 +481,12 @@ pub fn run(params: &StrategyParams, points: &[(i64, f64)]) -> SimReport {
         // --- LP recenter with выдержка + execution latency ------------------
         // While the re-entry wait holds an EMPTY position, there is nothing
         // to recenter — and sol_percent of a zero position reads as one-sided,
-        // which would fire phantom triggers every confirm window.
+        // which would fire phantom triggers every confirm window. Wide-wait
+        // mode is the exception: the wide position holds real funds and must
+        // recenter when a trend pushes IT one-sided too.
         let sol_pct = lp.sol_percent(pool_price) / 100.0;
-        let imbalanced = reentry_wait.is_none()
+        let imbalanced = (reentry_wait.is_none()
+            || (params.wait_wide_bins > 0 && lp.value_usd(pool_price) > 1e-9))
             && (sol_pct >= params.imbalance_threshold || sol_pct <= 1.0 - params.imbalance_threshold);
         if imbalanced {
             imbalance_since.get_or_insert(t);
@@ -518,13 +564,58 @@ pub fn run(params: &StrategyParams, points: &[(i64, f64)]) -> SimReport {
                     // opens in the per-tick block below once the price holds
                     // still long enough. Network fee charged in full here
                     // (conservative: the reopen TX is not billed again).
+                    // Wide-wait mode instead redeposits into a WIDE position
+                    // (same swap-skip settlement as a recenter) — it keeps
+                    // earning at ~n_bins/W rate while the wait runs, and a
+                    // continued trend recenters the wide position again.
+                    let was_waiting = reentry_wait.is_some();
                     wallet_sol += withdrawn_sol;
                     wallet_usdc += withdrawn_usdc - network;
                     report.lp_fees_usd += fresh_fees;
                     report.network_cost_usd += network;
-                    lp = SpotPosition::open(g, pool_price, params.n_bins, 0.0, params.fee_rate_net);
+                    if params.wait_wide_bins > 0 && !(params.wide_once && was_waiting) {
+                        let next = SpotPosition::open(
+                            g,
+                            pool_price,
+                            params.wait_wide_bins,
+                            deposit,
+                            params.fee_rate_net,
+                        );
+                        let sol_leg = next.deposit_sol;
+                        let usdc_leg = next.deposit_usdc;
+                        let avail_sol = (wallet_sol - params.wallet_reserve_sol).max(0.0);
+                        let swap_cost = if avail_sol >= sol_leg && wallet_usdc >= usdc_leg {
+                            report.swaps_skipped += 1;
+                            0.0
+                        } else {
+                            report.swaps_executed += 1;
+                            let notional = if avail_sol < sol_leg {
+                                let n = ((sol_leg - avail_sol) * pool_price)
+                                    .min(wallet_usdc.max(0.0));
+                                wallet_sol += n / pool_price;
+                                wallet_usdc -= n;
+                                n
+                            } else {
+                                let n = (usdc_leg - wallet_usdc).max(0.0);
+                                wallet_sol -= n / pool_price;
+                                wallet_usdc += n;
+                                n
+                            };
+                            notional * params.swap_fee_rate
+                        };
+                        wallet_sol -= sol_leg;
+                        wallet_usdc -= usdc_leg + swap_cost;
+                        report.swap_cost_usd += swap_cost;
+                        lp = next;
+                    } else {
+                        lp = SpotPosition::open(g, pool_price, params.n_bins, 0.0, params.fee_rate_net);
+                    }
                     reentry_wait = Some((pool_price, t, deposit));
-                    report.reentry_waits += 1;
+                    if was_waiting {
+                        report.wide_recenters += 1;
+                    } else {
+                        report.reentry_waits += 1;
+                    }
                 } else if params.swap_skip {
                     // A10: production swapPlanner. Credit the withdraw to the
                     // wallet, then skip the alignment swap when both legs of
@@ -906,6 +997,33 @@ mod tests {
             shuttle.swap_cost_usd,
             legacy.swap_cost_usd
         );
+    }
+
+    #[test]
+    fn wide_wait_keeps_earning_while_cash_wait_does_not() {
+        // MECHANICS only: on a saw that keeps the re-entry wait active, the
+        // wide-wait position must (a) hold funds in the pool during the wait
+        // and keep accruing fees vs the cash wait, (b) never recenter more
+        // often than the narrow machine would (the wide range contains the
+        // saw). Dollar verdicts belong to the real-path runs.
+        let points = to_price_points(&whipsaw_candles(720));
+        let base = StrategyParams {
+            swap_skip: true,
+            reentry_confirm_ms: 120 * 60_000,
+            reentry_tol_frac: 0.15,
+            wallet_usdc_start: 180.0,
+            ..StrategyParams::default()
+        };
+        let cash = run(&base, &points);
+        let wide = run(&StrategyParams { wait_wide_bins: 40, ..base.clone() }, &points);
+        assert!(cash.reentry_waits > 0, "path must trigger a wait to exercise the mode");
+        assert!(
+            wide.lp_fees_usd > cash.lp_fees_usd,
+            "wide wait must keep earning: {} vs cash {}",
+            wide.lp_fees_usd,
+            cash.lp_fees_usd
+        );
+        assert!(wide.unsupported_long_decisions == 0);
     }
 
     #[test]

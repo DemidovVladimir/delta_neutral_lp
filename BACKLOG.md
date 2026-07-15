@@ -317,6 +317,45 @@ failures and a 2%-stale price vs our 34.5k tx/h; step 15/25/30 pools all
 the saw window (confirm 20/30, band 0.62, bins 28) found nothing better
 than deployed.
 
+### A16. Wide-wait («расширять вместо выхода») — TESTED & REJECTED 2026-07-15
+
+**Operator question (Session 27):** DLMM bins/positions CAN be resized
+in-place (`increase_position_length`/`decrease_position_length`, positions
+up to 1400 bins, both in our SDK) — so instead of the A15 cash wait, hold
+the parked deposit in a WIDE position (±2% at 40 bins / 10 bps) and narrow
+back when calm confirms. Theory: a saw contained inside the wide range
+earns fees with no realized IL (round trips restore inventory); law-2
+(IL/day width-independent) only bites on paths that traverse.
+
+**Sim probe (`--wait-wide-bins N [--wide-once]`, both require
+`--reentry-min`):** re-pinned baseline flag set for THIS grid (the
+session-25 exact flags were unrecorded): `--swap-skip --bin-step 10
+--fee-bps 6.5 --deadband-bps 5 --confirm-min 10 --lp-value 95 --idle-sol 0
+--wallet-usdc 180`; windows crash = May 8 + 744h, rally = Jun 8 + 720h,
+C3-week = Jul 7 13:47 + 68h, saw = Jul 10 10:48 + 72h. EDGE vs
+hold-as-is (saw / C3-week / crash / rally / SUM):
+
+- base (no A15):     +2.28 / −0.27 / +3.91 / −19.64 / **−13.72**
+- cash-wait (PROD):  +1.59 / +0.89 / +11.13 / −12.56 / **+1.05**
+- wide-40:           +2.18 / +1.68 / +11.72 / −24.70 / **−9.12**
+- wide-60:           +2.18 / +0.27 / +10.00 / −19.70 / **−7.25**
+- wide-40 + once:    +2.07 / +0.85 / +10.14 / −13.07 / **−0.01**
+
+**Verdict: REJECTED, cash-wait stays.** Full wide-wait dies on the rally
+month (81 wide recenters — a month-long trend traverses ANY containable
+width, eating full IL for half fees; worse than no A15 at all). The
+wide-once escalation (widen once per episode, breakout → cash) fixes the
+trend leg but lands a TIE with deployed (Δ ≈ 1 USD / 2.2 months ≪ model
+noise) — not worth new production machinery. Extra bias caution: the
+mechanism's whole win is FEES, exactly where D2 says the model flatters
+(×1.3 crossover), and the sim under-counts live shuttle churn (more wide
+recenters live than simmed). Revisit ONLY if live срезы show multi-day
+pure-saw regimes where the machine sits in cash and the vs-USDC trend is
+flat — the saw window's +0.5/3d is real but small, and it's the only
+regime that pays. Account plumbing answer recorded for the operator:
+position rent is refundable (BUG-022), so in-place resize saves ~nothing —
+the recenter cost is the swap + market move, not the account.
+
 ### A8. Scaling 130 → 300+ (operator decision, after clean срезы)
 **OPERATOR DECISION 2026-07-14 («После 2–3 чистых срезов»):** bump
 `AUTO_TUNE_DEPOSIT_AMOUNT` 0.61 → 1.25 SOL only after 2–3 clean срезы

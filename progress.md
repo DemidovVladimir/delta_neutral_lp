@@ -107,6 +107,18 @@ Jul 14, cycle lines now emitted on the wait path). BUG-020 field check
 still open — no swap-recenter under the fixed planner yet (machine out of
 pool since 01:05Z Jul 14).
 
+**Session 27 addendum — wide-wait probe (operator: bins/resize question →
+«давай»):** answered how DLMM bins work (shared BinArray accounts hold the
+bins; our PositionV2 pins a fixed range but CAN be resized in-place via
+increase/decrease_position_length, up to 1400 bins — rent is the refundable
+BUG-022 deposit, so resize saves ~nothing; the recenter cost is the swap +
+market move). Tested the follow-up idea «расширять вместо выхода» in the
+simulator (`--wait-wide-bins`/`--wide-once`, BACKLOG §A16): full wide-wait
+REJECTED (rally month −24.70 vs cash-wait −12.56 — a trend traverses any
+width, 81 wide recenters); wide-once escalation = TIE with deployed
+(4-window sum −0.01 vs +1.05, ≪ noise). **Cash-wait (ADR-026 as deployed)
+stays.** Revisit condition recorded in §A16.
+
 **A15 first-live-wait observation:** in 31h of waiting the price NEVER
 held 120 min inside the ±0.268% corridor (anchor migrated 75.30 → 78.06
 with the rise; heldMs peaked in minutes). Sim predicted 50–75% out-of-pool
