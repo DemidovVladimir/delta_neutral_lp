@@ -6,6 +6,41 @@
 
 ## Active Bugs
 
+### BUG-022: Equity formula omitted the refundable LP position-account rent — every close «created» ~4.5 USD and Campaign 4's «first positive» was an artifact
+**Status:** Fixed 2026-07-15 (Session 27), deploy pending (operator: «чинить сейчас + поправить базу», deploy with the next one). 136 vitest green. Baseline adjusted on BOTH copies (local + server) same day.
+**Severity:** Medium (no funds at risk — pure measurement; but it flipped срез verdicts: the celebrated «first positive +1.16 vs USDC» of 2026-07-14 was really ≈ −3.1, and срез #2 printed +1.79 while the honest number was −2.70)
+**Reported:** 2026-07-15 (Session 27, срез #2 verification block)
+
+**Description:** Creating a DLMM position locks **0.05740608 SOL**
+(57,406,080 lamports, rent exemption for the position account) which is
+refunded to the wallet on close. Verified from both window creates:
+wallet ΔSOL exceeded the deposited amount by exactly 0.057406 both times
+(`5FQZL7ejZa8CxTTfvpumyG35coj55XJef8Z5mo8v9U8SRWoJQGQqTgYC3hGo2HKRsJiS18e1g75geWZQRgNVCtC4`,
+`2iY2rB3afW1Y1FGbhaypb42eRaHFY6wNPBMMX2rv524c5iNjhD5KJhYFNLVL3Y8ep24BvfjNJ6hB597NrL1xAQCz`).
+`hodlBenchmark.ts` equity = wallet + LP amounts + perp — the locked rent
+appeared NOWHERE, so every in-LP measurement was understated by ~4.5 USD
+and every position close produced a fake +4.5 equity jump. The Campaign 4
+baseline (2026-07-10T10:48:08.395Z) was captured with a position open
+(`3fM6CQP6cXGeeCweAPt4PXj3w3Sue4uPfkdcHCZcfwDK`) → understated too, so
+in-LP срезы compared fairly, but any measurement taken while OUT of the
+pool (the ADR-026 wait state) read ~+4.5 too good vs the baseline. First
+live A15 wait (2026-07-14) surfaced it: «campaign first positive» and the
+morning табло «за сутки +4.90» were ~+4.5 rent artifact (honest: ≈ +0.44).
+
+**Fix:** `EquityBreakdown.lpPositionsRentSol` — hodl-compare reads the
+ACTUAL lamports of every open position account (fail-hard, like all its
+reads) and equityComponents books them on the SOL side; new invariant test:
+equity is identical the instant before and after a close. Baseline adjusted
+by exactly the omission: solSideAmount 0.755234909 → 0.812640989, totalUsd
+331.958196546895 → 336.52055387901737 (note field documents it;
+capturedAt UNCHANGED — it is the history filter key). Until the next
+deploy the server cron runs old code: rows are correct while out of pool,
+but will UNDERSTATE by ~4.5 while in-LP (and the табло will show a fake
+−4.5 day at the first re-entry) — correct manually if a re-entry lands
+before the deploy.
+
+---
+
 ### BUG-021: Watchdog false «бот стоит» all night — the A15 wait path never logged «Auto-tune check cycle completed»
 **Status:** Fixed 2026-07-14 morning (Session 26), deploy pending. 135 vitest green.
 **Severity:** Low (no funds at risk — the bot was fully healthy and hedged the whole time; cost = repeated false 🔴 pushes to the operator overnight + operator trust scare «ты потерял крупную сумму», refuted by audit: equity was UP)

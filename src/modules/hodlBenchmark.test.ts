@@ -28,6 +28,7 @@ function makeBreakdown(overrides: Partial<EquityBreakdown> = {}): EquityBreakdow
     lpUsdc: 1000,
     lpClaimableSol: 0.1,
     lpClaimableUsdc: 5,
+    lpPositionsRentSol: 0,
     perpCollateralUsd: 500,
     perpUnrealizedPnlUsd: 0,
     perpAccruedBorrowFeeUsd: 0,
@@ -60,6 +61,15 @@ describe('computeEquityUsd', () => {
       makeBreakdown({ perpUnrealizedPnlUsd: -75, perpAccruedBorrowFeeUsd: 12.5 }),
     );
     expect(equity).toBeCloseTo(1160 + 1205 + 500 - 75 - 12.5, 6);
+  });
+
+  it('counts locked position rent on the SOL side (BUG-022)', () => {
+    // Equity must be identical the moment before and after a position close:
+    // rent locked in the account (in-LP) vs rent back in the wallet (closed).
+    const inLp = makeBreakdown({ lpPositionsRentSol: 0.05740608 });
+    const closed = makeBreakdown({ walletSol: 1 + 0.05740608, lpPositionsRentSol: 0 });
+    expect(computeEquityUsd(inLp)).toBeCloseTo(computeEquityUsd(closed), 9);
+    expect(computeEquityUsd(inLp)).toBeCloseTo(1160 + 0.05740608 * 100 + 1205 + 500, 6);
   });
 });
 

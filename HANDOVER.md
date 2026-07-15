@@ -1,6 +1,37 @@
 # HANDOVER — Delta-Neutral Bot (LP + Jupiter Perps hedge, both sides)
 
-**Last updated:** 2026-07-14 (Session 26, night-alert triage + BUG-021).
+**Last updated:** 2026-07-15 (Session 27, срез #2 + BUG-022).
+
+## Session 27 flash (Jul 15) — BUG-022: «first positive» was FAKE; honest срез #2 = −2.70 vs USDC; fix built, DEPLOY PENDING
+
+Срез #2 verification caught a measurement hole: the **0.05740608 SOL
+position-account rent** (refundable, comes back on close) was invisible to
+the equity formula, and the Campaign-4 baseline was captured with a
+position open → any measurement taken while OUT of the pool (the A15 wait
+state) read **~+4.5 USD too good**. Session 26's «first positive +1.16» is
+retracted (honest ≈ −3.1); срез #2 printed +1.79, honest = **−2.70**
+(mech +0.91 + skill −2.70, no leak). Fixed same day (BUG-022:
+`lpPositionsRentSol` read from actual position-account lamports; 136
+vitest; invariant: equity identical before/after a close) and the baseline
+was adjusted by exactly the omission on BOTH copies: **totalUsd
+331.958196546895 → 336.52055387901737** (solSide 0.755234909 →
+0.812640989; capturedAt UNCHANGED — still the history filter key; note
+field documents it). **Deploy pending (operator: with the next deploy)** —
+until then server cron rows are correct while out of pool but will
+UNDERSTATE ~4.5 while in-LP, and the табло will show a fake −4.5 day at
+the first re-entry; correct manually if re-entry lands first.
+
+Honest trend = the real story: old machine bleeding in the saw −0.9/day
+(−2.59 → −3.23 in the window's first 14h in-pool); since the A15 close
+01:05Z Jul 14 the machine sat 31+h in cash hedged: −3.23 → **−2.70**
+(+0.53, bleed STOPPED). Zero hedge trades since Jul 13 02:05Z; 0 VITALS;
+liq 1.40×; in-pool fee pace 1.3–2.0 USD/day (in norm). A15 never re-entered
+yet — price never held 120 min in the ±0.268% corridor in 31h (by design
+per sim; revisit width only after days of zero entries). §A8: срез #2 is
+ops-clean but NOT a positive tick — recommended not to count it toward the
+2–3 clean срезы. BUG-020 field check still open (no swap-recenter under
+the fixed planner yet). Minor: the wait spams «Position list is EMPTY» +
+runs on-chain discovery every 15s — RPC burn, cheap fix candidate.
 
 ## Session 26 flash (Jul 14 morning) — status: LIVE, `988ef23`, A15 wait ACTIVE
 

@@ -12,7 +12,7 @@
  *   HODL-as-is  the exact starting composition, held untouched
  *
  * Strategy equity = wallet SOL + wallet wSOL + wallet USDC
- *                 + LP amounts (incl. unclaimed fees)
+ *                 + LP amounts (incl. unclaimed fees + position-account rent)
  *                 + Σ per perp side (collateral + price PnL − accrued borrow fees).
  *
  * Pure math and types only — NO I/O. The CLI (src/cli/hodl-compare.ts) owns
@@ -47,6 +47,13 @@ export interface EquityBreakdown {
   lpUsdc: number;
   lpClaimableSol: number;
   lpClaimableUsdc: number;
+  /**
+   * Refundable rent locked in open LP position accounts (~0.0574 SOL each),
+   * returned to the wallet when the position closes. Omitting it made equity
+   * "jump" by the rent on every close and understated every in-LP measurement
+   * (BUG-022).
+   */
+  lpPositionsRentSol: number;
   /** Σ collateralUsd over open perp sides. */
   perpCollateralUsd: number;
   /** Σ price PnL over open perp sides (positive = in profit). */
@@ -57,7 +64,7 @@ export interface EquityBreakdown {
 
 /** The three aggregates every consumer of a breakdown needs. */
 export interface EquityComponents {
-  /** SOL-denominated units: wallet SOL + wSOL + LP SOL + claimable SOL. */
+  /** SOL-denominated units: wallet SOL + wSOL + LP SOL + claimable SOL + locked position rent. */
   solSideAmount: number;
   /** USD-denominated holdings: USDC + LP USDC + claimable USDC. */
   usdcSideUsd: number;
@@ -67,7 +74,7 @@ export interface EquityComponents {
 
 export function equityComponents(b: EquityBreakdown): EquityComponents {
   return {
-    solSideAmount: b.walletSol + b.walletWsol + b.lpSol + b.lpClaimableSol,
+    solSideAmount: b.walletSol + b.walletWsol + b.lpSol + b.lpClaimableSol + b.lpPositionsRentSol,
     usdcSideUsd: b.walletUsdc + b.lpUsdc + b.lpClaimableUsdc,
     perpEquityUsd: b.perpCollateralUsd + b.perpUnrealizedPnlUsd - b.perpAccruedBorrowFeeUsd,
   };

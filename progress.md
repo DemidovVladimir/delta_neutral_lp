@@ -74,6 +74,54 @@ rollback = 0.
 
 ---
 
+## 2026-07-15
+
+### Session 27 — срез #2 Кампании 4: BUG-022 found (position rent invisible to equity) — «first positive» retracted, honest number −2.70 vs USDC; fix built + baseline adjusted
+
+**Срез #2 (window 4.80d, full verification block passed).** As printed by
+the pre-fix tool: vs-USDC +1.79 / vs-as-is +2.70 / vs-SOL +6.84. The
+verification block caught the flaw: the 01:05Z Jul 14 close returned the
+**0.05740608 SOL position-account rent** to the wallet; the equity formula
+never counted it while locked, and the baseline was captured with a
+position open → measurements taken OUT of the pool read ~+4.5 USD too
+good. **Honest срез #2: vs-USDC −2.70 / vs-as-is −1.79 / vs-SOL +2.35**
+(decomposition: mechanical +0.91 on the 79.48→78.27 drop + skill −2.70 =
+vs-USDC to the cent, no leak). Session 26's «campaign first positive
++1.16» retracted (honest ≈ −3.1); the morning табло «за сутки +4.90» was
+~+4.46 artifact (honest ≈ +0.44). → **BUG-022**, fixed same session
+(lpPositionsRentSol in EquityBreakdown, actual lamports read per open
+position, invariant test close-before/after; 136 vitest green), baseline
+adjusted by exactly the omission on both copies (totalUsd
+331.958196546895 → 336.52055387901737, note documents it, capturedAt
+unchanged). Deploy with the next one (operator-approved option).
+
+**The honest trend is the actual good news:** old machine in the saw
+(Jul 13, in pool): −2.59 → −3.23 in 14h (the familiar −0.9/day bleed);
+A15 machine in cash since the 01:05Z close: −3.23 → −2.70 over 31h
+(**+0.53** — fees claimed at close + mirror noise; the bleed STOPPED).
+Zero hedge trades since Jul 13 02:05Z, netΔ in band all window, 0 VITALS,
+3594 snapshots max gap 35s, 7 txs all classified (tx-audit), network fees
+0.000248457 SOL. Liq 1.40× spot. In-pool fee pace ≈ 1.3–2.0 USD/day —
+inside the C4 norm. BUG-021 field-verified (false alerts ended 07:25Z
+Jul 14, cycle lines now emitted on the wait path). BUG-020 field check
+still open — no swap-recenter under the fixed planner yet (machine out of
+pool since 01:05Z Jul 14).
+
+**A15 first-live-wait observation:** in 31h of waiting the price NEVER
+held 120 min inside the ±0.268% corridor (anchor migrated 75.30 → 78.06
+with the rise; heldMs peaked in minutes). Sim predicted 50–75% out-of-pool
+in trend months — by design, not a defect; revisit corridor width only if
+days pass with zero re-entries. Analyzer verdict: **parameters confirmed,
+no lever moved**; sitting-in-cash cost = carry only ≈ 0.026 USD/day. §A8
+counter: срез #2 is operationally clean but NOT a positive-trend tick —
+recommendation logged: don't count it toward the 2–3 needed for the
+deposit bump until the machine earns after a real re-entry. Minor finding:
+the wait spams «Position list is EMPTY / No position mints» warn-pair +
+an on-chain discovery attempt every 15s — log noise + RPC burn, cheap fix
+candidate.
+
+---
+
 ## 2026-07-14
 
 ### Session 26 — night alert triage: false 🔴 (BUG-021 fixed+deployed), first live A15 wait rode out the saw, campaign FIRST POSITIVE (+1.16 vs USDC)

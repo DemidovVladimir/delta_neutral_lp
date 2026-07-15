@@ -166,6 +166,18 @@ async function collectBreakdown(): Promise<{
     (s): s is NonNullable<typeof s> => s != null,
   );
 
+  // Refundable rent locked in each open position account (~0.0574 SOL). It
+  // comes back to the wallet on close, so leaving it out makes equity jump on
+  // every close and understates every in-LP read (BUG-022). Read the actual
+  // lamports — fail-hard like every other read here.
+  const positionRentLamports = exposure && exposure.positions.length > 0
+    ? (
+        await Promise.all(
+          exposure.positions.map((p) => connection.getBalance(new PublicKey(p.mint))),
+        )
+      ).reduce((sum, l) => sum + l, 0)
+    : 0;
+
   const breakdown: EquityBreakdown = {
     solPriceUsd: priceData.usd,
     walletSol: solLamports / 1e9,
@@ -175,6 +187,7 @@ async function collectBreakdown(): Promise<{
     lpUsdc: exposure?.usdcAmount ?? 0,
     lpClaimableSol: exposure?.claimableSol ?? 0,
     lpClaimableUsdc: exposure?.claimableUsdc ?? 0,
+    lpPositionsRentSol: positionRentLamports / 1e9,
     perpCollateralUsd: sides.reduce((sum, s) => sum + s.collateralUsd, 0),
     perpUnrealizedPnlUsd: sides.reduce((sum, s) => sum + s.unrealizedPnlUsd, 0),
     perpAccruedBorrowFeeUsd: sides.reduce((sum, s) => sum + s.accruedBorrowFeeUsd, 0),
@@ -203,6 +216,7 @@ function printBreakdown(b: EquityBreakdown, walletAddress: string): void {
   console.log(`  LP SOL:            ${b.lpSol.toFixed(6)} SOL  (${fmtUsdAbs(b.lpSol * b.solPriceUsd)})`);
   console.log(`  LP USDC:           ${fmtUsdAbs(b.lpUsdc)}`);
   console.log(`  LP unclaimed fees: ${b.lpClaimableSol.toFixed(6)} SOL + ${b.lpClaimableUsdc.toFixed(2)} USDC`);
+  console.log(`  LP position rent:  ${b.lpPositionsRentSol.toFixed(6)} SOL  (${fmtUsdAbs(b.lpPositionsRentSol * b.solPriceUsd)}, refundable on close)`);
   console.log(`  perp collateral:   ${fmtUsdAbs(b.perpCollateralUsd)}`);
   console.log(`  perp price PnL:    ${fmtUsd(b.perpUnrealizedPnlUsd)}`);
   console.log(`  perp borrow fees:  -${fmtUsdAbs(b.perpAccruedBorrowFeeUsd)} (accrued, unpaid)`);
