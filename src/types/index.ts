@@ -360,7 +360,12 @@ export interface AutoTuneState {
   reentryWait?: {
     anchorPrice: number; // Calm-corridor center (reset on every breakout)
     stableSinceMs: number; // When the price last (re)entered the corridor
-    tolPriceFrac: number; // Corridor half-width as a price fraction (from range geometry at close)
+    tolPriceFrac: number; // Corridor half-width at close time (legacy; kept for forensics/back-compat)
+    // Closed position's range width as a price fraction. The live corridor is
+    // recomputed every cycle as REENTRY_TOL_FRAC × widthFrac, so an operator
+    // tol change + redeploy applies to a wait already in progress (2026-07-15).
+    // Absent on states persisted before that date.
+    widthFrac?: number;
     claimedFeesSol: number; // Fees claimed at the close (already in the wallet)
     claimedFeesUsdc: number;
     closedAtMs: number; // When the close-only recenter ran

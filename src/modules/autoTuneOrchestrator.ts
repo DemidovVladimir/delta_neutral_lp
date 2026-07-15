@@ -581,12 +581,18 @@ export class AutoTuneOrchestrator {
         // position creation, auto-create must NOT fire underneath it.
         if (this.state.reentryWait) {
           const wait = this.state.reentryWait;
+          // Live corridor: tolerance comes from CONFIG every cycle so an
+          // operator change + redeploy applies to a wait in progress. Legacy
+          // states (persisted before widthFrac existed) were all created
+          // under the 0.15 default — reconstruct their width from that.
+          const tolPriceFrac =
+            this.config.reentryTolFrac * (wait.widthFrac ?? wait.tolPriceFrac / 0.15);
           const decision = evaluateReentryGate({
             nowMs: Date.now(),
             price: currentPrice,
             anchorPrice: wait.anchorPrice,
             stableSinceMs: wait.stableSinceMs,
-            tolPriceFrac: wait.tolPriceFrac,
+            tolPriceFrac,
             confirmMs: this.config.reentryConfirmMs,
             stormActive: this.isVolStormActive(currentPrice),
           });
@@ -595,7 +601,7 @@ export class AutoTuneOrchestrator {
             log.info('⏸ Выдержка на вход: цена вышла из коридора — якорь сброшен, ждём заново (A15)', {
               oldAnchor: wait.anchorPrice,
               newAnchor: decision.anchorPrice,
-              corridorPct: (wait.tolPriceFrac * 100).toFixed(3),
+              corridorPct: (tolPriceFrac * 100).toFixed(3),
               waitingSinceClose: Date.now() - wait.closedAtMs,
             });
             wait.anchorPrice = decision.anchorPrice;
@@ -626,7 +632,7 @@ export class AutoTuneOrchestrator {
               anchorPrice: wait.anchorPrice,
               heldMs: Date.now() - wait.stableSinceMs,
               confirmMs: this.config.reentryConfirmMs,
-              corridorPct: (wait.tolPriceFrac * 100).toFixed(3),
+              corridorPct: (tolPriceFrac * 100).toFixed(3),
             });
           }
         } else if (this.config.autoCreatePositions && this.config.meteoraPoolAddress) {
@@ -1685,6 +1691,7 @@ export class AutoTuneOrchestrator {
           anchorPrice: currentPrice,
           stableSinceMs: Date.now(),
           tolPriceFrac: this.config.reentryTolFrac * widthFrac,
+          widthFrac,
           claimedFeesSol: withdrawResult.claimedFees.sol,
           claimedFeesUsdc: withdrawResult.claimedFees.usdc,
           closedAtMs: Date.now(),
