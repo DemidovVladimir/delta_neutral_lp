@@ -377,6 +377,49 @@ market dead), trend-shrink (A7), protective step (A12), governor (A13),
 target tilt (sum-trap), clamp ramp/slow-exit. Caveats: single price path
 per window; D2 calibration assumed; ties within a few USD are noise.
 
+### A18. Old-pool re-check (step 4 / fee 0.04%) under the A15/A17 composite — REJECTED 2026-07-16 (current pool confirmed)
+
+Operator question (Meteora UI 24h Fee/TVL: step4 pool 0.23%/day vs our
+step10 0.12%/day — «не самый оптимальный?»). Re-ran the A17 pinned flag
+set (`--swap-skip --confirm-min 10 --band 0.49 --lp-value 95 --idle-sol 0
+--wallet-usdc 180 --reentry-min 120 --reentry-tol 0.20`, same 4 windows)
+with HONEST per-pool fee calibration: prod 10 bps → `--fee-bps 6.5
+--deadband-bps 5` (D2 ×1.55 discount), old pool
+`5rCf1DM8LjKTw4YqhnoLcngyZYeNnQqztScTogYHAS6` 4 bps → `--fee-bps 4
+--deadband-bps 2` (the stage-3 fit ran ON this pool, +6% ≈ honest — no
+discount due). EDGE saw / c3week / crash / rally / SUM:
+
+- PROD 10bps, bins20 (2.0% width): +1.05 / +0.74 / +19.59 / −10.66 /
+  **+10.73** — reproduces the A17 band-0.49 record exactly (crash 21 perp
+  trades ✓), baseline verified.
+- OLD 4bps, bins50 (same 2.0% width): +1.09 / +0.77 / +13.87 / −9.86 /
+  **+5.87** — chop/rally windows tie, the CRASH month separates (−5.7):
+  deadband 2 makes the pool track every wiggle, more IL realized for
+  comparable fee dollars (11.47 vs 10.85 crash fees at 4 vs 6.5 bps).
+- OLD 4bps, bins20 (0.8% width, naive «just move» config): +2.07 / +1.08 /
+  +11.27 / −10.56 / +3.86 — DEGENERATE: re-entry corridor = tol × width =
+  ±0.16%, price never holds inside it → 89–100% time out of pool, LP fees
+  ≈ 0 on the months; this is the pure-cash benchmark (+4ish per A17), not
+  a pool test.
+
+Verdict: current pool keeps a ~5 USD/2.2-months edge (borderline vs the
+±3–4 noise bar, but the direction matches the Jul-8 legacy grid: old pool
+4/4 −54.80 vs −10.64 pre-A15). The UI Fee/TVL ratio is pool-WIDE (all
+bins, all TVL); our income is traversals through OUR bins × fee rate,
+already calibrated per-pool against real earnings — do not compare pool
+dashboards directly. Step-1/0.01% pool not simmed: 20 bins there = 0.2%
+width, corridor ±0.04% — degenerates even harder, and fee per traversal
+is 10× lower.
+
+Chain check (pool-activity.ts, 2026-07-16): both pools alive, prices
+fresh; old pool 1829 successful tx/h vs ours 269. ⚠ **WATCH-ITEM (volume
+migration):** our pool did 34,527 tx/h on Jul 10 — activity fell ~100×
+and UI volume is $28.6M (old) vs $3.77M (ours). The sim's traversal fee
+model can't see resting-volume fees; if the next срезы show live LP fee
+pace falling well below the C4 norm while the 4bps pool keeps the flow,
+re-run this check (and a fresh D2-style live-vs-sim fee measurement) —
+the answer can flip with the flow.
+
 ### A16. Wide-wait («расширять вместо выхода») — TESTED & REJECTED 2026-07-15
 
 **Operator question (Session 27):** DLMM bins/positions CAN be resized
