@@ -74,6 +74,48 @@ rollback = 0.
 
 ---
 
+## 2026-07-16
+
+### Session 28 — срез #3 (−3.98 vs USDC / 5.96d): first TWO live A15 re-entries, both chopped; benign 15s VITALS; parameters confirmed
+
+**Срез #3 (full verification block passed, honest formula + adjusted
+baseline).** vs-USDC **−3.98** / vs-as-is −1.19 (mechanical +2.78 on the
+79.48→76.05 drop + skill −3.97, closes to a cent) / vs-SOL +10.52. Trend:
+−2.59 → −2.77 → −3.98; the day WITH two pool episodes cost −1.21 —
+worse than the waiting days (−0.06/day). Mechanism: both re-entries got
+chopped. Entry #1 12:23:52Z Jul 15 (35.3h wait, pre-loosening corridor
+0.295%) — price broke UP through the whole range in 40 min, closed
+100%-USDC at 13:03Z. Entry #2 22:09:43Z (corridor 0.383% — the loosened
+tol working) — 6.8h in pool overnight, price fell out the bottom, closed
+94.78%-SOL at 04:59Z Jul 16. Now in the 3rd wait (~90/120 min at
+09:55Z). Both entry deposits fit the wallet (0.610 SOL + ~47.2 USDC, NO
+alignment swaps → BUG-020 field check still formally open); post-close
+hedge trades both correct and full-size (decrease_short 0.667 SOL/$52.49
+at 13:03; increase_short 0.4663/$35.78 at 04:59, netΔ −0.018 in band).
+
+**VITALS episode (verbatim, benign):** 13:03:24Z «🚨 perp notional above
+the ADR-022 auto-cap» gross 164.942477 vs cap 140.568879 → recovered
+13:03:39Z (112.455104). Mechanism: the A15 close of a USDC-heavy position
+moves LP value into wallet USDC, which does NOT count in the auto-cap bag
+→ cap drops → standing short briefly above it → same-cycle decrease fixed
+it in 15 seconds. The cap enforcement worked; expect this ping on future
+USDC-heavy A15 closes.
+
+Verification: 13 txs all classified (5 failed keeper TX2 cost 0; network
+fees 0.000047766 SOL); re-entry creates land in `positions` (173/174),
+not `rebalances` — the audit shows them as untagged «meteora LP», noted
+as a bookkeeping asymmetry; snapshot density 1794 rows over the in-pool
+windows at 15s cadence (the 9.1h gap = the wait, by design); churn24h
+$88.27 ≪ 3×cap; liq 109.636097 = 1.44× spot 75.95 ✓; in-pool fee pace
+≈ $1.0/day (ep1 $3.2/day pace in its 40 min, ep2 $0.82/day) — slightly
+below the 1.2–2.2 norm, market-dependent. The 00:17Z Jul 16 cron row is
+the first HONEST one (lpPositionsRentSol 0.05740608 present, adjusted
+baseline referenced) ✓. Analyzer: **parameters confirmed, no lever** —
+the −1.21 day is the known saw cost, one day = a point not a verdict;
+§A8 counter NOT advancing (vs-USDC trend negative).
+
+---
+
 ## 2026-07-15
 
 ### Session 27 — срез #2 Кампании 4: BUG-022 found (position rent invisible to equity) — «first positive» retracted, honest number −2.70 vs USDC; fix built + baseline adjusted

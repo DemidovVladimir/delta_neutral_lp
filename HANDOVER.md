@@ -1,6 +1,20 @@
 # HANDOVER — Delta-Neutral Bot (LP + Jupiter Perps hedge, both sides)
 
-**Last updated:** 2026-07-15 (Session 27, срез #2 + BUG-022).
+**Last updated:** 2026-07-16 (Session 28, срез #3 + first live A15 re-entries).
+
+## Session 28 flash (Jul 16) — срез #3: −3.98 vs USDC (5.96d); машина дышит (2 входа-выхода за сутки, оба срублены); параметры подтверждены
+
+Trend −2.59 → −2.77 → **−3.98**; the re-entry day cost −1.21 (both
+entries chopped: #1 in-pool 40 min, price up through the range; #2 6.8h,
+price out the bottom). Corridor loosening (A15.1, tol 0.20) live and
+field-verified (0.383% on the second wait). Benign 15s VITALS at 13:03Z
+Jul 15 (A15 close of a USDC-heavy position shrinks the auto-cap bag →
+instant decrease_short $52.49 → recovered; expect this ping again).
+Hedge post-close trades full-size, netΔ −0.018. Liq 1.44×. First honest
+cron row 00:17Z Jul 16 ✓ (rent field present). §A8 counter NOT advancing.
+BUG-020 field check STILL open (both re-entry deposits fit the wallet, no
+swap). Full sweep verdict (§A17): production composite optimal, only
+lever left = deposit. Machine now in its 3rd wait (~90/120 min @ 09:55Z).
 
 ## Session 27 flash (Jul 15) — BUG-022: «first positive» was FAKE; honest срез #2 = −2.70 vs USDC; fix DEPLOYED `65f2661` ~06:33Z
 
