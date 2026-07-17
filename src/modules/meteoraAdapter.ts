@@ -76,6 +76,16 @@ export class MeteoraAdapter {
   private poolInfoLastFetched: number = 0;
   private readonly POOL_INFO_CACHE_MS = 2500; // Cache for 2.5 seconds
   /**
+   * A clean "no positions on chain" answer stays authoritative for a few
+   * minutes: during the ADR-026 entry-wait the list is empty BY DESIGN, and
+   * re-running getProgramAccounts every 15s cycle burns RPC credits for
+   * nothing (BUG-014 class risk). Only a clean empty result arms the
+   * throttle — RPC errors keep the old retry-next-cycle behavior, and
+   * explicit discoverPositionsFromBlockchain() calls always bypass it.
+   */
+  private lastEmptyDiscoveryAt = 0;
+  private readonly EMPTY_DISCOVERY_THROTTLE_MS = 5 * 60 * 1000;
+  /**
    * Read-only adapters (dashboard, hodl CLI) must never write state.json:
    * they can run alongside the live auto-tune loop, and a discovery/prune
    * write from an observer would race the owner process's writes (e.g. an
@@ -176,8 +186,10 @@ export class MeteoraAdapter {
           this.positionMints = [];
           this.persistPositionMints([]);
         }
+        this.lastEmptyDiscoveryAt = Date.now();
         return [];
       }
+      this.lastEmptyDiscoveryAt = 0;
 
       // Extract position mints from discovered positions
       const discoveredMints = userPositions.map((pos: any) => pos.publicKey.toBase58());
@@ -236,6 +248,16 @@ export class MeteoraAdapter {
       log.info('✅ Positions already loaded in memory', {
         count: this.positionMints.length,
         mints: this.positionMints,
+      });
+      return;
+    }
+
+    // No saved positions; a recent clean-empty discovery answers for us
+    const sinceEmpty = Date.now() - this.lastEmptyDiscoveryAt;
+    if (this.lastEmptyDiscoveryAt > 0 && sinceEmpty < this.EMPTY_DISCOVERY_THROTTLE_MS) {
+      log.debug('Position list empty — recent discovery found none, skipping re-scan', {
+        sinceEmptyMs: sinceEmpty,
+        throttleMs: this.EMPTY_DISCOVERY_THROTTLE_MS,
       });
       return;
     }
