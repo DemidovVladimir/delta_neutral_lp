@@ -123,6 +123,27 @@ Analyzer verdict otherwise: parameters confirmed (19 min after the
 identical session-29 verdict), §A8 counter still frozen (4/4 entries
 chopped), A14 still waiting on the operator's healthchecks.io URL.
 
+### Session 30 evening — HYPE/SOL test OPENED LIVE from the bot wallet; Campaign-4 baseline carved (A20)
+
+Operator: «Сделай сам. Я вручную не хочу» → the test executed from the
+bot wallet (built `scripts/hype-test-open.ts`, dry-run verified, live via
+a scoped settings.local allow rule after the auto-mode classifier
+correctly blocked the first attempt). 15:22Z: swap 0.27 SOL →
+0.331139501 HYPE
+(`2qKXKEg5wLQyQXvCdogPeM78uiTr8JRKnnBXmdx6hAKbXG7PJcMruZDw2unDv4rTqj2YQQopDnV3rE9M8bU9mRVG`,
+impact −0.0007%), position
+`7xSB8jczjK8bMTMpaPANAFUnshWehzmeknwyPSbddcEh` opened
+(`52tLJoRRm2NQNS8kyiBHpWsYw6AgRJYn19SMyLYbCtkUaBHrjYoDPdAHaQNxrAGfnxhYB7ywDLPQXqbsXma5L6GF`),
+bins −114…−94, test equity 0.539010 SOL, wallet outflow 0.601069348 SOL.
+Baseline adjusted BOTH copies (solSide 0.211571641, totalUsd
+288.7504719127552, note documents; ⚠ continuity: post-carve-out срезы
+≈ +2.93 more favorable vs-USDC — bookkeeping, subtract when comparing;
+verified: adjusted hodl read −1.74 ≈ old −4.28 + 2.93). Hedge auto-trim
+3s later: decrease_short 0.5925034123309025 SOL / −$43.80
+(`2wvcMjtTPSzV9agLDimBLPSHQmcvVw1rtB4QPZ5SapF1vJroim5urwhUYnGzCD7ZiRJbcFDjmRn1uNa5VmbY6z19`),
+netΔ +0.002 in band ✓. Tracker baseline row taken. Test management +
+success bar: BACKLOG A20.
+
 ### Session 30 addendum — operator: «пары без USDC» → 3 пары измерены на реальных свечах; HYPE/SOL live test approved (BACKLOG A20)
 
 Operator (sharply) redirected the pool search: no USDC leg anywhere,

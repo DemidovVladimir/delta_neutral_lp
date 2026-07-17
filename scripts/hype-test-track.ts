@@ -25,7 +25,10 @@ import { DLMM } from '../src/utils/dlmm.js';
 
 const POOL = new PublicKey('81GpCm4d13y8TozYtThabuSCLQN2o3bbrvDogXFPn8sA'); // HYPE/SOL step 20, base fee 0.2%
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
-const DEFAULT_WALLET = 'F7p3dFrjRTbtRp8FRF6qHLomXbKRBzpvBLjtQcfcgmNe'; // operator hot wallet
+// The test runs from the BOT wallet since 2026-07-17T15:22Z (operator
+// «Сделай сам»); the Campaign-4 baseline was adjusted by the exact
+// carve-out so the test stays outside campaign measurement.
+const DEFAULT_WALLET = 'F3YvPiLdniRPGpeKrbeGWR2zg2wPpzVuvqBA5BBJBQ5S';
 const HISTORY = path.join(process.cwd(), 'data', 'hype-test-history.jsonl');
 
 async function main() {

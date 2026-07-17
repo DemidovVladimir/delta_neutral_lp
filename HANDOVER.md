@@ -1,6 +1,22 @@
 # HANDOVER — Delta-Neutral Bot (LP + Jupiter Perps hedge, both sides)
 
-**Last updated:** 2026-07-17 (Session 30 + addendum: non-USDC pair survey, HYPE/SOL live test approved).
+**Last updated:** 2026-07-17 (Session 30, evening: HYPE/SOL live test OPENED from the bot wallet; baseline carved).
+
+## ⚡ HYPE/SOL live test is OPEN (2026-07-17T15:22Z, bot wallet, operator «Сделай сам») — read A20 before ANY срез
+
+Position `7xSB8jczjK8bMTMpaPANAFUnshWehzmeknwyPSbddcEh` in pool
+`81GpCm4d13y8TozYtThabuSCLQN2o3bbrvDogXFPn8sA` (HYPE/SOL 0.2%, step 20):
+0.270000 SOL + 0.331139501 HYPE, bins −114…−94 (±2%), test equity at open
+0.539010 SOL. **Campaign-4 baseline ADJUSTED both copies: solSide
+0.211571641, totalUsd 288.7504719127552** (carve-out −0.601069348 SOL;
+capturedAt unchanged). ⚠ Post-carve-out срезы read ≈ +2.93 more favorable
+vs-USDC (frozen-price bookkeeping) — subtract when comparing with the old
+trend (−4.28 → adjusted-frame −1.74 ≈ same machine). Hedge auto-trimmed
+decrease_short 0.5925 SOL 3s later ✓ netΔ in band. EVERY срез now also:
+`npx tsx scripts/hype-test-track.ts` (SOL-metric; vs-hold-mix = the test's
+main number) + manage the test (out of range → close, re-balance 50/50,
+reopen ±2%; HYPE −20%/day → close to SOL). Test is INVISIBLE to bot loop
+and campaign equity by design. Full spec/sigs: BACKLOG A20.
 
 ## Session 30 addendum flash — «пары без USDC»: 3 пары измерены; HYPE/SOL малый живой тест ОДОБРЕН (BACKLOG A20)
 

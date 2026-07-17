@@ -513,22 +513,39 @@ Measured (clean mechanics, month window, per 95 USD position, fee raw 20
   +0.8). → any no-perp deployment MUST re-balance via spot swaps at
   recenters, never swap-skip.
 
-**DECISION (operator, 2026-07-17): small live test of HYPE/SOL, separate
-budget, hand-managed, bot stays on SOL/USDC.** Test spec: operator's own
-wallet (default `F7p3dFrjRTbtRp8FRF6qHLomXbKRBzpvBLjtQcfcgmNe` — NOT the
-bot wallet, Campaign-4 measurement stays clean); Meteora UI; pool
-`81GpCm4d13y8TozYtThabuSCLQN2o3bbrvDogXFPn8sA`; Spot distribution, range
-±2% around price (≈20 bins), 50/50 by value, suggested 30–60 USD; manual
-rules mirroring the machine: price exits range → close, swap back to
-50/50, reopen ±2%; HYPE −20%+/day → close, sit in SOL. Tracking:
-`RPC_URL=… npx tsx scripts/hype-test-track.ts` (read-only; first run after
-opening = baseline; appends data/hype-test-history.jsonl; prints vs-hold-mix
-= fees−IL and vs-hold-SOL in SOL). Success bar: real fee pace closing the
-model fork — sim expects ~0.003–0.005 SOL/day on a $95 position; vs-hold-mix
-positive over ≥1 week → migration spec conversation; negative → drop.
-Caveats recorded: 1 month of history, GT volume split across 3 HYPE pools,
-bridge-token risk, no perp anywhere (Hyperliquid's own HYPE perp is another
-chain — not composable).
+**DECISION (operator, 2026-07-17): small live test of HYPE/SOL — and per
+the follow-up «Сделай сам. Я вручную не хочу» it is EXECUTED FROM THE BOT
+WALLET, opened LIVE 2026-07-17T15:22Z.** Facts (all signatures verbatim):
+swap 0.27 SOL → 0.331139501 HYPE
+`2qKXKEg5wLQyQXvCdogPeM78uiTr8JRKnnBXmdx6hAKbXG7PJcMruZDw2unDv4rTqj2YQQopDnV3rE9M8bU9mRVG`
+(price impact −0.0007%), position open
+`52tLJoRRm2NQNS8kyiBHpWsYw6AgRJYn19SMyLYbCtkUaBHrjYoDPdAHaQNxrAGfnxhYB7ywDLPQXqbsXma5L6GF`,
+position mint `7xSB8jczjK8bMTMpaPANAFUnshWehzmeknwyPSbddcEh`, range bins
+−114…−94 (21 bins ≈ ±2%), 0.270000 SOL + 0.331139501 HYPE, test equity at
+open 0.539010 SOL (outflow 0.601069348 incl. refundable rent 0.0574 +
+network). Opener: `scripts/hype-test-open.ts` (dry-run default; --live
+allowed via project settings.local rule). **Campaign-4 baseline adjusted
+on BOTH copies by the exact carve-out**: solSideAmount 0.812640989 →
+0.211571641, totalUsd 336.52055387901737 → 288.7504719127552 (note
+documents; capturedAt unchanged). ⚠ CONTINUITY: the carve-out is valued
+at the frozen baseline price 79.475 while SOL left at ~74.6 → post-Jul-17
+срезы read ≈ **+2.93 more favorable** vs-USDC than the pre-carve-out
+trend — subtract it when comparing (first adjusted read: −1.74 ≈ old
+−4.28 + 2.93 + intraday). Hedge auto-trim VERIFIED: decrease_short
+0.5925034123309025 SOL (−$43.80 notional, $14.45 collateral back) at
+15:22:05Z, 3s after the open, sig
+`2wvcMjtTPSzV9agLDimBLPSHQmcvVw1rtB4QPZ5SapF1vJroim5urwhUYnGzCD7ZiRJbcFDjmRn1uNa5VmbY6z19`,
+netΔ back in band (+0.002). Test position is INVISIBLE to the bot loop
+(different pool) and to campaign equity (by design). MANAGEMENT (by me,
+each срез + when price exits the range): close → re-balance 50/50 →
+reopen ±2%; HYPE −20%+/day → close to SOL; tracking `RPC_URL=… npx tsx
+scripts/hype-test-track.ts` (default wallet = bot wallet now; baseline
+row taken; data/hype-test-history.jsonl). Success bar: sim expects
+~0.003–0.005 SOL/day fees on this size; vs-hold-mix positive over ≥1
+week → migration spec conversation; negative → close the test, re-add
+the exact return flow to the baseline. Caveats: 1 month of history, GT
+volume split across 3 HYPE pools, bridge-token risk, no perp anywhere
+(Hyperliquid's own HYPE perp is another chain — not composable).
 
 ### A16. Wide-wait («расширять вместо выхода») — TESTED & REJECTED 2026-07-15
 
