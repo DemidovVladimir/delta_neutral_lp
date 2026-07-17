@@ -1,6 +1,23 @@
 # HANDOVER — Delta-Neutral Bot (LP + Jupiter Perps hedge, both sides)
 
-**Last updated:** 2026-07-17 (Session 30, RPC-burn fix deployed + A18 re-run).
+**Last updated:** 2026-07-17 (Session 30 + addendum: non-USDC pair survey, HYPE/SOL live test approved).
+
+## Session 30 addendum flash — «пары без USDC»: 3 пары измерены; HYPE/SOL малый живой тест ОДОБРЕН (BACKLOG A20)
+
+Operator redirected pool search: X/SOL pairs only (no USDC, no ETH/BTC),
+SOL-metric. Sim on real pool candles (pipeline + `--storm-pct` flag now in
+repo, recipe in A20): ANSEM/SOL **rejected on data** (−145…−161/мес clean;
+machine won't enter, 99% out); PUMP/SOL borderline (−12…+9); **HYPE/SOL
++5…+21 clean / −2…+8 honest no-perp frame — positive every window, zero
+storms, on a −18% slide month**. Structural: no-perp frame REQUIRES forced
+alignment swaps (swap-skip accumulated +2.9 HYPE ≈ $177 and ate the edge).
+**Approved: small live test** — operator's OWN wallet (bot/Campaign-4
+untouched), Meteora UI, pool `81GpCm4d13y8TozYtThabuSCLQN2o3bbrvDogXFPn8sA`,
+±2% Spot 50/50, 30–60 USD; rules: exit range → close+re-balance+reopen;
+HYPE −20%/day → close to SOL. Track: `RPC_URL=… npx tsx
+scripts/hype-test-track.ts` (first run after opening = baseline; check at
+every срез). Success bar: vs-hold-mix positive over ≥1 week → migration
+spec talk; negative → drop. Campaign 4 runs unchanged to ~Jul 24.
 
 ## Session 30 flash (Jul 17, afternoon) — срез #5 = confirmation (−4.28); wait-path RPC burn fixed+deployed; A18 re-confirmed with fresh D2 ×1.59
 

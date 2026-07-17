@@ -123,6 +123,30 @@ Analyzer verdict otherwise: parameters confirmed (19 min after the
 identical session-29 verdict), §A8 counter still frozen (4/4 entries
 chopped), A14 still waiting on the operator's healthchecks.io URL.
 
+### Session 30 addendum — operator: «пары без USDC» → 3 пары измерены на реальных свечах; HYPE/SOL live test approved (BACKLOG A20)
+
+Operator (sharply) redirected the pool search: no USDC leg anywhere,
+Solana+Meteora only, no ETH/BTC — X/SOL pairs, SOL-metric, «профит на
+обеих сторонах». Built a reusable pipeline (GT pool list → on-chain
+binStep/fee → GT 1m OHLCV in SOL terms → sim cache CSV; new sim flag
+`--storm-pct`; clean-mechanics trick = fictional hedge band 0.49 pins
+netΔ→0 so EDGE = fees−IL−costs). Survey of top X/SOL pools by volume
+(ANSEM $19.5M/24h ≈ 15× our pool's fee yield) then full sim on three:
+**ANSEM/SOL −145…−161/month clean (REJECTED — IL 3–5× fees, machine
+won't even enter: 99% out, 2275 storms); PUMP/SOL −12…+9 (borderline,
+regime-dependent); HYPE/SOL +5…+21 clean / −2…+8 in the honest no-perp
+frame — positive every window, zero storms, on a month where HYPE slid
+−18%.** Structural finding: in the no-perp frame swap-skip accumulates
+the falling token (netΔ drifted to +2.9 ≈ $177, erasing the edge) —
+no-perp deployments must re-balance via forced alignment swaps.
+Operator decisions this session: ANSEM/SOL migration → rejected on data
+(after two earlier «посмотри другие пары» iterations: ETH/BTC excluded
+by operator mid-scan); PUMP → passed over; **HYPE/SOL → small live test
+approved** (separate budget, operator's own wallet, bot untouched; spec +
+tracking recipe in BACKLOG A20; tracker `scripts/hype-test-track.ts`
+smoke-tested, waits for the position to appear). Campaign 4 continues
+unchanged toward the ~Jul 24 verdict.
+
 ### Session 29 — срез #4 (−4.19 vs USDC / 6.77d, bleed slowed 3×); operator's ANSEM/SOL pool proposal REJECTED (unhedgeable leg); old 4bps pool re-check REJECTED (A18); hedge-venue scan (A19)
 
 **Срез #4 (window since срез #3 = 0.81d, full verification block passed).**

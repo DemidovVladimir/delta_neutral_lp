@@ -107,6 +107,9 @@ fn main() {
         if let Some(v) = flag(&args, "--governor-days") {
             params.governor_neg_windows = v.parse().expect("--governor-days <consecutive negative days>");
         }
+        if let Some(v) = flag(&args, "--storm-pct") {
+            params.vol_pause_pct_5m = v.parse().expect("--storm-pct <percent per 5m, 0=off>");
+        }
         if let Some(v) = flag(&args, "--reentry-min") {
             params.reentry_confirm_ms =
                 v.parse::<i64>().expect("--reentry-min <minutes, 0=off>") * 60_000;

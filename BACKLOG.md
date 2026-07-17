@@ -476,6 +476,60 @@ with base-chain fills; Flash reverting to base-chain execution; Jupiter
 carry sustained >15%/yr. Recipes: `flashapi.trade/raw/custodies` (live
 rates), `datapi.adrena.trade/docs` (swagger inline), `pnpm jupiter:read`.
 
+### A20. Non-USDC pair survey (operator 2026-07-17: «пары без привязки к доллару») — MEASURED; HYPE/SOL live test APPROVED
+
+Operator redirect after A18: no USDC leg, Solana+Meteora only, no ETH/BTC —
+X/SOL pairs, SOL-metric («профит на обеих сторонах», no USD peg). Survey
+method now REUSABLE: GeckoTerminal top DLMM pools (dex id `meteora`) →
+filter X/SOL non-stable → on-chain binStep/baseFactor (LbPair offsets 80/8)
+→ 1m pool OHLCV via GT (`currency=token` = price in SOL) → gap-fill flat
+(pool price IS flat between swaps) → normalize first close to 75 → write
+simulator cache CSV (`SOLUSDC_1m_<startMs>_<endMs>.csv`) → run with
+`--bin-step/--fee-bps` of the pool. New sim flag `--storm-pct` (was
+hardcoded 2.0). Clean-mechanics measurement trick: run the (fictional)
+hedge `--band 0.49` to pin netΔ≈0 → EDGE = fees − IL − costs, direction
+purged; unhedged `--band 99` = the live no-perp frame.
+
+Measured (clean mechanics, month window, per 95 USD position, fee raw 20
+→ pessimistic 12.5 per D2):
+
+- **ANSEM/SOL** `6e7V9eegCHw997T72MxgwwJipZ6GJyZF8NvjkzT1rvpN` (0.2%,
+  step 20, $19.5M vol/24h, ±15–50%/day): **−145…−161/month**; flat week
+  −29…−44/wk. Fees 43–90/19d are real but IL is 3–5×. The A15 machine
+  refuses to enter at all (99%+ out, corridor never holds; storms 2275).
+  Unhedged runs swing +180/−36 = wait-bag momentum lottery, not edge.
+  **REJECTED on data.**
+- **PUMP/SOL** `HbjYfcWZBjCBYTJpZkLGxqArVmZVu3mQcRudb6Wg1sVh` (0.2%,
+  step 20, 73% minutes tradeless): month **−12…+9** — straddles zero,
+  regime-dependent (calm weeks positive, the hot 13–14%/day days
+  −8…−14/wk). BORDERLINE, passed over for HYPE.
+- **HYPE/SOL** `81GpCm4d13y8TozYtThabuSCLQN2o3bbrvDogXFPn8sA` (0.2%,
+  step 20, 84% minutes tradeless, month path −18% slide): clean mechanics
+  **+5…+21/month, positive in EVERY window** (7d +3.9, 72h +2.4), zero
+  storms. STRUCTURAL FINDING for the no-perp frame: swap-skip lets netΔ
+  drift (accumulated +2.9 HYPE ≈ $177 by month end — ate the whole edge:
+  unhedged −3.9); with FORCED alignment swaps (legacy no-swap-skip mode)
+  the live frame gives **−2…+8/month** (swap costs 2.5, residual drift
+  +0.8). → any no-perp deployment MUST re-balance via spot swaps at
+  recenters, never swap-skip.
+
+**DECISION (operator, 2026-07-17): small live test of HYPE/SOL, separate
+budget, hand-managed, bot stays on SOL/USDC.** Test spec: operator's own
+wallet (default `F7p3dFrjRTbtRp8FRF6qHLomXbKRBzpvBLjtQcfcgmNe` — NOT the
+bot wallet, Campaign-4 measurement stays clean); Meteora UI; pool
+`81GpCm4d13y8TozYtThabuSCLQN2o3bbrvDogXFPn8sA`; Spot distribution, range
+±2% around price (≈20 bins), 50/50 by value, suggested 30–60 USD; manual
+rules mirroring the machine: price exits range → close, swap back to
+50/50, reopen ±2%; HYPE −20%+/day → close, sit in SOL. Tracking:
+`RPC_URL=… npx tsx scripts/hype-test-track.ts` (read-only; first run after
+opening = baseline; appends data/hype-test-history.jsonl; prints vs-hold-mix
+= fees−IL and vs-hold-SOL in SOL). Success bar: real fee pace closing the
+model fork — sim expects ~0.003–0.005 SOL/day on a $95 position; vs-hold-mix
+positive over ≥1 week → migration spec conversation; negative → drop.
+Caveats recorded: 1 month of history, GT volume split across 3 HYPE pools,
+bridge-token risk, no perp anywhere (Hyperliquid's own HYPE perp is another
+chain — not composable).
+
 ### A16. Wide-wait («расширять вместо выхода») — TESTED & REJECTED 2026-07-15
 
 **Operator question (Session 27):** DLMM bins/positions CAN be resized
