@@ -239,6 +239,24 @@ export class MeteoraAdapter {
   }
 
   /**
+   * Per-cycle discovery for the orchestrator loop: identical to
+   * discoverPositionsFromBlockchain, except a fresh clean-empty answer
+   * short-circuits it (see lastEmptyDiscoveryAt). Event-driven callers
+   * (pre-create safety check, rebalance recovery, derisk) must keep calling
+   * discoverPositionsFromBlockchain directly — they need chain truth NOW.
+   */
+  async discoverPositionsCycle(): Promise<string[]> {
+    if (
+      this.positionMints.length === 0 &&
+      this.lastEmptyDiscoveryAt > 0 &&
+      Date.now() - this.lastEmptyDiscoveryAt < this.EMPTY_DISCOVERY_THROTTLE_MS
+    ) {
+      return [];
+    }
+    return this.discoverPositionsFromBlockchain();
+  }
+
+  /**
    * Ensure positions are loaded from either state or blockchain
    * Called on first API request to guarantee positions are available
    */
@@ -304,6 +322,10 @@ export class MeteoraAdapter {
    * Only called when AUTO_CREATE_POSITIONS=true and no positions exist yet
    */
   async createPosition(params: CreatePositionParams): Promise<CreatePositionResult> {
+    // A creation ATTEMPT invalidates any cached "chain is empty" answer: if
+    // the tx lands but confirmation fails, the next cycle must re-discover
+    // immediately (an unmonitored position would sit unhedged otherwise).
+    this.lastEmptyDiscoveryAt = 0;
     log.info('Creating Meteora DLMM position', params);
 
     try {

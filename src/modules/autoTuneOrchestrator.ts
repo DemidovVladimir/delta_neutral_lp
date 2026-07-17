@@ -951,8 +951,11 @@ export class AutoTuneOrchestrator {
     exposure: LpExposure | null;
   }> {
     try {
-      // ALWAYS discover positions from blockchain first to ensure we don't miss unclosed positions
-      const discoveredMints = await this.meteoraAdapter.discoverPositionsFromBlockchain();
+      // Discover positions from blockchain first to ensure we don't miss
+      // unclosed positions. Throttled ONLY while the chain is known-empty
+      // (the A15 entry-wait) — with a position tracked it still re-verifies
+      // the chain every cycle.
+      const discoveredMints = await this.meteoraAdapter.discoverPositionsCycle();
 
       if (discoveredMints.length > 0) {
         log.info('✅ Position(s) found on blockchain', {

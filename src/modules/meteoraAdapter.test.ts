@@ -116,4 +116,38 @@ describe('MeteoraAdapter empty-discovery throttle', () => {
     await a.ensurePositionsLoaded();
     expect(mockGetPositions).not.toHaveBeenCalled();
   });
+
+  it('discoverPositionsCycle: throttled while chain is known-empty, live while a position is tracked', async () => {
+    const a = adapter();
+    mockGetPositions.mockResolvedValue({ userPositions: [] });
+
+    expect(await a.discoverPositionsCycle()).toEqual([]); // arms
+    expect(await a.discoverPositionsCycle()).toEqual([]); // throttled
+    expect(mockGetPositions).toHaveBeenCalledTimes(1);
+
+    // With a tracked position the per-cycle self-heal must stay untouched:
+    // every call hits the chain (here it comes back empty → prune + re-arm)
+    a.setPositionMints(['MintCCC']);
+    await a.discoverPositionsCycle();
+    expect(mockGetPositions).toHaveBeenCalledTimes(2);
+    expect(a.getPositionMints()).toEqual([]);
+  });
+
+  it('a createPosition attempt clears the throttle so the next cycle re-discovers', async () => {
+    const a = adapter();
+    mockGetPositions.mockResolvedValue({ userPositions: [] });
+
+    await a.ensurePositionsLoaded(); // arms
+    expect(mockGetPositions).toHaveBeenCalledTimes(1);
+
+    // Mocked DLMM pool has none of the creation methods — the attempt throws
+    // after the throttle reset, which is exactly the dangerous path (tx fate
+    // unknown → must not trust the cached empty answer)
+    await expect(
+      a.createPosition({ poolAddress: '11111111111111111111111111111111' } as any),
+    ).rejects.toThrow();
+
+    await a.ensurePositionsLoaded();
+    expect(mockGetPositions).toHaveBeenCalledTimes(2);
+  });
 });
