@@ -1,6 +1,42 @@
 # HANDOVER — Delta-Neutral Bot (LP + Jupiter Perps hedge, both sides)
 
-**Last updated:** 2026-07-16 (Session 28, срез #3 + first live A15 re-entries).
+**Last updated:** 2026-07-17 (Session 30, RPC-burn fix deployed + A18 re-run).
+
+## Session 30 flash (Jul 17, afternoon) — срез #5 = confirmation (−4.28); wait-path RPC burn fixed+deployed; A18 re-confirmed with fresh D2 ×1.59
+
+Срез #5 (05:41Z, 19 min after #4) confirms −4.19→−4.28, no new window;
+verification of the gap clean (0 txs, 0 VITALS, liq 1.43×). Operator
+approved two items, both DONE: (1) **RPC fix deployed** (`abab80e`+
+`6d3af06` ~10:28Z): the A15 wait was running a full position scan every
+15s from TWO sites (~5,760 no-op getProgramAccounts/day, BUG-014-class);
+now a clean-empty answer holds for 5 min, errors don't arm the throttle,
+event-driven callers bypass, createPosition attempt clears it; 143
+vitest. Watch-for: «Discovering positions» lines during waits should
+appear ~every 5 min (startup 10:28:08Z scan verified; in-pool cadence
+unchanged). (2) **A18 re-run — rejection STANDS**: fresh D2 live-vs-sim
+on срез #3+#4 window = **×1.59** (6.5 bps calibration confirmed AFTER
+the volume drain; sim in-pool 17.4h vs real 17.78h); old pool needs
++22% fee (4.9 bps) to tie the sum, +50% (6.0 bps) to tie the crash
+window; our pool 157 tx/h vs old 1651 — drain continues but realized
+fees hold ($1.30/day in-norm). Trigger unchanged: sustained pace
+< ~1 USD/day → re-run. Machine in wait #5 (anchor ~74.65 midday). §A8
+frozen; A14 ping URL still on the operator.
+
+## Session 29 flash (Jul 17) — срез #4: −4.19 vs USDC (6.77d), кровотечение замедлилось втрое; ANSEM/SOL переезд отклонён; A18/A19 записаны
+
+Trend −2.59 → −2.70 → −3.98 → **−4.19** (this window −0.26/day vs
+−1.10/day before — re-entries #3 and #4 both chopped downward, 4/4 now,
+but window fees ~$0.65 nearly covered the traversals). Verification
+clean: 4716 cycles no gaps, 0 VITALS, 13/13 txs classified, netΔ −0.0084,
+liq 1.42×, params = A17 composite, §A8 counter still frozen. Machine in
+wait #5. Operator proposals this session, all analyzed with data and
+resolved: (1) old 4bps pool — REJECTED, sim + honest calibration
+(BACKLOG A18, watch-item: volume migrated out of our pool); (2) atomic
+close+hedge single-tx — no viable venue (Flash V2 = off-chain rollup,
+Adrena dead; BACKLOG A19); (3) ANSEM/SOL meme pool migration — REJECTED
+(no ANSEM perp anywhere → half the position unhedgeable; operator
+approved staying on SOL/USDC). Next: срезы until ~Jul 24 verdict; §A8
+deposit bump only after clean positive срезы.
 
 ## Session 28 flash (Jul 16) — срез #3: −3.98 vs USDC (5.96d); машина дышит (2 входа-выхода за сутки, оба срублены); параметры подтверждены
 

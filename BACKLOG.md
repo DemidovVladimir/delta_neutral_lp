@@ -420,6 +420,62 @@ pace falling well below the C4 norm while the 4bps pool keeps the flow,
 re-run this check (and a fresh D2-style live-vs-sim fee measurement) —
 the answer can flip with the flow.
 
+**Re-run 2026-07-17 (operator asked; volume kept draining 269→157 tx/h vs
+old 1651) — REJECTION STANDS, now with a fresh calibration point and
+quantified robustness margin.** (1) Fresh D2 live-vs-sim measurement on
+the срез #3+#4 window (replay 2026-07-15T12:23Z +35h, prod composite, RAW
+--fee-bps 10): sim LP fees 1.5392 vs real 0.966 → **×1.59** (prior points
+×1.49/×1.68) — the 6.5 bps calibration is CONFIRMED by live data taken
+AFTER the volume drain; sim time-in-pool 49.6%×35h ≈ 17.4h vs real 17.78h
+(machine timing reproduces too). The tx/h drain has NOT shown up in our
+realized fees — traversal/arb flow (what we actually earn from) persists.
+(2) Sensitivity: old pool needs ≈**4.9 bps effective** (+22% over its
+honest 4-bps fit; per-window fees 1.3013/1.0674/11.4666/8.3467 = 22.18
+total, gap 4.86) to tie the 4-window SUM, and **6.0 bps** (+50%) to tie
+the decisive crash window (fee 5→+16.72, fee 6→+19.58 vs prod +19.59) —
+both against the MEASURED direction of model error (every live point says
+the fee model overshoots reality, never undershoots). Baselines
+re-reproduced to the cent before the sensitivity (saw +1.0511, old saw
++1.0896, old crash +13.8729, old rally −9.8605, old c3wk +0.7650).
+Trigger unchanged: sustained live in-pool pace < ~1 USD/day → re-run again.
+
+### A19. Hedge-venue alternatives for synchronous/atomic execution — CHECKED 2026-07-16 (no viable move; Jupiter stays)
+
+Operator idea (from a parallel claude.ai session): bundle «Meteora close +
+hedge adjust» into ONE base-chain transaction (a Solana tx is already
+atomic — days of work, not months) — requires a venue that FILLS inside
+our own transaction. Jupiter's keeper (TX2) physically prevents that.
+Checked both candidates with live data:
+
+- **Flash Trade** — cheap but no longer base-chain: fees 2 bps open/close
+  (vs Jupiter 6), live SOL-short borrow ≈ **1.5%/yr** right now (shorts
+  borrow the stable side; Crypto.1 USDC custody
+  `5N2St2e1BdgWsJiXxfetwWKkHS1BYochAp1ruPFJUfgY`, utilization 5.55%,
+  `currentRate` 1758e-9/hr from `flashapi.trade/raw/custodies`; curve kinks
+  at 72% util → 20%/yr there). BUT **V2 executes on Flash's own execution
+  layer** («orders confirm in ~50 ms», trade txs absent from base-Solana
+  explorers, health endpoint `program: "ER"` = ephemeral rollup) → **no
+  base-chain CPI / atomic composition possible**. Crypto.1 TVL $3.8M
+  (whole protocol $7.8M per DefiLlama).
+- **Adrena** — CPI-able but effectively dead: base-chain synchronous
+  (datapi exposes unsigned-tx builders), open source — the only candidate
+  that composes — but main-pool **daily volume $98.92, daily fees $0.05**
+  (`datapi.adrena.trade/pool-high-level-stats`), TVL $440k (DefiLlama),
+  their own `/liquidity-info` 500s on main-pool; close fee ~16 bps
+  (secondary sources, unverified). Do not build on it.
+- **Jupiter (ours)** — JLP ~$1.5B, short borrow measured **5.66%/yr** this
+  hour (`pnpm jupiter:read`, carryRateBps −566), 6 bps open/close,
+  keeper-async.
+
+Verdict: today there is NO liquid base-chain-synchronous SOL perp venue —
+the atomic close+hedge idea has no venue to run on; Jupiter stays. Flash's
+carry edge (1.5% vs 5.66% ≈ $7.7/yr on the current $184 short) is noise vs
+срез swings and buys venue risk on an off-chain-execution platform 200×
+smaller than JLP. Recheck triggers: Velocity (ex-Drift) public relaunch
+with base-chain fills; Flash reverting to base-chain execution; Jupiter
+carry sustained >15%/yr. Recipes: `flashapi.trade/raw/custodies` (live
+rates), `datapi.adrena.trade/docs` (swagger inline), `pnpm jupiter:read`.
+
 ### A16. Wide-wait («расширять вместо выхода») — TESTED & REJECTED 2026-07-15
 
 **Operator question (Session 27):** DLMM bins/positions CAN be resized

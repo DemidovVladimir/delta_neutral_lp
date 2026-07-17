@@ -74,6 +74,97 @@ rollback = 0.
 
 ---
 
+## 2026-07-17
+
+### Session 30 — срез #5 (confirmation point −4.28); wait-path RPC burn fixed & deployed (2 commits); A18 re-run with fresh D2 point — rejection stands
+
+**Срез #5 (05:41:33Z, 6.79d) — a CONFIRMATION POINT, not a new window:**
+taken 19 min after срез #4 (both same morning). vs-USDC **−4.28** /
+vs-as-is −0.42 (mechanical +3.86 on 79.48→74.73 + skill −4.28 = vs-USDC
+to the cent, no leak) / vs-SOL +15.82. The −0.09 drift since #4 is perp
+mark noise. Verification for the uncovered 19-min window: 0 txs
+(tx-audit), 0 hedge actions, cycles contiguous, 0 VITALS, watchdog
+status=ok/vitals_open empty, today's 00:17Z cron row honest (−4.05), liq
+106.549479 = 1.43× spot, carry −5.65% ≈ $0.033/day. Machine in wait #5.
+
+**Improvement hunt (operator: «посмотри что можем сделать лучше») → two
+approved items, both executed:**
+
+1. **Wait-path RPC burn FIXED + DEPLOYED** (`abab80e` + `6d3af06`,
+   ~10:28Z). The A15 wait ran a full getProgramAccounts position scan
+   EVERY 15s cycle (~5,760 no-op heavy calls/day — BUG-014-class Helius
+   credit burn) from TWO call sites: ensurePositionsLoaded AND
+   checkPositionBalance's unconditional per-cycle discovery (the first
+   deploy killed only the warn spam — the field check caught the second
+   site still scanning at 15s, hence commit two). Now: a clean
+   «chain is empty» answer is authoritative for 5 min
+   (discoverPositionsCycle); RPC errors do NOT arm the throttle;
+   event-driven callers (pre-create check, rebalance recovery, derisk)
+   bypass it; a createPosition ATTEMPT clears it (a landed-but-
+   unconfirmed create must be re-discovered next cycle, not in 5 min).
+   In-pool behavior untouched (per-cycle self-heal stays). 143 vitest
+   (7 new). Post-deploy field check VERIFIED: startup scan 10:28:08Z,
+   next scan 10:33:09Z (5-min cadence exact, TOTAL 2 where the old code
+   would have done ~50 in that window); cycle duration dropped 371–1090ms
+   → 136–271ms; wait state preserved (anchor 74.6495, heldMs advancing);
+   hedge in band; restarts 0.
+
+2. **A18 re-run (operator: «перегнать сейчас»)** — volume kept draining
+   (our pool 269→157 successful tx/h vs old-pool 1651; ratio 6.8×→10.5×)
+   but the in-pool fee pace $1.30/day (17.78h, $0.966) is INSIDE the C4
+   norm. Fresh D2 live-vs-sim point on the срез #3+#4 window: **×1.59**
+   (prior ×1.49/×1.68) — the 6.5 bps calibration holds AFTER the drain;
+   sim in-pool time 17.4h vs real 17.78h. Sensitivity: old pool needs
+   4.9 bps effective (+22%) to tie the 4-window sum, 6.0 bps (+50%) to
+   tie the crash window — against the measured direction of model error.
+   **Current pool re-confirmed.** Details in BACKLOG A18.
+
+Analyzer verdict otherwise: parameters confirmed (19 min after the
+identical session-29 verdict), §A8 counter still frozen (4/4 entries
+chopped), A14 still waiting on the operator's healthchecks.io URL.
+
+### Session 29 — срез #4 (−4.19 vs USDC / 6.77d, bleed slowed 3×); operator's ANSEM/SOL pool proposal REJECTED (unhedgeable leg); old 4bps pool re-check REJECTED (A18); hedge-venue scan (A19)
+
+**Срез #4 (window since срез #3 = 0.81d, full verification block passed).**
+vs-USDC **−4.19** / vs-as-is −0.53 (mechanical +3.65 on 79.48→74.98 +
+skill −4.18 = vs-USDC to a cent, no leak) / vs-SOL +14.84. Trend −2.59 →
+−2.70 → −3.98 → **−4.19**: this window bled −0.26/day vs −1.10/day in the
+previous one. Window events: re-entries #3 (10:26Z Jul 16, 8.3h in pool,
+closed 95.05% SOL) and #4 (21:31Z, 2.0h, closed 100% SOL) — **4 of 4 live
+A15 entries now chopped downward** by the slow slide, but window LP fees
+~$0.65 nearly covered the traversals. Verification: 4716 cycles, 0 gaps
+>60s; 0 VITALS; 13 txs all classified (4 failed keeper TX2 cost 0); wallet
+fees 0.001668093 SOL (97% = one priority-fee swap); both live
+increase_short ($35.87, $31.15) in db + on-chain ✓; netΔ −0.0084 in band;
+liq 106.549645 = 1.42× spot; carry −5.67% APR ≈ $0.033/day. Container Up
+36h, watchdog ok. Analyzer: **parameters confirmed, no lever** (A17 sweep
+2 days old, window consistent); §A8 counter still NOT advancing. Machine
+in wait #5 (anchor 75.044, corridor ±0.384%).
+
+**ANSEM/SOL migration proposal — analyzed & REJECTED (operator approved
+staying).** Pool `6e7V9eegCHw997T72MxgwwJipZ6GJyZF8NvjkzT1rvpN` = ANSEM
+(«The Black Bull», pump.fun meme, 1 month old, mcap ~$185M) / SOL, step
+20, fee 0.2%, ~29k tx/h. The fat fee is real (the A9 dream), but the meme
+leg is UNHEDGEABLE — no ANSEM perp exists on Jupiter (SOL/ETH/BTC only),
+Flash (all 72 markets checked: BONK/WIF/PENGU/PUMP yes, ANSEM no), or
+anywhere checkable → half the position becomes a naked directional meme
+bet; the machine's «fees − IL − costs, no direction term» equation breaks.
+The operator's «no stablecoin → no USDC drawdown» premise inverted: USD
+drawdown (the срез headline per the Jul-9 goal) gains a SECOND unhedgeable
+source, and the LP mechanically accumulates the dumping meme. Offered a
+hand-run separate-budget experiment as the honest way to touch meme LP.
+
+**Earlier same session (recorded in BACKLOG): A18** — operator's «are we
+in the right pool» question re-ran the pool comparison under the A15/A17
+composite with honest per-pool fee calibration: old 4bps pool loses
+(sum +5.87 vs +10.73; naive 20-bin move degenerates to pure-cash +3.86);
+watch-item: volume migrated (our pool 34.5k → 269 tx/h, old pool 1829).
+**A19** — atomic/synchronous hedge-venue scan after the operator's
+one-tx close+hedge idea: Flash V2 left base-chain Solana (ephemeral
+rollup, ~50ms fills — no CPI possible; live SOL-short borrow there 1.5%/yr
+vs our 5.66%), Adrena base-chain but dead ($98.92/day volume, TVL $440k),
+Jupiter stays; recheck triggers recorded.
+
 ## 2026-07-16
 
 ### Session 28 — срез #3 (−3.98 vs USDC / 5.96d): first TWO live A15 re-entries, both chopped; benign 15s VITALS; parameters confirmed
