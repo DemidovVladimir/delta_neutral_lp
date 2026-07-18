@@ -1,6 +1,23 @@
 # HANDOVER — Delta-Neutral Bot (LP + Jupiter Perps hedge, both sides)
 
-**Last updated:** 2026-07-18 (Session 31: LP path generalized to base/quote; HYPE/SOL test = SECOND INSTANCE of the bot, deployed live on Hetzner).
+**Last updated:** 2026-07-18 late (Session 31: **CAMPAIGN 4 RETIRED by operator — strategy is now A23: HYPE/SOL LP $148 + SOL short 2.47**).
+
+## ⚡⚡ A23 IS LIVE (18:11–18:31Z) — READ BEFORE ANY СРЕЗ
+
+Operator order «Сворачивай сейчас» executed: campaign SOL/USDC LP CLOSED
+(`32sK4WvEuu9HbaPEhyiPCgaFb7SPvaiwkwHd3hLLFFsTCNcJcprv1oqV1xTQNg5FPMPsk473SRjLics3S3GjXPUZ`),
+HYPE/SOL position resized to ≈$148
+(`2BKShoLZiPUmmg7fepp6hQn3R7kTnZRnT3RfUAiWd7tg`), short raised to ≈2.4735
+SOL and MANAGED by the main instance via the BRIDGE
+`HEDGE_TARGET_DELTA_SOL=-1.97` (= pool value in SOL — UPDATE at every срез
+as the pool value drifts; proper fix pending: hedge input = hype-pool
+value, then target returns to 0). Main instance: AUTO_CREATE_POSITIONS=false,
+manages ONLY the short. Срез baseline: `data/strategy-a23-baseline.json`
+(anchor 2026-07-18T18:16:50Z, **TOTAL $327.07**); срез = whole-portfolio
+USD (hype pool + wallet SOL/USDC/HYPE + short collateral ± perp PnL) vs
+327.07 + tx-audit. **Do NOT run pnpm hodl against the old hodl-baseline —
+campaign artifact.** Fee pace check @ 2.6h: 0.448%/день ✓ норм (red flag
+< 0.1%/день over a full day). All signatures + spec: BACKLOG A23.
 
 ## ⚡ Session 31 flash (Jul 18) — TWO bot instances now run on the server
 

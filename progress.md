@@ -64,6 +64,25 @@ operator rejected it — «вся автоматика уже в коде ест
 - **Operator cadence**: ежедневный срез ДВУХ элементов — `pnpm hodl`
   (кампания SOL/USDC) + `pnpm hype` (тест, мерило SOL).
 
+**Session 31 evening — A21/A22/A23: стейблы отклонены данными, комбинация пулов отклонена, КАМПАНИЯ СВЁРНУТА, стратегия A23 живьём.**
+Full evening arc (details + all signatures in BACKLOG A21/A22/A23):
+stable pools on Meteora — niche empty, rejected; Raydium USDC/USDT — ⅓
+цента/день on $50, rejected + new structural rule «стейбл-симы: traversal
+engine неприменим, истина = фактический APR пула»; pool combinations
+(HYPE/USDC + USDC/SOL) — rejected head-to-head (8× worse honest frame);
+A23 «HYPE/SOL + SOL short, кампанию убрать» — simulated (dominates:
+campaign −6.48/мес vs −0.85 worst-month), operator ordered «Сворачивай
+сейчас» → executed 18:11–18:31Z: campaign LP closed, HYPE position $148,
+short 2.4735 via bridge target −1.97, baseline $327.07 anchored
+18:16:50Z. Also: REENTRY_PARK_IN_QUOTE feature (park the wait in the
+quote token, on for the hype instance); первый живой самоцикл
+hype-машины (close 08:24 → wait 2h17m → swap+reopen 10:41) и добор
+«суммы 50» с вырезкой baseline −0.238870613 SOL; срезы #6: кампания
+−4.31 old-frame (flat), тест +0.60% за 8.5ч управляемого режима.
+NEXT SESSION: proper hedge wiring (input = hype-pool value, bridge → 0);
+срез vs $327.07; вернуть hodl-машинерию под новую стратегию или
+архивировать. Fee pace @ 2.6h после ресайза: 0.448%/день ✓.
+
 **Session 31 addendum (scout cross-check + field fixes).** The parallel
 code-map agent confirmed the generalization and caught 2 role-blind spots,
 both fixed + redeployed: (a) the 50/50 alignment gate now subtracts the
