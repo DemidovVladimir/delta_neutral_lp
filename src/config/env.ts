@@ -178,6 +178,17 @@ export interface BotConfig {
    */
   reentryTolFrac: number;
   /**
+   * «Парковка в мериле» (operator 2026-07-18): during the re-entry wait,
+   * swap any BASE token still in the wallet into the QUOTE token, so the
+   * wait holds the measuring stick instead of the volatile side; the
+   * re-entry deposit buys the base back through the normal planner path.
+   * For NO-PERP instances only (the HYPE/SOL test): the production
+   * SOL/USDC instance parks via the perp hedge instead — A10 measured the
+   * physical spot roundtrip (~10 bps) LOSING to the perp (~6 bps) on both
+   * reference months. Env: REENTRY_PARK_IN_QUOTE (default false).
+   */
+  reentryParkInQuote: boolean;
+  /**
    * Target collateral ratio (collateral / notional) the controller sizes
    * collateral to on an increase. 1.0 = fully collateralized (~1x); ADR-016
    * chose 0.33 (~3x) for capital efficiency — set it in .env.
@@ -405,6 +416,7 @@ function loadConfigFromEnv(): BotConfig {
   if (reentryTolFrac <= 0 || reentryTolFrac >= 1) {
     throw new Error('REENTRY_TOL_FRAC must be in (0, 1) — a fraction of the range width');
   }
+  const reentryParkInQuote = parseEnvBoolean('REENTRY_PARK_IN_QUOTE', false);
   const deltaThresholdSol = parseEnvNumber('DELTA_THRESHOLD_SOL', 2);
   const minCollateralRatio = parseEnvNumber('MIN_COLLATERAL_RATIO', 0.15);
   // Renamed from MAX_SHORT_NOTIONAL_USD when the hedge gained the long side;
@@ -516,6 +528,7 @@ function loadConfigFromEnv(): BotConfig {
     trendConfirmMs,
     reentryConfirmMs,
     reentryTolFrac,
+    reentryParkInQuote,
     deltaThresholdSol,
     hedgeBandBins,
     minCollateralRatio,

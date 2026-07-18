@@ -637,6 +637,19 @@ export class AutoTuneOrchestrator {
               corridorPct: (tolPriceFrac * 100).toFixed(3),
             });
           }
+
+          // «Парковка в мериле» (operator 2026-07-18): with no perp on this
+          // pair, the wait would otherwise hold the volatile base token —
+          // the A20 trap that bled the test's first night. Swap any base
+          // still in the wallet into the quote token; the re-entry deposit
+          // buys the base side back through the normal planner path. Runs
+          // every wait cycle (idempotent: dust guard stops it once parked),
+          // which also catches a wait that was already armed before this
+          // feature deployed. Skipped when the gate just said 'open' —
+          // selling base one cycle before buying it back is pure cost.
+          if (decision.action !== 'open' && this.config.reentryParkInQuote) {
+            await this.parkBaseInQuote(currentPrice);
+          }
         } else if (this.config.autoCreatePositions && this.config.meteoraPoolAddress) {
           // Auto-create initial position if enabled.
           // Safety check: discover positions one more time before creating
@@ -1507,6 +1520,48 @@ export class AutoTuneOrchestrator {
     }
     const solPriceData = await getSolPrice();
     return { price: solPriceData.usd, source: solPriceData.source };
+  }
+
+  /**
+   * «Парковка в мериле» (REENTRY_PARK_IN_QUOTE): swap wallet base → quote
+   * during the re-entry wait. Fail-safe: any error is logged and the wait
+   * simply keeps holding the base token until the next cycle retries.
+   */
+  private async parkBaseInQuote(currentPrice: number): Promise<void> {
+    try {
+      const baseRes = this.baseSideReserves();
+      const baseBal = await this.getBaseBalance();
+      const spendable = Math.max(
+        0,
+        baseBal - baseRes.permanentMinimum - baseRes.rentReserve - baseRes.positionRent
+      );
+      const valueQuote = spendable * currentPrice;
+      // Dust guard, auto-scaled: don't churn a swap for less than 2% of the
+      // target position's quote value (deposit token may be either role).
+      const targetValueQuote =
+        this.config.autoTuneDepositToken === 'USDC'
+          ? this.config.autoTuneDepositAmount * 2
+          : this.config.autoTuneDepositAmount * currentPrice * 2;
+      if (valueQuote < targetValueQuote * 0.02) return;
+
+      log.info('🅿️ Парковка ожидания: меняю базовый токен в мерило (REENTRY_PARK_IN_QUOTE)', {
+        baseAmount: spendable,
+        valueQuote,
+        currentPrice,
+      });
+      const swapResult = await this.jupiterSwapper.executeSwap({
+        inputMint: getPair().baseMint,
+        outputMint: getPair().quoteMint,
+        amount: spendable,
+        context: 'rebalance',
+        priceSolUsd: currentPrice,
+      });
+      this.logSwapOutcome(swapResult);
+    } catch (error) {
+      log.error('Парковка в мерило не удалась — ждём в базовом токене, повтор в следующем цикле', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   /**
