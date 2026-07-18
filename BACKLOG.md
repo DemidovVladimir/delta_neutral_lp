@@ -476,6 +476,37 @@ with base-chain fills; Flash reverting to base-chain execution; Jupiter
 carry sustained >15%/yr. Recipes: `flashapi.trade/raw/custodies` (live
 rates), `datapi.adrena.trade/docs` (swagger inline), `pnpm jupiter:read`.
 
+### A21. Stable-stable pools on Meteora (operator 2026-07-18: «USDT/USDC, 5 бинов?») — SURVEYED; NICHE IS EMPTY, one 1-day-old exception
+
+Survey (GT dex=meteora top pages + targeted search + on-chain owner/params
+check, 2026-07-18): the stable-stable niche on Meteora has NO live DLMM
+volume. USDC/USDT `32D4zRxNc1EssbJieVHfPhZM3rH6CzfUPrWUuWxD9prG` is the OLD
+Dynamic-AMM program (owner `Eo7WjKq67rjJQSZxS6z3YkapzY3eMj6Xy8X5EQVn5UaB`,
+NOT DLMM — our bot can't run it), $901k TVL / $65k vol/day → passive fee
+yield ≈ 0.26%/yr (dead). USDS/USDC on meteora-dbc: $50M TVL, $5k vol/day.
+USD+/USDC $197k TVL ZERO volume; PYUSD/USDT dust. Solana's real stable
+volume (Raydium CLMM/Orca/Byreal/ZeroFi, $1.7–3.8M/day pools) is off-venue
+for us. The ONE live stable DLMM: **USDI/USDT
+`UCgzcpE1VoDnY5x8YkiM2ZP75ANjXQBv9jMYZM5dcsv`** (step 1 bp, fee 0.01%,
+$997k TVL, $395k vol/day) — but its trade history starts 2026-07-17T16:30Z:
+the pool was ~ONE DAY OLD at survey time (launch-day numbers, unknown
+issuer's stable `4ZfUkWUgW77CdqE73NTJoVGHubYayuZh7sfW529SCUnR`).
+Measurements on it: active bin holds ~$29.5k (a $50/5-bin position = 0.034%
+share of pass-through fees ≈ $0.013/day); BUT the launch-day «peg» wandered
+316 one-bp bin crossings in 6h — sim on the real path (cache
+SOLUSDC_1m_1784305800000_1784327400000.csv, `--bins 5 --bin-step 1
+--fee-bps 1 --band 99 --swap-skip --reentry-min 120 --reentry-tol 0.20
+--lp-value 50`) gave **EDGE +0.44 USD/6h on $50 (≈3.5%/day)** — traversal
+fees on our own converting inventory (competition-independent), 0
+recenters, netΔ drift +0.33. Interpretation: the yield IS the peg noise of
+a day-old token — the income and the depeg risk are the same thing.
+VERDICT: no deployable stable pair on Meteora today; USDI/USDT = watch
+item ONLY (re-run this survey in ~1 week: if volume/peg persist and the
+wiggle stays, re-cost with fresh bin distribution; the bot is now
+pair-generic and could run it unchanged). Re-check recipe: GT pages →
+owner check (DLMM = `LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo`) →
+LbPair offsets 80/8 → GT minute OHLCV currency=token → sim.
+
 ### A20. Non-USDC pair survey (operator 2026-07-17: «пары без привязки к доллару») — MEASURED; HYPE/SOL live test APPROVED
 
 Operator redirect after A18: no USDC leg, Solana+Meteora only, no ETH/BTC —
