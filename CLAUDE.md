@@ -44,6 +44,14 @@ npx tsx scripts/close-lp.ts --mint <mint> [--live]   # close ONE LP position (po
 npx tsx scripts/find-pools-fast.ts                   # SOL/USDC DLMM pools in ~4 RPC calls
 npx tsx scripts/pool-activity.ts <pools…>            # tx/h + price staleness per pool
 
+# HYPE/SOL live test (BACKLOG A20; SOL-metric, no USD peg)
+pnpm hype                                            # snapshot: %, vs-hold, trailing 24h window (appends data/hype-test-history.jsonl)
+# The test position is managed by a SECOND INSTANCE of this bot: compose
+# service delta-neutral-bot-hype (env .env.hype, data in data-hype/, hedge
+# off). The LP path is pair-generic (src/config/pairConfig.ts): base = pool
+# tokenX, quote = tokenY, derived on-chain — on HYPE/SOL every "usd"-named
+# figure is a SOL figure.
+
 # Dev
 pnpm test | pnpm build | pnpm lint | pnpm format     # NOTE: pnpm test = vitest WATCH mode; single run = npx vitest run
 pnpm find-pools          # LEGACY pool discovery — 300k RPC calls (BUG-014 pattern), use find-pools-fast.ts

@@ -536,11 +536,29 @@ trend — subtract it when comparing (first adjusted read: −1.74 ≈ old
 15:22:05Z, 3s after the open, sig
 `2wvcMjtTPSzV9agLDimBLPSHQmcvVw1rtB4QPZ5SapF1vJroim5urwhUYnGzCD7ZiRJbcFDjmRn1uNa5VmbY6z19`,
 netΔ back in band (+0.002). Test position is INVISIBLE to the bot loop
-(different pool) and to campaign equity (by design). MANAGEMENT (by me,
-each срез + when price exits the range): close → re-balance 50/50 →
-reopen ±2%; HYPE −20%+/day → close to SOL; tracking `RPC_URL=… npx tsx
-scripts/hype-test-track.ts` (default wallet = bot wallet now; baseline
-row taken; data/hype-test-history.jsonl). Success bar: sim expects
+(different pool) and to campaign equity (by design). MANAGEMENT — since
+2026-07-18 the test IS a second instance of the production bot (operator:
+«вся автоматика уже в коде есть, продублируй и задеплой» — a bespoke
+recenter script was built first and DISCARDED): compose service
+`delta-neutral-bot-hype`, same image/wallet, own data dir `data-hype/`,
+env `.env.hype` (HEDGE off per A19; bins 20; выдержка 10m; реентри
+120m/0.20; storm 2%/5m; interval 60s; deposit = quote-role 0.32 SOL ≈
+$48 total — operator's «сумма 50»; MINIMUM_WALLET_BALANCE_SOL=1.05 = the
+campaign fence, ≈0.18 SOL spendable = the one-time top-up, flows visible
+in data-hype/pnl.db — subtract at срез). The LP path is pair-generic
+(src/config/pairConfig.ts: base=tokenX, quote=tokenY, derived on-chain;
+"usd"-named figures on this instance are SOL figures). The production
+swapPlanner at tight budget IS forced-alignment (sim: 44/44 recenters
+swapped) — the swap-skip drift trap does not apply. Deployment-frame sim
+(month −18.4%, fee 12.5 bps, `--swap-skip --reentry-min 120 --reentry-tol
+0.20 --lp-value 39.5 --idle-sol 0 --wallet-usdc 0`): EDGE −0.50/мес ≈ tie
+with hold on the WORST month; legacy A20 frame reproduced (−2.28 ∈
+−2…+8). Manual rule stays for extremes: HYPE −20%+/day → close to SOL
+(`pnpm derisk` won't see this pool — close via the hype instance or UI).
+Daily cadence: срез BOTH — `pnpm hodl` (кампания) + `pnpm hype` (тест).
+Tracking `pnpm hype` (scripts/hype-test-track.ts): mint-AGNOSTIC baseline
+= first history row (recenters keep continuity), % readouts, trailing 24h
+window. Success bar: sim expects
 ~0.003–0.005 SOL/day fees on this size; vs-hold-mix positive over ≥1
 week → migration spec conversation; negative → close the test, re-add
 the exact return flow to the baseline. Caveats: 1 month of history, GT

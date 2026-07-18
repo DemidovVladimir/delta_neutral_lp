@@ -21,14 +21,34 @@ import {
   sendAndConfirmTransaction,
 } from '@solana/web3.js';
 import { log } from '../utils/logger.js';
+import { getPair } from '../config/pairConfig.js';
 
 const TOKEN_PROGRAM = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
 const TOKEN_2022_PROGRAM = new PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');
 const WSOL_MINT = 'So11111111111111111111111111111111111111112';
 const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 
-/** Mints the janitor must never close, even when empty. */
+/**
+ * Mints the janitor must never close, even when empty. Static floor: wSOL +
+ * USDC. Extended at call time with the configured pool's own pair mints and
+ * JANITOR_PROTECTED_MINTS_EXTRA (comma-separated env) — the multi-instance
+ * case: the SOL/USDC bot and the X/SOL test bot share one wallet, and
+ * neither may churn the other's working ATAs (the HYPE ATA legitimately
+ * sits at 0 while the test position holds everything).
+ */
 export const JANITOR_PROTECTED_MINTS = new Set([WSOL_MINT, USDC_MINT]);
+
+function protectedMints(): Set<string> {
+  const mints = new Set(JANITOR_PROTECTED_MINTS);
+  const pair = getPair();
+  mints.add(pair.baseMint);
+  mints.add(pair.quoteMint);
+  for (const m of (process.env.JANITOR_PROTECTED_MINTS_EXTRA ?? '').split(',')) {
+    const trimmed = m.trim();
+    if (trimmed) mints.add(trimmed);
+  }
+  return mints;
+}
 
 const CLOSE_BATCH_SIZE = 4;
 
@@ -51,11 +71,12 @@ export function selectClosableAccounts(
     amount: string;
     state: string;
     rentLamports: number;
-  }>
+  }>,
+  protectedSet: Set<string> = protectedMints()
 ): ClosableAccount[] {
   return accounts
     .filter(
-      (a) => a.amount === '0' && a.state !== 'frozen' && !JANITOR_PROTECTED_MINTS.has(a.mint)
+      (a) => a.amount === '0' && a.state !== 'frozen' && !protectedSet.has(a.mint)
     )
     .map((a) => ({
       ata: a.pubkey,

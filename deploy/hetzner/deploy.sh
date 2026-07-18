@@ -29,9 +29,10 @@ if [[ -z "${ENV_FILE}" ]]; then
 fi
 
 echo "→ Syncing source to ${HETZNER_USER}@${HETZNER_HOST}:${REMOTE_DIR}"
-# The container runs as the unprivileged `node` user (uid 1000); the
-# bind-mounted data dir must be writable by it or every state save EACCESes.
-remote "mkdir -p ${REMOTE_DIR}/data && chown -R 1000:1000 ${REMOTE_DIR}/data"
+# The containers run as the unprivileged `node` user (uid 1000); the
+# bind-mounted data dirs must be writable by it or every state save EACCESes.
+# data-hype is the HYPE/SOL test instance's isolated state (BACKLOG A20).
+remote "mkdir -p ${REMOTE_DIR}/data ${REMOTE_DIR}/data-hype && chown -R 1000:1000 ${REMOTE_DIR}/data ${REMOTE_DIR}/data-hype"
 # --exclude 'watchdog.env': the server-only alert secrets sit at the target
 # root and are NOT in the repo — without this exclude, --delete removes them
 # (BUG-016: the 2026-07-07 deploys silently wiped the watchdog script + env,
@@ -43,6 +44,7 @@ rsync -az --delete \
   --exclude node_modules \
   --exclude .git \
   --exclude data \
+  --exclude data-hype \
   --exclude target \
   --exclude '.env*' \
   --exclude 'watchdog.env' \
@@ -59,6 +61,18 @@ grep -v '^STRATEGY_VERSION=' "${ENV_FILE}" > "${TMP_ENV}" || true
 echo "STRATEGY_VERSION=${GIT_HASH}" >> "${TMP_ENV}"
 scp "${ssh_args[@]}" -q "${TMP_ENV}" "${HETZNER_USER}@${HETZNER_HOST}:${REMOTE_DIR}/.env"
 remote "chmod 600 ${REMOTE_DIR}/.env"
+
+# The HYPE/SOL test instance's env (compose service delta-neutral-bot-hype).
+# Optional so pre-A20 checkouts still deploy; same version stamp.
+if [[ -f "${REPO_ROOT}/.env.hype" ]]; then
+  echo "→ Uploading .env.hype (HYPE/SOL test instance)"
+  TMP_ENV_HYPE=$(mktemp)
+  grep -v '^STRATEGY_VERSION=' "${REPO_ROOT}/.env.hype" > "${TMP_ENV_HYPE}" || true
+  echo "STRATEGY_VERSION=${GIT_HASH}" >> "${TMP_ENV_HYPE}"
+  scp "${ssh_args[@]}" -q "${TMP_ENV_HYPE}" "${HETZNER_USER}@${HETZNER_HOST}:${REMOTE_DIR}/.env.hype"
+  rm -f "${TMP_ENV_HYPE}"
+  remote "chmod 600 ${REMOTE_DIR}/.env.hype"
+fi
 
 echo "→ Building + starting the container"
 remote "cd ${REMOTE_DIR} && docker compose up -d --build"

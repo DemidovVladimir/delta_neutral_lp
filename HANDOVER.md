@@ -1,6 +1,28 @@
 # HANDOVER — Delta-Neutral Bot (LP + Jupiter Perps hedge, both sides)
 
-**Last updated:** 2026-07-17 (Session 30, evening: HYPE/SOL live test OPENED from the bot wallet; baseline carved).
+**Last updated:** 2026-07-18 (Session 31: LP path generalized to base/quote; HYPE/SOL test = SECOND INSTANCE of the bot, deployed live on Hetzner).
+
+## ⚡ Session 31 flash (Jul 18) — TWO bot instances now run on the server
+
+The static HYPE test position broke its band overnight (100% HYPE, fee flow
+stopped). Operator: no bespoke scripts — «вся автоматика уже в коде есть,
+продублируй». Done: the LP path is now pair-generic (base = pool tokenX,
+quote = tokenY, roles derived on-chain via the DLMM.create wrap in
+src/utils/dlmm.ts; SOL/USDC bit-identical — see progress.md Session 31),
+and the server runs TWO compose services:
+- `delta-neutral-bot` — Campaign 4, SOL/USDC, unchanged.
+- `delta-neutral-bot-hype` — the SAME code on HYPE/SOL
+  `81GpCm4d13y8TozYtThabuSCLQN2o3bbrvDogXFPn8sA`, HEDGE off (A19), bins 20,
+  выдержка 10m, реентри 120m/0.20, deposit ≈$48 total («сумма 50»), data in
+  `./data-hype` (own state/pnl.db/logs), env `.env.hype`.
+  MINIMUM_WALLET_BALANCE_SOL=1.05 there is the CAMPAIGN FENCE — native SOL
+  belongs to Campaign 4; ≈0.18 SOL spendable = the one-time top-up, further
+  flows visible in data-hype/pnl.db (subtract at срез).
+Sim gate on the worst month (−18.4%): deployment frame EDGE −0.50/мес ≈ tie
+with hold; fee pace real 0.49%/день. Daily cadence now: срез BOTH — `pnpm
+hodl` (кампания) + `pnpm hype` (тест, мерило SOL; tracker is mint-agnostic
+across recenters). Watchdog still monitors ONLY delta-neutral-bot — the
+hype container is unmonitored (open item). Spec: BACKLOG A20.
 
 ## ⚡ HYPE/SOL live test is OPEN (2026-07-17T15:22Z, bot wallet, operator «Сделай сам») — read A20 before ANY срез
 

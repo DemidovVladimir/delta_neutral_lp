@@ -82,6 +82,15 @@ export interface SwapPlanInput {
    * to tune. Plain number, in whatever units the config uses.
    */
   autoTuneDepositAmount?: number;
+
+  /**
+   * Pair mints for the emitted swap legs. Default to SOL/USDC (the
+   * production pool) so every existing caller and test is untouched; the
+   * X/SOL instance passes its pool's mints. Directions keep their legacy
+   * names — 'SOL_TO_USDC' means base→quote.
+   */
+  baseMint?: string;
+  quoteMint?: string;
 }
 
 export interface SwapPlanShortfall {
@@ -149,6 +158,8 @@ export function planSwapForDeposit(input: SwapPlanInput): SwapPlan {
     slippageBufferPct,
     context,
     autoTuneDepositAmount,
+    baseMint = SOL_MINT,
+    quoteMint = USDC_MINT,
   } = input;
 
   // Defensive sanity checks — these should never trigger from real config but
@@ -239,8 +250,8 @@ export function planSwapForDeposit(input: SwapPlanInput): SwapPlan {
       shortfall: { sol: solShortfall, usdc: usdcShortfall },
       swap: {
         direction: 'SOL_TO_USDC',
-        inputMint: SOL_MINT,
-        outputMint: USDC_MINT,
+        inputMint: baseMint,
+        outputMint: quoteMint,
         amount,
         expectedOutput,
       },
@@ -267,8 +278,8 @@ export function planSwapForDeposit(input: SwapPlanInput): SwapPlan {
     shortfall: { sol: solShortfall, usdc: usdcShortfall },
     swap: {
       direction: 'USDC_TO_SOL',
-      inputMint: USDC_MINT,
-      outputMint: SOL_MINT,
+      inputMint: quoteMint,
+      outputMint: baseMint,
       amount,
       expectedOutput,
     },

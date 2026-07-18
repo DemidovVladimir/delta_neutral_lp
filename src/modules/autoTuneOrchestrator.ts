@@ -65,7 +65,7 @@ import { getConnection, getWalletKeypair } from '../utils/solana.js';
 import { closeEmptyTokenAccounts } from './walletJanitor.js';
 import { computeLpHedgeDelta, lpDeltaForRegime, type LpHedgeRegime } from './hedgeController.js';
 import { DLMM } from '../utils/dlmm.js';
-import { DECIMALS } from '../config/constants.js';
+import { getPair } from '../config/pairConfig.js';
 import { getSolPrice } from '../core/priceOracle.js';
 import {
   checkPositionImbalance,
@@ -98,8 +98,6 @@ import {
 
 // Token mint addresses
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
-const USDC_MINT_ADDRESS = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
-const USDC_MINT = new PublicKey(USDC_MINT_ADDRESS);
 
 export class AutoTuneOrchestrator {
   private config = getConfig();
@@ -507,11 +505,15 @@ export class AutoTuneOrchestrator {
     }
 
     try {
-      // Fetch price once for entire check cycle (shared across rebalance + fee tracking)
-      const solPriceData = await getSolPrice();
-      const currentPrice = solPriceData.usd;
+      // Fetch price once for entire check cycle (shared across rebalance + fee tracking).
+      // Production pool: the cached SOL/USD oracle. Non-USD quote (X/SOL
+      // pools): the pool's own active bin — the only honest "base in quote"
+      // price, and it feeds storm detection with the moves that actually
+      // matter to this position.
+      const priceData = await this.getCyclePrice();
+      const currentPrice = priceData.price;
       this.recordPriceSample(currentPrice);
-      log.debug('Using SOL price for check cycle', { price: currentPrice, source: solPriceData.source });
+      log.debug('Using cycle price', { price: currentPrice, source: priceData.source });
 
       // Recenter-rate vitals (latched, A5): the measured red line is ~40
       // recenters/day (the Jul-5 whipsaw night ran ~52/day and bled $2/night
@@ -993,14 +995,14 @@ export class AutoTuneOrchestrator {
       const lowerBinPrice = getPriceFromBinId(
         position.lowerBinId,
         binStep,
-        DECIMALS.SOL,
-        DECIMALS.USDC
+        getPair().baseDecimals,
+        getPair().quoteDecimals
       ).toNumber();
       const upperBinPrice = getPriceFromBinId(
         position.upperBinId,
         binStep,
-        DECIMALS.SOL,
-        DECIMALS.USDC
+        getPair().baseDecimals,
+        getPair().quoteDecimals
       ).toNumber();
 
       // Check for imbalance
@@ -1426,29 +1428,104 @@ export class AutoTuneOrchestrator {
   }
 
   /**
-   * Get USDC balance for wallet
+   * Quote-side wallet balance (the code's "usdc" role). USDC ATA on the
+   * production pool; the native lamport balance when the pool's quote token
+   * is SOL (X/SOL pools — the wSOL mint means native SOL to the wallet).
    */
   private async getUsdcBalance(): Promise<number> {
     try {
       const connection = getConnection();
       const wallet = getWalletKeypair();
+      const pair = getPair();
 
-      // Get associated token account for USDC
-      const usdcTokenAccount = await getAssociatedTokenAddress(
-        USDC_MINT,
+      if (pair.quoteIsNativeSol) {
+        return (await connection.getBalance(wallet.publicKey)) / 1e9;
+      }
+
+      const quoteTokenAccount = await getAssociatedTokenAddress(
+        new PublicKey(pair.quoteMint),
         wallet.publicKey
       );
-
-      // Try to get account balance
-      const balance = await connection.getTokenAccountBalance(usdcTokenAccount);
+      const balance = await connection.getTokenAccountBalance(quoteTokenAccount);
       return balance.value.uiAmount || 0;
     } catch (error) {
       // If account doesn't exist, balance is 0
-      log.debug('USDC token account not found or error getting balance', {
+      log.debug('Quote token account not found or error getting balance', {
         error: error instanceof Error ? error.message : String(error),
       });
       return 0;
     }
+  }
+
+  /**
+   * Base-side wallet balance (the code's "sol" role). Native lamports on
+   * the production pool; the base-mint ATA when tokenX is an SPL token
+   * (HYPE on the X/SOL test pool).
+   */
+  private async getBaseBalance(): Promise<number> {
+    const connection = getConnection();
+    const wallet = getWalletKeypair();
+    const pair = getPair();
+    if (pair.baseIsNativeSol) {
+      return (await connection.getBalance(wallet.publicKey)) / 1e9;
+    }
+    try {
+      const baseTokenAccount = await getAssociatedTokenAddress(
+        new PublicKey(pair.baseMint),
+        wallet.publicKey
+      );
+      const balance = await connection.getTokenAccountBalance(baseTokenAccount);
+      return balance.value.uiAmount || 0;
+    } catch (error) {
+      log.debug('Base token account not found or error getting balance', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return 0;
+    }
+  }
+
+  /**
+   * Cycle price: "quote per base". SOL/USD from the cached oracle on the
+   * production pool; the pool's own active bin when the quote is not USD
+   * (an external SOL/USD quote is meaningless for an X/SOL position).
+   */
+  private async getCyclePrice(): Promise<{ price: number; source: string }> {
+    if (getPair().quoteIsUsd) {
+      const solPriceData = await getSolPrice();
+      return { price: solPriceData.usd, source: solPriceData.source };
+    }
+    const connection = getConnection();
+    const poolPubkey = new PublicKey(this.config.meteoraPoolAddress!);
+    const dlmmPool = await DLMM.create(connection, poolPubkey);
+    const activeBinData = await getActiveBin(dlmmPool);
+    return { price: activeBinData.pricePerToken, source: 'pool-active-bin' };
+  }
+
+  /**
+   * Fee/rent reserves live on whichever pair side is NATIVE SOL. On the
+   * production pool that is the base ("sol") side — these return the
+   * configured values there and zeros on the other side. On an X/SOL pool
+   * the roles flip: the base (SPL token) needs no floor, and the quote leg
+   * absorbs the SOL reserves via reserveUsdc.
+   */
+  private baseSideReserves(): { permanentMinimum: number; rentReserve: number; positionRent: number } {
+    if (getPair().baseIsNativeSol) {
+      return {
+        permanentMinimum: this.config.minimumWalletBalanceSol,
+        rentReserve: this.config.rentReserveSol,
+        positionRent: METEORA_POSITION_RENT_SOL,
+      };
+    }
+    return { permanentMinimum: 0, rentReserve: 0, positionRent: 0 };
+  }
+
+  private quoteSideReserveExtra(): number {
+    if (getPair().quoteIsNativeSol) {
+      return (
+        this.config.minimumWalletBalanceSol + this.config.rentReserveSol + METEORA_POSITION_RENT_SOL
+      );
+    }
+    return 0;
   }
 
 
@@ -1531,9 +1608,8 @@ export class AutoTuneOrchestrator {
       // after it confirms, whether the RPC node we read from has actually
       // applied the withdraw credit (see the barrier below Phase 1).
       const connection = getConnection();
-      const wallet = getWalletKeypair();
       const readWalletBalances = async () => ({
-        sol: (await connection.getBalance(wallet.publicKey)) / Math.pow(10, 9),
+        sol: await this.getBaseBalance(),
         usdc: await this.getUsdcBalance(),
       });
       const preWithdraw = await readWalletBalances();
@@ -1736,14 +1812,18 @@ export class AutoTuneOrchestrator {
         };
       }
 
-      // Calculate maximum depositable SOL (respecting reserves + the refundable
+      // Calculate maximum depositable base (respecting reserves + the refundable
       // rent the create TX will lock — so a wallet-constrained deposit still
-      // leaves the full reserve floor after creation)
-      const totalReserve = this.config.minimumWalletBalanceSol + this.config.rentReserveSol;
-      const maxDepositableSol = Math.max(0, actualSol - totalReserve - METEORA_POSITION_RENT_SOL);
+      // leaves the full reserve floor after creation). Reserves are zero when
+      // the base is an SPL token (X/SOL pools) — they move to the quote leg.
+      const baseRes = this.baseSideReserves();
+      const totalReserve = baseRes.permanentMinimum + baseRes.rentReserve;
+      const maxDepositableSol = Math.max(0, actualSol - totalReserve - baseRes.positionRent);
 
-      // Check if we have enough balance to cover reserves
-      if (maxDepositableSol <= 0) {
+      // Check if we have enough balance to cover reserves. Only meaningful
+      // when the base side is native SOL: an SPL base legitimately hits 0
+      // after an up-range close (all value in quote) — the planner swaps back.
+      if (getPair().baseIsNativeSol && maxDepositableSol <= 0) {
         throw new Error(
           `Insufficient SOL balance to cover reserves. Have ${actualSol.toFixed(4)} SOL, need ${totalReserve.toFixed(4)} for reserves. ` +
           `Please deposit at least ${(totalReserve - actualSol + 0.1).toFixed(4)} SOL to continue.`
@@ -1767,7 +1847,8 @@ export class AutoTuneOrchestrator {
       // both the scale-down check and the swap plan below must see the
       // wallet WITHOUT it, or the deposit eats the hedge's collateral.
       const desiredPositionValueUsd = (desiredSol * currentPrice) + desiredUsdc;
-      const hedgeReserveUsdc = this.hedgeCollateralReserveUsdc(desiredPositionValueUsd);
+      const hedgeReserveUsdc =
+        this.hedgeCollateralReserveUsdc(desiredPositionValueUsd) + this.quoteSideReserveExtra();
       const totalWalletValueUsd = (maxDepositableSol * currentPrice) + Math.max(0, actualUsdc - hedgeReserveUsdc);
 
       // If desired position exceeds total wallet value, scale down proportionally.
@@ -1831,8 +1912,8 @@ export class AutoTuneOrchestrator {
         currentBinId,
         binStep,
         this.config.autoTuneBinCount,
-        DECIMALS.SOL,
-        DECIMALS.USDC
+        getPair().baseDecimals,
+        getPair().quoteDecimals
       );
 
       // ========================================================================
@@ -1924,10 +2005,12 @@ export class AutoTuneOrchestrator {
           walletUsdc: actualUsdc,
           targetSol: solAmount,
           targetUsdc: usdcAmount,
-          permanentMinimumSol: this.config.minimumWalletBalanceSol,
-          rentReserveSol: this.config.rentReserveSol,
-          positionRentSol: METEORA_POSITION_RENT_SOL,
+          permanentMinimumSol: baseRes.permanentMinimum,
+          rentReserveSol: baseRes.rentReserve,
+          positionRentSol: baseRes.positionRent,
           reserveUsdc: hedgeReserveUsdc,
+          baseMint: getPair().baseMint,
+          quoteMint: getPair().quoteMint,
           currentPrice,
           slippageBufferPct: this.config.swapSlippageBufferPct / 100,
           context: 'rebalance',
@@ -1980,8 +2063,7 @@ export class AutoTuneOrchestrator {
             await new Promise(resolve => setTimeout(resolve, 2000));
           } catch (swapError) {
             // Swap failed - log current wallet balances to help debug
-            const currentSolBalance = await connection.getBalance(wallet.publicKey);
-            const currentActualSol = currentSolBalance / Math.pow(10, 9);
+                        const currentActualSol = await this.getBaseBalance();
             const currentActualUsdc = await this.getUsdcBalance();
 
             log.errorBanner('❌ Swap failed - current wallet balances', {
@@ -2060,8 +2142,7 @@ export class AutoTuneOrchestrator {
         if (attempt > 1) {
           log.info(`🔄 Retry ${attempt}/${this.config.autoTuneMaxRetries} — re-checking wallet state`);
 
-          const retrySolBalance = await connection.getBalance(wallet.publicKey);
-          const retryActualSol = retrySolBalance / Math.pow(10, 9);
+                    const retryActualSol = await this.getBaseBalance();
           const retryActualUsdc = await this.getUsdcBalance();
 
           let retrySwapPlan: SwapPlan;
@@ -2071,10 +2152,12 @@ export class AutoTuneOrchestrator {
               walletUsdc: retryActualUsdc,
               targetSol: solAmount,
               targetUsdc: usdcAmount,
-              permanentMinimumSol: this.config.minimumWalletBalanceSol,
-              rentReserveSol: this.config.rentReserveSol,
-              positionRentSol: METEORA_POSITION_RENT_SOL,
+              permanentMinimumSol: baseRes.permanentMinimum,
+              rentReserveSol: baseRes.rentReserve,
+              positionRentSol: baseRes.positionRent,
               reserveUsdc: hedgeReserveUsdc,
+              baseMint: getPair().baseMint,
+              quoteMint: getPair().quoteMint,
               currentPrice,
               slippageBufferPct: this.config.swapSlippageBufferPct / 100,
               context: 'rebalance',
@@ -2285,8 +2368,8 @@ export class AutoTuneOrchestrator {
         currentBinId,
         binStep,
         this.config.autoTuneBinCount,
-        DECIMALS.SOL,
-        DECIMALS.USDC
+        getPair().baseDecimals,
+        getPair().quoteDecimals
       );
 
       log.info('Calculated price range for initial position', {
@@ -2325,9 +2408,7 @@ export class AutoTuneOrchestrator {
       });
 
       // Fetch current wallet balances for the pre-flight + swap decision below.
-      const wallet = getWalletKeypair();
-      const solBalance = await connection.getBalance(wallet.publicKey);
-      const actualSol = solBalance / Math.pow(10, 9);
+      const actualSol = await this.getBaseBalance();
       const actualUsdc = await this.getUsdcBalance();
 
       // ========================================================================
@@ -2351,15 +2432,20 @@ export class AutoTuneOrchestrator {
         permanentMinimum: this.config.minimumWalletBalanceSol,
       });
 
+      const initBaseRes = this.baseSideReserves();
       const swapPlan: SwapPlan = planSwapForDeposit({
         walletSol: actualSol,
         walletUsdc: actualUsdc,
         targetSol: solAmount,
         targetUsdc: usdcAmount,
-        permanentMinimumSol: this.config.minimumWalletBalanceSol,
-        rentReserveSol: this.config.rentReserveSol,
-        positionRentSol: METEORA_POSITION_RENT_SOL,
-        reserveUsdc: this.hedgeCollateralReserveUsdc(solAmount * activeBinPrice + usdcAmount),
+        permanentMinimumSol: initBaseRes.permanentMinimum,
+        rentReserveSol: initBaseRes.rentReserve,
+        positionRentSol: initBaseRes.positionRent,
+        reserveUsdc:
+          this.hedgeCollateralReserveUsdc(solAmount * activeBinPrice + usdcAmount) +
+          this.quoteSideReserveExtra(),
+        baseMint: getPair().baseMint,
+        quoteMint: getPair().quoteMint,
         currentPrice: activeBinPrice,
         slippageBufferPct: this.config.swapSlippageBufferPct / 100,
         context: 'initial-position',
@@ -2406,8 +2492,7 @@ export class AutoTuneOrchestrator {
           await new Promise(resolve => setTimeout(resolve, 2000));
         } catch (swapError) {
           // Swap failed - log current wallet balances to help debug
-          const currentSolBalance = await connection.getBalance(wallet.publicKey);
-          const currentActualSol = currentSolBalance / Math.pow(10, 9);
+                    const currentActualSol = await this.getBaseBalance();
           const currentActualUsdc = await this.getUsdcBalance();
 
           log.errorBanner('❌ Initial position swap failed - current wallet balances', {

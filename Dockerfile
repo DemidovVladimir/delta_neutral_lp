@@ -27,8 +27,9 @@ COPY package.json pnpm-lock.yaml ./
 # better-sqlite3's postinstall downloads its prebuilt glibc binary (no compile).
 RUN pnpm install --frozen-lockfile
 
-# Copy source code
+# Copy source code (scripts/ is needed by the hype-manager compose service)
 COPY src ./src
+COPY scripts ./scripts
 COPY tsconfig.json ./
 
 # Create data directory for state persistence (state.json, auto-tune-state.json,

@@ -51,6 +51,7 @@ import { getConnection, getWalletKeypair } from '../utils/solana.js';
 import { log } from '../utils/logger.js';
 import { checkSwapOracleGate } from './swapPlanner.js';
 import { getConfig } from '../config/env.js';
+import { getPair } from '../config/pairConfig.js';
 import { TransactionError } from '../types/index.js';
 import { fetch } from 'undici';
 import { recordSwap, recordTransaction } from './pnlDb.js';
@@ -134,11 +135,16 @@ export class JupiterSwapper {
   }
 
   /**
-   * Get token decimals for mint address
+   * Get token decimals for mint address. SOL/USDC are known constants;
+   * anything else must be a side of the configured pool (pair config is
+   * derived on-chain from the pool's token accounts).
    */
   private getTokenDecimals(mint: string): number {
     if (mint === SOL_MINT) return 9;
     if (mint === USDC_MINT) return 6;
+    const pair = getPair();
+    if (mint === pair.baseMint) return pair.baseDecimals;
+    if (mint === pair.quoteMint) return pair.quoteDecimals;
     throw new Error(`Unknown token mint: ${mint}`);
   }
 
@@ -362,8 +368,15 @@ export class JupiterSwapper {
       // Skipped with a warning when the order lacks amounts to evaluate:
       // bricking a mid-rebalance swap on an API shape change is worse than
       // missing one opportunistic check.
+      // The gate compares the quote against the SOL/USD oracle — it only
+      // makes sense for actual SOL↔USDC swaps. Pair swaps of another pool
+      // (HYPE↔SOL) have no oracle to gate against; Ultra's own price-impact
+      // field still gets logged below.
+      const isSolUsdcSwap =
+        (params.inputMint === SOL_MINT && params.outputMint === USDC_MINT) ||
+        (params.inputMint === USDC_MINT && params.outputMint === SOL_MINT);
       const gateBps = this.config.swapOracleGateBps;
-      if (gateBps > 0) {
+      if (gateBps > 0 && isSolUsdcSwap) {
         if (order.inAmount && order.outAmount) {
           const { getSolPrice } = await import('../core/priceOracle.js');
           const oraclePriceUsd = (await getSolPrice()).usd;
@@ -454,10 +467,10 @@ export class JupiterSwapper {
       // branch below records its own row with success=0 so the operator
       // can see attempted-but-failed swap volume in the PnL CLI.
       // ──────────────────────────────────────────────────────────────────
+      // base→quote keeps the legacy 'SOL_TO_USDC' label (and vice versa) so
+      // PnL rows stay queryable across both pool generations.
       const direction =
-        params.inputMint === SOL_MINT && params.outputMint === USDC_MINT
-          ? 'SOL_TO_USDC'
-          : 'USDC_TO_SOL';
+        params.inputMint === getPair().quoteMint ? 'USDC_TO_SOL' : 'SOL_TO_USDC';
       recordSwap({
         signature: executeResponse.signature,
         direction,
@@ -510,10 +523,10 @@ export class JupiterSwapper {
       // amount; the UNIQUE constraint on signature won't fire because each
       // failure is unique by timestamp. This matters for diagnosing the
       // "566.81 USDC swap with 9.43 USDC on hand" class of bugs after the fact.
+      // base→quote keeps the legacy 'SOL_TO_USDC' label (and vice versa) so
+      // PnL rows stay queryable across both pool generations.
       const direction =
-        params.inputMint === SOL_MINT && params.outputMint === USDC_MINT
-          ? 'SOL_TO_USDC'
-          : 'USDC_TO_SOL';
+        params.inputMint === getPair().quoteMint ? 'USDC_TO_SOL' : 'SOL_TO_USDC';
       const failureSignature = `failed-${Date.now()}-${params.inputMint.slice(0, 6)}`;
       recordSwap({
         signature: failureSignature,

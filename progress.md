@@ -5,6 +5,65 @@
 
 ---
 
+## 2026-07-18
+
+### Session 31 — LP path generalized to base/quote; HYPE/SOL test now runs as a SECOND INSTANCE of the production bot (deployed)
+
+Operator called out the gap (справедливо): the 2026-07-17 live test was a
+STATIC position — it fell out of range in ~15h (HYPE −3% vs SOL broke the
+−114…−94 band at bin −120, composition 100% HYPE, fee flow = 0) and nothing
+recentered it. First reflex was a bespoke recenter script + service; the
+operator rejected it — «вся автоматика уже в коде есть, продублируй и
+задеплой» — and that was the right call. Final architecture:
+
+- **Pair generalization (`src/config/pairConfig.ts`)**: the code's
+  `sol`/`usdc` names are now ROLES — base = pool tokenX (volatile), quote =
+  pool tokenY (measuring stick) — derived ON-CHAIN from the configured pool
+  via a wrap of `DLMM.create` (src/utils/dlmm.ts); no operator-entered
+  mints/decimals. SOL/USDC resolves to the exact old constants (bit-identical
+  behavior, verified: exposure $91.46 matches live). Touched: decimals in
+  meteoraAdapter/orchestrator; quote/base balance readers (native SOL when
+  the role's mint is wSOL, ATA otherwise); reserve mapping (fee/rent
+  reserves live on whichever side is NATIVE SOL — on X/SOL pools they move
+  to the quote leg via `reserveUsdc`); cycle price + storm detection from
+  the pool's own active bin when quote≠USD; exposure valuation at pool
+  price; swapPlanner emits pair mints (defaults preserved, tests untouched);
+  jupiterSwapper dynamic decimals + oracle gate skipped for non-SOL/USDC
+  swaps + direction labels by quote mint; janitor protects pair mints +
+  `JANITOR_PROTECTED_MINTS_EXTRA` (main .env now protects the HYPE ATA).
+  143/143 unit tests pass; tsc clean.
+- **Second instance deployed**: compose service `delta-neutral-bot-hype` —
+  same image, same wallet, pool `81GpCm4d13y8TozYtThabuSCLQN2o3bbrvDogXFPn8sA`,
+  own data dir `./data-hype` (state/pnl.db/logs fully isolated), env
+  `.env.hype` (uploaded by deploy.sh with STRATEGY_VERSION; rsync now
+  excludes data-hype — first deploy raced chown and EACCESed, fixed).
+  Config: HEDGE_ENABLED=false (no HYPE perp — A19), bins 20, выдержка 10m,
+  реентри 120m/0.20, storm 2%/5m, interval 60s, deposit USDC-role 0.32
+  (= 0.32 SOL quote side ≈ $48 total — operator's «сумма 50»),
+  MINIMUM_WALLET_BALANCE_SOL=1.05 = the CAMPAIGN FENCE (native SOL is
+  campaign property; spendable ≈ 0.18 SOL = the one-time top-up $40→$48,
+  formula documented in .env.hype; flows visible in data-hype/pnl.db).
+- **Simulator gate (operator: «обязательно прогонять симулятор»)**: HYPE
+  month path (Jun 17 → Jul 17, −18.4% slide, cache
+  SOLUSDC_1m_1781697600000_1784289600000.csv), pessimistic fee 12.5 bps:
+  A20 legacy frame reproduced (EDGE −2.28/мес, inside the recorded −2…+8);
+  DEPLOYMENT frame (`--swap-skip --reentry-min 120 --reentry-tol 0.20
+  --lp-value 39.5 --idle-sol 0 --wallet-usdc 0`): **EDGE −0.50/мес on the
+  worst month** — a tie with hold; 45 recenters, 44/44 with alignment swap
+  (tight budget ⇒ производственный планировщик и есть forced-alignment),
+  netΔ drift +0.55, 27.5% time out of pool.
+- **First live cycles verified**: pair roles derived (base HYPE
+  98sMhvDwXj1RQi5c5Mndm3vPe9cBqPrbLaufMXFNMh5g / quote SOL), position
+  7xSB8jczjK8bMTMpaPANAFUnshWehzmeknwyPSbddcEh discovered, imbalance 100/0
+  detected, ADR-023 выдержка running → first recenter by the machine.
+- **Tracker (`pnpm hype`)**: % readouts, trailing 24h window, mint-agnostic
+  baseline (continuity across recenters), .env auto-load. Morning readout
+  (0.64d): equity −2.14% (course), vs-hold-mix −0.68%, fee pace 0.49%/день
+  ≈ 14.8%/мес — ABOVE sim's optimistic band; the loss was the unmanaged
+  range, not the pool.
+- **Operator cadence**: ежедневный срез ДВУХ элементов — `pnpm hodl`
+  (кампания SOL/USDC) + `pnpm hype` (тест, мерило SOL).
+
 ## 2026-07-13
 
 ### Session 25 — срез #1 Кампании 4 (−2.59 vs USDC / 2.89d), BUG-020 (hedge-collateral reserve) fixed, external dead-man monitor added

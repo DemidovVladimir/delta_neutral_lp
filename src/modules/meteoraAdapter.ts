@@ -59,7 +59,8 @@ import {
   CreatePositionResult,
   MeteoraPairInfo,
 } from '../types/index.js';
-import { DECIMALS, SLIPPAGE_BPS, METEORA_LIMITS } from '../config/constants.js';
+import { SLIPPAGE_BPS, METEORA_LIMITS } from '../config/constants.js';
+import { getPair } from '../config/pairConfig.js';
 import {
   getActiveBin,
   getPriceFromBinId,
@@ -377,8 +378,8 @@ export class MeteoraAdapter {
       const positionKeypair = Keypair.generate();
 
       // Convert amounts to BN with proper decimals
-      const totalXAmount = new BN(params.solAmount * 10 ** DECIMALS.SOL);
-      const totalYAmount = new BN(params.usdcAmount * 10 ** DECIMALS.USDC);
+      const totalXAmount = new BN(params.solAmount * 10 ** getPair().baseDecimals);
+      const totalYAmount = new BN(params.usdcAmount * 10 ** getPair().quoteDecimals);
 
       // Create strategy parameters based on config
       // Map config string to StrategyType enum
@@ -592,14 +593,14 @@ export class MeteoraAdapter {
     const adjustedLower = getPriceFromBinId(
       adjustedMinBinId,
       dlmmPool.lbPair.binStep,
-      DECIMALS.SOL,
-      DECIMALS.USDC
+      getPair().baseDecimals,
+      getPair().quoteDecimals
     ).toNumber();
     const adjustedUpper = getPriceFromBinId(
       adjustedMaxBinId,
       dlmmPool.lbPair.binStep,
-      DECIMALS.SOL,
-      DECIMALS.USDC
+      getPair().baseDecimals,
+      getPair().quoteDecimals
     ).toNumber();
 
     log.info('Adjusted price range to fit within limits', {
@@ -760,21 +761,24 @@ export class MeteoraAdapter {
       let totalClaimableSol = 0;
       let totalClaimableUsdc = 0;
 
-      // Get current SOL price to calculate total USD value
-      const priceData = await getSolPrice();
-
       // Get active bin for price reference
       const activeBinData = await getActiveBin(dlmmPool);
       const currentPrice = activeBinData.pricePerToken;
 
+      // Valuation price for the base side: SOL/USD oracle on the production
+      // pool; the pool's own active-bin price when the quote is not USD (an
+      // X/SOL pool values everything in SOL — the oracle has no idea what
+      // the base token is worth).
+      const valuationPrice = getPair().quoteIsUsd ? (await getSolPrice()).usd : currentPrice;
+
       const positionDetails = ourPositions.map((pos: any) => {
         // Convert BN amounts to numbers with proper decimals
-        const solAmount = parseFloat(pos.positionData.totalXAmount) / 10 ** DECIMALS.SOL;
-        const usdcAmount = parseFloat(pos.positionData.totalYAmount) / 10 ** DECIMALS.USDC;
+        const solAmount = parseFloat(pos.positionData.totalXAmount) / 10 ** getPair().baseDecimals;
+        const usdcAmount = parseFloat(pos.positionData.totalYAmount) / 10 ** getPair().quoteDecimals;
 
         // Use parseFloat for fees to avoid BN precision issues
-        const claimableSol = parseFloat(pos.positionData.feeX.toString()) / 10 ** DECIMALS.SOL;
-        const claimableUsdc = parseFloat(pos.positionData.feeY.toString()) / 10 ** DECIMALS.USDC;
+        const claimableSol = parseFloat(pos.positionData.feeX.toString()) / 10 ** getPair().baseDecimals;
+        const claimableUsdc = parseFloat(pos.positionData.feeY.toString()) / 10 ** getPair().quoteDecimals;
 
         totalSol += solAmount;
         totalUsdc += usdcAmount;
@@ -786,14 +790,14 @@ export class MeteoraAdapter {
         const lowerBinPrice = getPriceFromBinId(
           pos.positionData.lowerBinId,
           binStep,
-          DECIMALS.SOL,
-          DECIMALS.USDC
+          getPair().baseDecimals,
+          getPair().quoteDecimals
         ).toNumber();
         const upperBinPrice = getPriceFromBinId(
           pos.positionData.upperBinId,
           binStep,
-          DECIMALS.SOL,
-          DECIMALS.USDC
+          getPair().baseDecimals,
+          getPair().quoteDecimals
         ).toNumber();
 
         // Calculate token composition percentages
@@ -816,7 +820,7 @@ export class MeteoraAdapter {
           mint: pos.publicKey.toBase58(),
           solAmount,
           usdcAmount,
-          valueUsd: solAmount * priceData.usd + usdcAmount,
+          valueUsd: solAmount * valuationPrice + usdcAmount,
           claimableSol,
           claimableUsdc,
           lowerBinId: pos.positionData.lowerBinId,
@@ -824,7 +828,7 @@ export class MeteoraAdapter {
         };
       });
 
-      const totalUsd = totalSol * priceData.usd + totalUsdc;
+      const totalUsd = totalSol * valuationPrice + totalUsdc;
 
       log.info('LP exposure calculated', {
         totalSol,
@@ -902,8 +906,8 @@ export class MeteoraAdapter {
       // Calculate claimable fees before withdrawal
       log.info('Step 4: Calculating claimable fees...');
       // Use parseFloat with toString() to avoid BN precision issues
-      const claimableSol = parseFloat(position.positionData.feeX.toString()) / 10 ** DECIMALS.SOL;
-      const claimableUsdc = parseFloat(position.positionData.feeY.toString()) / 10 ** DECIMALS.USDC;
+      const claimableSol = parseFloat(position.positionData.feeX.toString()) / 10 ** getPair().baseDecimals;
+      const claimableUsdc = parseFloat(position.positionData.feeY.toString()) / 10 ** getPair().quoteDecimals;
       log.info('✅ Fees calculated');
 
       // Snapshot principal token amounts BEFORE the SDK call. After
@@ -912,9 +916,9 @@ export class MeteoraAdapter {
       // PnL math. Same parseFloat(toString()) trick getLpExposure uses to
       // dodge BN precision issues.
       const exitSolAmount =
-        parseFloat(position.positionData.totalXAmount.toString()) / 10 ** DECIMALS.SOL;
+        parseFloat(position.positionData.totalXAmount.toString()) / 10 ** getPair().baseDecimals;
       const exitUsdcAmount =
-        parseFloat(position.positionData.totalYAmount.toString()) / 10 ** DECIMALS.USDC;
+        parseFloat(position.positionData.totalYAmount.toString()) / 10 ** getPair().quoteDecimals;
 
       log.info('Position details', {
         lowerBinId: position.positionData.lowerBinId,

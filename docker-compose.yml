@@ -30,3 +30,29 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+  # Second instance of the SAME bot on the HYPE/SOL test pool (BACKLOG A20):
+  # identical auto-tune loop, hedge disabled (no HYPE perp exists — A19),
+  # pair roles auto-derived from the pool (base=HYPE, quote=SOL, SOL-metric).
+  # Same image and wallet, separate pool, separate data dir (./data-hype) —
+  # each instance discovers only its own pool's positions.
+  delta-neutral-bot-hype:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: delta-neutral-bot-hype
+    restart: unless-stopped
+    env_file:
+      - .env.hype
+    volumes:
+      - ./data-hype:/app/data
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 384M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "2"
