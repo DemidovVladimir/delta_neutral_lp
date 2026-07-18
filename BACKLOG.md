@@ -525,6 +525,36 @@ recenter > daily income. Plus Raydium CLMM ≠ Meteora DLMM (program
 `CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK`) — a new venue adapter for
 ~⅓ цента/день. REJECTED on data; niche verdict unchanged.
 
+### A23. Replace the campaign with «HYPE/SOL LP + SOL short» (operator 2026-07-18: «пул Solana-USDC убрать вообще») — SIMULATED, DOMINATES; awaiting operator go
+
+Mechanism: a SOL short sized to the test's total SOL value converts the
+pair's SOL-metric result into USD (USD PnL ≈ SOL-metric edge × price +
+carry − resize churn); residual risk = HYPE-vs-SOL basis only (unhedged —
+no HYPE perp, A19). ONE wallet has ONE short PDA → the short must be run
+by a single controller: either the main instance's hedge input adds the
+test's SOL value (campaign stays), or the campaign retires and the hype
+instance takes over the short (operator's ask) — either ≈ a session of
+work, hedge machinery exists.
+
+Same-calendar head-to-head (Jun 17 12:00 → Jul 17 12:00 UTC, both with
+production-machine params, D2-pessimistic fees, sim ±10%):
+- **Campaign machine** (SOL/USDC step 10 / fee 6.5, LP $91, idle 1.4,
+  usdc 100, band 0.25, REAL Binance candles): **EDGE −6.48/мес**, fees
+  10.22, perp+carry −1.44, 31 recenters, 11 storms, 77.5% time out of
+  pool, churn $1487 — matches the live bleed direction (срезы).
+- **HYPE/SOL machine $48** (step 20 / fee 12.5 pessimistic, honest
+  no-perp frame; short overlay = carry −0.23/мес − resize ~0.05):
+  continuous month **−0.57 → with short −0.85/мес**; weekly split
+  +1.13 / −0.41 / +0.38 / +0.28 (3 of 4 positive; weekly sum +1.38 —
+  boundary/state effects vs continuous month documented); live managed
+  8.5h on Jul 18: +$0.37.
+Per LP dollar: campaign −7.1%/мес vs HYPE+short −1.8%/мес on the WORST
+month, weekly median positive. Risks: HYPE-vs-SOL basis (−20% day ≈ −$5
+per $48, no hedge exists), short resize lag in storms, carry spikes,
++$16–25 collateral. Caveat: the HYPE pool has ~1 month of history.
+Decision pending operator: retire campaign now vs after the A20 week
+confirms live fees.
+
 ### A22. Pool combinations / HYPE-USDC frame (operator 2026-07-18: «USDC-HYPE + USDC-SOL, балансировать между ними?») — MEASURED, REJECTED
 
 Structural answer first: two USDC-quoted LPs do NOT hedge each other —
