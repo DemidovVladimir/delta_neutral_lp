@@ -1490,15 +1490,23 @@ export class AutoTuneOrchestrator {
    * (an external SOL/USD quote is meaningless for an X/SOL position).
    */
   private async getCyclePrice(): Promise<{ price: number; source: string }> {
-    if (getPair().quoteIsUsd) {
-      const solPriceData = await getSolPrice();
-      return { price: solPriceData.usd, source: solPriceData.source };
+    // The pair defaults to SOL/USDC until the first pool read of the
+    // process. The cycle price is fetched BEFORE the position/pool reads,
+    // so on the first cycle we must derive the roles ourselves — otherwise
+    // an X/SOL instance would feed one oracle SOL/USD sample (≈75) into the
+    // storm detector and the reentry anchor at every restart (observed
+    // 2026-07-18: anchor 0.7931 clobbered to 74.9355).
+    if (!getPair().initialized || !getPair().quoteIsUsd) {
+      const connection = getConnection();
+      const poolPubkey = new PublicKey(this.config.meteoraPoolAddress!);
+      const dlmmPool = await DLMM.create(connection, poolPubkey); // initializes pair roles
+      if (!getPair().quoteIsUsd) {
+        const activeBinData = await getActiveBin(dlmmPool);
+        return { price: activeBinData.pricePerToken, source: 'pool-active-bin' };
+      }
     }
-    const connection = getConnection();
-    const poolPubkey = new PublicKey(this.config.meteoraPoolAddress!);
-    const dlmmPool = await DLMM.create(connection, poolPubkey);
-    const activeBinData = await getActiveBin(dlmmPool);
-    return { price: activeBinData.pricePerToken, source: 'pool-active-bin' };
+    const solPriceData = await getSolPrice();
+    return { price: solPriceData.usd, source: solPriceData.source };
   }
 
   /**
