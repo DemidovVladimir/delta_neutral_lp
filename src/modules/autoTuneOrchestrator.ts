@@ -1944,10 +1944,14 @@ export class AutoTuneOrchestrator {
       // semantically equivalent to "swap to 50/50" with zero swap input.
       // ========================================================================
 
-      // `totalReserve` was already computed upstream alongside maxDepositableSol.
+      // `totalReserve` was already computed upstream alongside maxDepositableSol
+      // (zero when the base is an SPL token). The quote leg carries its own
+      // reserve on X/SOL pools — the campaign fence + rent live in native SOL
+      // there and must not count toward the test's composition (zero on the
+      // production pool, so behavior is unchanged there).
       const balanceCheck = isWalletBalancedFor5050(
         actualSol,
-        actualUsdc,
+        Math.max(0, actualUsdc - this.quoteSideReserveExtra()),
         currentPrice,
         totalReserve,
       );

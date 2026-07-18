@@ -334,9 +334,16 @@ export class MeteoraAdapter {
       const wallet = getWalletKeypair();
       const poolPubkey = new PublicKey(params.poolAddress);
 
-      // Check wallet balance
+      // Check wallet balance — count only the deposit legs that actually
+      // consume NATIVE SOL (role-aware: on the production pool that's the
+      // base/tokenX side, on an X/SOL pool it's the quote/tokenY side),
+      // plus 0.1 SOL buffer for rent and fees.
       const balance = await connection.getBalance(wallet.publicKey);
-      const requiredSol = params.solAmount + 0.1; // Extra 0.1 SOL for rent and fees
+      const pair = getPair();
+      const requiredSol =
+        (pair.baseIsNativeSol ? params.solAmount : 0) +
+        (pair.quoteIsNativeSol ? params.usdcAmount : 0) +
+        0.1;
       if (balance / LAMPORTS_PER_SOL < requiredSol) {
         throw new Error(
           `Insufficient SOL balance. Required: ${requiredSol}, Available: ${balance / LAMPORTS_PER_SOL}`
