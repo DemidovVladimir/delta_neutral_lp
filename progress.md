@@ -64,6 +64,23 @@ operator rejected it — «вся автоматика уже в коде ест
 - **Operator cadence**: ежедневный срез ДВУХ элементов — `pnpm hodl`
   (кампания SOL/USDC) + `pnpm hype` (тест, мерило SOL).
 
+**Session 31 addendum (scout cross-check + field fixes).** The parallel
+code-map agent confirmed the generalization and caught 2 role-blind spots,
+both fixed + redeployed: (a) the 50/50 alignment gate now subtracts the
+quote-side reserve (campaign fence) from the quote leg at the call site;
+(b) `createPosition`'s native-SOL guard counts only deposit legs that are
+actually native. A third was caught in the field: the FIRST cycle after a
+restart chose the price source before pair roles were derived → one oracle
+SOL/USD sample (74.94) clobbered the reentry anchor (0.7931) — fixed by
+initializing roles inside `getCyclePrice`; anchor verified back at pool
+scale (0.78997). KNOWN COSMETIC (deliberately unfixed, reporting-only, all
+fail-safe): pnlDb USD/HODL math and entry/exit prices use getSolPrice (on
+the hype instance those rows mix real-USD fee valuations with quote=SOL
+amounts); dashboardData hardcodes USDC + USD; getMeteoraPairInfo TVL/APR
+assumes quote=USD; adapter's `autoCreatePositionIfNeeded` is dead legacy.
+Also A21 (same day): Meteora stable-stable survey — niche empty; USDI/USDT
+watch item.
+
 ## 2026-07-13
 
 ### Session 25 — срез #1 Кампании 4 (−2.59 vs USDC / 2.89d), BUG-020 (hedge-collateral reserve) fixed, external dead-man monitor added
