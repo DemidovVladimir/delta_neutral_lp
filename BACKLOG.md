@@ -525,6 +525,35 @@ recenter > daily income. Plus Raydium CLMM ≠ Meteora DLMM (program
 `CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK`) — a new venue adapter for
 ~⅓ цента/день. REJECTED on data; niche verdict unchanged.
 
+### A22. Pool combinations / HYPE-USDC frame (operator 2026-07-18: «USDC-HYPE + USDC-SOL, балансировать между ними?») — MEASURED, REJECTED
+
+Structural answer first: two USDC-quoted LPs do NOT hedge each other —
+both are long their volatile asset, correlated crashes hit both, and
+«перебалансировать в упавший» = averaging down (risk up, not down). The
+only neutralizers: a perp short (SOL only — no HYPE perp anywhere, A19) or
+quoting IN the correlated asset (X/SOL — the live test). The operator's
+idea in its correct form is ALREADY the live test: HYPE/SOL LP +
+SOL-neutral portfolio ≡ HYPE/USDC LP + proxy SOL short, in one position
+with no carry.
+
+Measured head-to-head (same window 2026-06-29T22:00Z → 2026-07-17T12:00Z
+= 17.6d, same machine flags as the A20 deployment frame, $39.5, fee 12.5
+pessimistic, step 20/bins 20): **HYPE/USDC**
+`ANCx141SujgVdbKz9NTEH8F38qWsnyyXsVju64aU3qLB` (DLMM, step 20, 0.2%,
+$5.5M TVL, $2M vol/day — 5× our HYPE/SOL pool; path −10.94%) vs
+**HYPE/SOL** `81GpCm4d13y8TozYtThabuSCLQN2o3bbrvDogXFPn8sA` (path −9.87%):
+- honest no-perp frame: HYPE/USDC **−2.50** (33 recenters, 2 storms, 40%
+  time out of pool) vs HYPE/SOL **−0.30** (25, 0, 20%) — 8× worse; fees
+  nearly equal (3.85 vs 3.92) — the USD quote adds SOL-beta to the pair
+  volatility and the extra traversals eat everything.
+- fictional perfect-HYPE-perp frame (NOT implementable, upper bound):
+  HYPE/USDC +6.53 (fees 7.12 — the 5× volume does show up) vs HYPE/SOL
+  **+7.60** (fees 5.33) — still loses after churn/IL/carry.
+VERDICT: no pool combination beats the current single HYPE/SOL frame;
+rejected on data both structurally and numerically. (Sim caches for these
+runs deleted to avoid poisoning real-SOL windows; rebuild via the A20/A21
+recipe if needed.)
+
 ### A20. Non-USDC pair survey (operator 2026-07-17: «пары без привязки к доллару») — MEASURED; HYPE/SOL live test APPROVED
 
 Operator redirect after A18: no USDC leg, Solana+Meteora only, no ETH/BTC —
