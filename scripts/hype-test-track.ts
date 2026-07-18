@@ -94,10 +94,13 @@ async function main() {
   const { userPositions } = await pool.getPositionsByUserAndLbPair(wallet);
   if (!userPositions || userPositions.length === 0) {
     console.log(`Позиции в пуле ${POOL.toBase58()} у кошелька ${wallet.toBase58()} нет.`);
+    console.log('Либо тест ещё не открыт (первый запуск после открытия станет базовой точкой),');
     console.log(
-      'Либо тест ещё не открыт (первый запуск после открытия станет базовой точкой),'
+      'либо бот-экземпляр delta-neutral-bot-hype закрыл её и ждёт спокойной цены (ADR-026,'
     );
-    console.log('либо hype-recenter прямо сейчас пересоздаёт позицию — повтори через минуту.');
+    console.log(
+      'реентри 120 мин) — средства теста лежат в кошельке (HYPE + SOL), это штатно.'
+    );
     return;
   }
 
