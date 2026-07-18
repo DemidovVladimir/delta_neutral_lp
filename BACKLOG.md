@@ -525,7 +525,38 @@ recenter > daily income. Plus Raydium CLMM ≠ Meteora DLMM (program
 `CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK`) — a new venue adapter for
 ~⅓ цента/день. REJECTED on data; niche verdict unchanged.
 
-### A23. Replace the campaign with «HYPE/SOL LP + SOL short» (operator 2026-07-18: «пул Solana-USDC убрать вообще») — SIMULATED, DOMINATES; awaiting operator go
+### A23. Replace the campaign with «HYPE/SOL LP + SOL short» — EXECUTED LIVE 2026-07-18 18:11–18:31Z (operator «Сворачивай сейчас»)
+
+Executed (all signatures verbatim): campaign LP `3XBMM3DdfAueJPs9waasowfZiEJ6qNPica6KXhSTNMAY` closed atomically (claim+tokens+account+rent)
+`32sK4WvEuu9HbaPEhyiPCgaFb7SPvaiwkwHd3hLLFFsTCNcJcprv1oqV1xTQNg5FPMPsk473SRjLics3S3GjXPUZ`;
+AUTO_CREATE_POSITIONS=false on the main instance (it idles + manages ONLY
+the short now). HYPE position resized +$100: old
+`BSVXVU7pTjrW2NvBPPbCyZDZoufX6qWgqneaDMbA27Ng` closed
+`5inJHc5yYZ2i8VtBUr59pKQQizPSDBG1k8EdqzkQXUaZ358p7aaNDNPN7JSfW7pZvWrUi6JSjDmVohXvkbVgKU7`,
+funding gap covered by 20 USDC→0.2657 SOL
+`5SZu8YiT4Rf2388ULxK7BRrU76papcaUiJH9RFwMpSG7ZriPSmdW1cc1FqFss31K6EpVUJE54fTLxReh8crfRM6J`
+(the instance cannot see USDC — pair-invisible), new position
+`2BKShoLZiPUmmg7fepp6hQn3R7kTnZRnT3RfUAiWd7tg` = 1.239443252 HYPE +
+0.984994459 SOL ≈ 1.97 SOL ≈ $148, open
+`2sBUR8eaGEBGiwzvUnSzcY2wK2EQgbzys6jXztivruZrb2MySZs5t9A2iWm27rEYXN4XLHGCEDZedQYvsabykbxH`.
+GOTCHA caught live: the main instance auto-DECREASED the short to idle-only
+(1.71→0.50) after the campaign close — its input can't see the pool.
+BRIDGE: HEDGE_TARGET_DELTA_SOL=−1.97 (pool value in SOL) → controller
+raised the short to ≈2.4735 (+$148.66 notional, +49.06 USDC collateral,
+`5GSMPw4y1it412MwZntoYB83LNv5Zv5oEsH7tJYyyi8EuSy3UiRyEnLL9mijkakoTpgMEWHqmV7h3KMWg9y3hLR8`),
+net −1.9713 vs target −1.97 in band. UPDATE THE TARGET at срезы as the
+pool value drifts; PROPER FIX next session: hedge input = hype-pool value
+(cross-instance read), then the bridge target returns to 0. Residual true
+long ≈ +0.29 SOL (reserves floor, by design). СРЕЗ BASELINE (operator:
+«начало = момент повышения объёма»): anchor 2026-07-18T18:16:50Z,
+data/strategy-a23-baseline.json (both copies) — TOTAL $327.07 (pool $148.2
++ wallet 0.802 SOL + 41.30 USDC + dust + collateral $75.80 @ SOL 75.249).
+Old hodl-baseline/hodl-compare are CAMPAIGN artifacts — archived by this
+entry, do not run pnpm hodl against them. Srez formula now: whole-portfolio
+USD (pool valueSol×price + wallet SOL×price + USDC + HYPE dust×price×… +
+collateral ± perp PnL) vs 327.07; SOL-reference secondary.
+
+Pre-execution simulation (same-calendar head-to-head) — retained below:
 
 Mechanism: a SOL short sized to the test's total SOL value converts the
 pair's SOL-metric result into USD (USD PnL ≈ SOL-metric edge × price +
