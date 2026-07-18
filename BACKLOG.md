@@ -507,6 +507,24 @@ pair-generic and could run it unchanged). Re-check recipe: GT pages →
 owner check (DLMM = `LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo`) →
 LbPair offsets 80/8 → GT minute OHLCV currency=token → sim.
 
+Addendum (operator follow-up, same day): **Raydium CLMM USDC/USDT 0.01%**
+`BZtgQEyS6eXUXicYPHecYQ7PybqodXQMvkjUbP4R8mUU` measured 3 ways for a $50
+5-bin position. (1) Raydium's own feeApr: day 1.50% / week 1.47% / month
+2.63% ANNUAL → $50 earns **$0.002–0.0036/day**. (2) Share arithmetic:
+$156.6/day pool fees, $3.8M TVL all parked at the peg — same order. (3)
+Sim on the real week path (cache SOLUSDC_1m_1783693800000_1784363400000,
+55% minutes tradeless, price band 20bp): EDGE +0.65/7.75d ($0.084/day)
+**BUT that is a ×~30 microstructure overstatement** — 449 observed 1-bp
+price crossings/day vs ~15 true full-depth sweeps ($1.57M/day volume ÷
+~$100k/bp depth); last-trade price wiggle is not liquidity traversal, so
+the sim's traversal-fee engine does not apply to peg noise (new structural
+caveat for ALL stable-pair sims; Raydium's feeApr is the ground truth) —
+corrected ≈ $0.003/day, consistent with (1)+(2). Sim also showed 72% time
+out of pool (reentry corridor ±1bp never holds 2h) and network cost per
+recenter > daily income. Plus Raydium CLMM ≠ Meteora DLMM (program
+`CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK`) — a new venue adapter for
+~⅓ цента/день. REJECTED on data; niche verdict unchanged.
+
 ### A20. Non-USDC pair survey (operator 2026-07-17: «пары без привязки к доллару») — MEASURED; HYPE/SOL live test APPROVED
 
 Operator redirect after A18: no USDC leg, Solana+Meteora only, no ETH/BTC —
