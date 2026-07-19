@@ -555,6 +555,38 @@ Old hodl-baseline/hodl-compare are CAMPAIGN artifacts — archived by this
 entry, do not run pnpm hodl against them. Srez formula now: whole-portfolio
 USD (pool valueSol×price + wallet SOL×price + USDC + HYPE dust×price×… +
 collateral ± perp PnL) vs 327.07; SOL-reference secondary.
+⚠ FORMULA GOTCHAS measured at срез #1: (a) the anchor TOTAL 327.07
+EXCLUDED the short's uPnL, which was **+0.5346** at anchor (blended entry
+75.464911 vs spot 75.249) — a срез that includes uPnL reads +0.53 too
+good; report both frames. (b) The engine prices uPnL at its oracle while
+the portfolio uses pyth — ±0.2 scale noise on a 2.47 SOL short. (c)
+Baseline collateral 75.800782 was captured BEFORE the increase's open-fee
+settlement; the first срез absorbs a one-time −0.111218 face drift.
+
+**Срез log (append one line per срез):**
+- #1 2026-07-19T18:33Z (24.3h): TOTAL 328.86 = pool 150.06 (fees window
+  0.007849 SOL=$0.59) + wallet 103.34 (unchanged 0.802161852 SOL +
+  41.304678 USDC + 0.022725965 HYPE) + short 75.46 → **+1.79 formula /
+  +1.26 honest**. Window sterile: 0 txs after baseline snapshot, 0
+  recenters both instances, VITALS 0, liq 1.40×, netΔ −1.9666 in band,
+  fee pace 0.393%/день. Decomp: fees +0.59, basis HYPE+0.8% +0.60 (luck),
+  IL −0.09, carry −0.03, collateral one-time −0.11. Target drift +0.007
+  → no update.
+
+Sim grid on fresh candles (Session 32, cache extended to Jul 19 18:00Z —
+master `SOLUSDC_1m_1781697600000_1784484000000.csv`, splice k=75.904170;
+live-24h replay matched reality: 0 recenters, fees sim 0.51 vs real 0.59):
+FRAME RULE — band 0.49 simulates a HYPE perp that DOES NOT EXIST (A19);
+the live A23 construction = band 99, and the live срез ≈ ABSOLUTE Δequity
+of that frame (the SOL short only converts SOL-metric → USD). Results
+(lp 148, fee 12.5 pessimistic, месяц 774h / неделя 168h): current params
+месяц −1.05; **bins 28 the ONLY config ≥ base in every frame** (месяц
++0.64, неделя −2.92 vs −2.98 band99 and −0.10 vs −1.92 band0.49; cost:
+−27% fees on quiet days, 0.37 vs 0.51/day); REJECTED on data: bins 14
+(−5.83)/40 (−2.09), confirm 30 (−2.49), tol 0.15 (−3.85)/0.30 (−3.42),
+reentry-min 240/360 (месяц +7.7/+14.3 but неделя −5.0/−5.9 — the month
+win is escape-the-falling-saw regime luck; the sim wait bag KEEPS HYPE
+exposure while parked, netΔ +1.1, so parking is not neutral either).
 
 Pre-execution simulation (same-calendar head-to-head) — retained below:
 
