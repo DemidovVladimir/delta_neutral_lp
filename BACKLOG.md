@@ -584,6 +584,34 @@ settlement; the first срез absorbs a one-time −0.111218 face drift.
   outOfBand ignores HEDGE_TARGET_DELTA_SOL (dashboardData.ts:221) —
   always «OUT-OF-BAND» under the bridge target; controller unaffected.
 
+**Head-to-head on the срез-#2 window (Session 33, operator asked «а что
+если бы оставили SOL/USDC?»)** — campaign machine replayed on REAL Binance
+candles, SAME calendar 2026-07-18T18:16Z → 2026-07-20T07:30Z (39h, 2319
+candles), production params (bins 20, confirm 10m, step 10 / fee 6.5 bps
+D2-pessimistic, reentry 120m/0.20, --swap-skip, band 0.49; band 0.25
+identical to the cent). Cache keyed by exact (start_ms,end_ms) → no
+collision with the HYPE-poisoned `SOLUSDC_*` files. Results, ABSOLUTE
+Δequity (the frame the live срез reports):
+- campaign **as it actually was** (LP 91, idle 1.4, usdc 100): **+0.67**
+  (fees 1.063, perp fees 0.144, carry 0.025, 2 recenters, 1 skipped by
+  выдержка, 30% time out of pool, churn $240) — vs live HYPE+short **+0.74
+  measured**. TIE (difference 0.07 ≪ the ±10% model bias).
+- campaign **scaled to the same LP dollars** (LP 148): **+1.70** (fees
+  1.729, 2 recenters, 30% out of pool, netΔ end −0.44) — beats the live
+  +0.74 ON THIS WINDOW.
+Mechanism: SOL/USDC pays fees **~1.75× faster per LP dollar** (0.715%/day
+sim vs 0.408%/day real on HYPE/SOL) but pays it back in traversals — 30%
+out of pool + 2 recenters + perp churn, while HYPE/SOL sat in range 100%
+of the window with 0 recenters and 0 churn.
+FRAME WARNING — this window FLATTERS the campaign: 1.2 recenters/day vs
+the campaign's historical ~4.5/day (срез #1: 13 traversals / 2.89d), i.e.
+≈4× calmer than its normal regime, and calm drift is exactly what the
+campaign machine likes. The month-long same-calendar head-to-head below
+still stands: campaign **−6.48/мес** vs HYPE+short **−0.85/мес**. Verdict
+UNCHANGED (no return to SOL/USDC); logged as a regime data point — if
+SOL chop stays this low for a week+, re-open the question with a week
+window, not 39h.
+
 Sim grid on fresh candles (Session 32, cache extended to Jul 19 18:00Z —
 master `SOLUSDC_1m_1781697600000_1784484000000.csv`, splice k=75.904170;
 live-24h replay matched reality: 0 recenters, fees sim 0.51 vs real 0.59):
