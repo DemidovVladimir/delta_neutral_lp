@@ -525,6 +525,49 @@ recenter > daily income. Plus Raydium CLMM ≠ Meteora DLMM (program
 `CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK`) — a new venue adapter for
 ~⅓ цента/день. REJECTED on data; niche verdict unchanged.
 
+### A24. Raydium SOL/USDC venue check (operator 2026-07-20: «прогони на симуляторе usdc sol на raydium») — MEASURED, REJECTED
+
+Answer in one line: Raydium's best SOL/USDC concentrated pool pays **31%
+LESS fee per parked dollar** than the Meteora pool we already retired, on
+the SAME pair we retired it for. No venue lever here.
+
+Fee density per TVL dollar = turnover x fee tier (venue-neutral, both
+measured 2026-07-20):
+- Meteora SOL/USDC `BGm1tav58oGcsQJehL9WXBFXF7D27vZsKefj4xJKD5Y` (0.1%):
+  TVL $2,832,064, vol24h $5,733,245 -> 2.02x/day x 0.1% = **0.2025%/day**
+- Raydium CLMM SOL/USDC `3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv`
+  (0.04%): TVL $6,053,124, vol24h $21,000,337 -> 3.47x/day x 0.04% =
+  **0.1388%/day** (matches Raydium's own feeApr 50.62%/y day, 18.98% week,
+  40.27% month — the A21 ground-truth rule)
+- Meteora HYPE/SOL `81GpCm4d13y8TozYtThabuSCLQN2o3bbrvDogXFPn8sA` (0.2%):
+  TVL $1,030,772, vol24h $495,709 -> 0.48x/day x 0.2% = **0.0962%/day**
+Raydium's 1.7x higher turnover does NOT cover its 2.5x thinner fee tier.
+All other Raydium concentrated SOL/USDC tiers are far worse (0.02% ->
+0.0381%/day, 0.05% -> 0.0150, 0.01% -> 0.0007, 1.0% -> 0.0129); the 0.04%
+pool is the only live one.
+
+Sim run (same 39h window as срез #2, LP 148, identical machine, only the
+fee tier swapped): Meteora tier 6.5 bps -> equity 249.22 -> 250.92
+(**+1.70**, LP fees 1.729); Raydium tier 4 bps -> 249.22 -> 250.55
+(**+1.33**, LP fees 1.386). Lower tier, less money — as arithmetic
+predicts.
+
+⚠ METHOD CAVEAT (important, reusable): **the simulator cannot distinguish
+venues.** Its fee engine counts only OUR OWN range sweeps and has no notion
+of pool volume or liquidity share, so "simulate Raydium" reduces to
+"simulate our machine at 4 bps". Venue questions must be decided on
+measured fee density (above) + the pool's realized feeApr, exactly as A21
+established for stables. The sim only answers "what does a thinner tier
+cost us on this path".
+
+Blockers even if the numbers had been good: (1) Raydium CLMM is a
+DIFFERENT program `CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK` — the bot
+has only a Meteora DLMM adapter (create/withdraw/claim/close/exposure all
+program-specific, ticks vs bins); a whole venue adapter is a session+ of
+work. (2) The PAIR is unchanged — SOL vs a stable traverses constantly,
+and traversal cost (not venue) is why the campaign was retired (A23).
+Changing venue is a second-order lever on a first-order problem.
+
 ### A23. Replace the campaign with «HYPE/SOL LP + SOL short» — EXECUTED LIVE 2026-07-18 18:11–18:31Z (operator «Сворачивай сейчас»)
 
 Executed (all signatures verbatim): campaign LP `3XBMM3DdfAueJPs9waasowfZiEJ6qNPica6KXhSTNMAY` closed atomically (claim+tokens+account+rent)
