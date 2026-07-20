@@ -572,6 +572,17 @@ settlement; the first срез absorbs a one-time −0.111218 face drift.
   fee pace 0.393%/день. Decomp: fees +0.59, basis HYPE+0.8% +0.60 (luck),
   IL −0.09, carry −0.03, collateral one-time −0.11. Target drift +0.007
   → no update.
+- #2 2026-07-20T07:30Z (39.2h): TOTAL 328.34 = pool 150.35 (1.978813 SOL,
+  fees cumulative 0.0131837 SOL=$1.00) + wallet 103.62 (unchanged) +
+  short 74.38 (uPnL −1.270132, borrow 0.042562) → **+1.28 formula /
+  +0.74 honest**. Window #1→#2 −0.52: fees +0.41 < basis swing (HYPE
+  −1.2% vs SOL over the window; from anchor −0.4%, #1's +0.60 luck half
+  reverted). Sterile: 0 txs (tx-audit), 0 recenters both instances,
+  VITALS/errors/storms 0, netΔ −1.9512 in band, liq 1.394×, IL from
+  anchor −0.03. Fee pace window 0.499%/день (above norm). Target drift
+  −0.004 → no update. Found (cosmetic, not fixed): local dashboard
+  outOfBand ignores HEDGE_TARGET_DELTA_SOL (dashboardData.ts:221) —
+  always «OUT-OF-BAND» under the bridge target; controller unaffected.
 
 Sim grid on fresh candles (Session 32, cache extended to Jul 19 18:00Z —
 master `SOLUSDC_1m_1781697600000_1784484000000.csv`, splice k=75.904170;
