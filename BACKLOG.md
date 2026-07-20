@@ -684,7 +684,12 @@ one-time collateral 0.11 + oracle noise). Fresh grid (месяц 720h / неде
 −2.28/−7.69, +1.06/+1.80, −0.94/−19.29; **bins 28 better on every
 multi-week frame — THIRD confirmation (месяц −1.86/−19.03, неделя
 −2.12/−7.52, 800h +0.99/−17.33; cost −20–30% fees on quiet windows, срез
-+0.76/+1.50); still proposed, NOT applied.** b28-c5 / bins32 jagged (b32
++0.76/+1.50); **APPLIED by operator order 2026-07-20 ~20:39Z: .env.hype
+AUTO_TUNE_BIN_COUNT 20→28 (local+server in sync, STRATEGY_VERSION stamp
+preserved), hype container force-recreated, first cycle clean (binCount 28
+in config, same position mint discovered, balanced 37.3/62.7, no action);
+the live 21-bin position stays until the next natural recenter — the first
+28-bin position appears then.** b28-c5 / bins32 jagged (b32
 месяц −0.84 best, неделя worse than base) — no overfit chase; reentry-min
 240 regime trap re-confirmed (месяц +5.12 / неделя −3.06); tol 0.10 parks
 61%; storm-pct insensitive (0 storms — calm). USD bottom line: no parameter

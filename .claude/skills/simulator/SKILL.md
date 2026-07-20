@@ -140,7 +140,9 @@ Frame A, HYPE param grid (edge / abs per window; base = live params):
 - **bins 28 (c10): месяц −1.86/−19.03, неделя −2.12/−7.52, срез +0.76/+1.50,
   800h +0.99/−17.33 — THIRD independent confirmation (Sessions 32, 33, 34):
   better on every multi-week frame, cost ≈ −20–30% fees on quiet windows.
-  Still the only robust candidate; proposed, NOT applied.**
+  APPLIED live 2026-07-20 (operator order): hype instance
+  AUTO_TUNE_BIN_COUNT=28, takes effect at the next recenter — the live A23
+  frame becomes `--bins 28` once the first 28-bin position exists.**
 - b28-c5 / bins32: strong on some windows (b32 месяц −0.84), never robust on
   all — jagged within noise, no overfit chase. reentry-min 240: месяц winner
   (+5.12) / неделя loser — regime trap RE-confirmed. tol 0.10 parks 61% out.
