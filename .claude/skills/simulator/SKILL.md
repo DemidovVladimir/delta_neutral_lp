@@ -23,6 +23,13 @@ cargo run --release -- --from 2026-07-05T14:47:00Z --hours 20 --strategy \
                                                                # pool-switch question (fee-bps also rescales
                                                                # arb_deadband to fee/2 — the calibrated ratio;
                                                                # --deadband-bps after it overrides)
+    [--symbol HYPESOL]    # non-SOL/USDC pairs (Session 34): candles load ONLY
+                          # from data/<SYMBOL>_1m_<startMs>_<endMs>.csv — no
+                          # Binance fetch, missing cache = loud error. Build or
+                          # extend caches with scripts/pair-candles.ts (the GT
+                          # pipeline, A20 recipe made durable). NEVER write pair
+                          # data under the SOLUSDC name — that was the Session
+                          # 32/33 «poisoned cache» class, closed by this flag.
     [--target 0.6]        # HEDGE_TARGET_DELTA_SOL tilt (Jul 8): net SOL kept
                           # unhedged; must stay below total delta (sim never
                           # goes perp-long — watch the ⚠ unsupported counter).
@@ -78,7 +85,97 @@ CAUTION: the pre-recorded grids in this file were run pre-ADR-025
 numbers against them.
 
 Binance 1m candles are cached in `simulator/data/*.csv` (gitignored) — the
-first run of a window needs network, repeats don't.
+first run of a window needs network, repeats don't. Non-SOL/USDC pairs live
+under their own symbol (`HYPESOL_1m_*.csv`, `PUMPSOL_*`, …) and are
+cache-only; GT-derived files are recognizable by a normalized first close
+(75.000000) or flat O=H=L=C gap-fill rows. Sub-windows of a master file must
+be sliced into exact-key files (python one-liner or pair-candles) — the sim
+never reads partial ranges.
+
+## Canonical frames & the money metric (Session 34, 2026-07-20)
+
+**Metric rule (operator priority = прибыль в долларах):** `EDGE vs
+hold-as-is` compares configs on the same path (parameter search); the
+go/no-go USD verdict is **ABSOLUTE Δequity** (`equity: X → Y`). For the
+hedged SOL/USDC machine abs IS the live USD result (the sim short cancels
+price drift internally). For X/SOL constructions run `--band 99` (no perp in
+sim): abs ≈ the live срез USD number — the real SOL short only converts
+SOL-metric → USD (subtract carry ≈ 0.23 USD/мес); HYPE-vs-SOL basis stays in
+abs, and NO parameter removes it (Session 34: the whole bins/confirm/reentry
+grid moves abs by ~1–2 USD/мес while basis swings ±20 — pair choice, not
+tuning, decides the USD sign). `--band 0.49` = fictional pair perp: clean
+mechanics only (fees − IL − costs), never a live frame for pairs (A19).
+
+**Canonical frames (verbatim; add `--from/--hours`):**
+- live A23 HYPE construction: `--symbol HYPESOL --strategy --swap-skip
+  --bin-step 20 --fee-bps 12.5 --confirm-min 10 --bins 20 --band 99
+  --reentry-min 120 --reentry-tol 0.20 --lp-value 148 --idle-sol 0
+  --wallet-usdc 0`
+- campaign SOL/USDC machine (retired, regime watch): same minus `--symbol`,
+  with `--bin-step 10 --fee-bps 6.5 --deadband-bps 5 --band 0.25
+  --idle-sol 0.8 --wallet-usdc 41`
+- pair screen (A20 recipe): GeckoTerminal top DLMM pools
+  (`/networks/solana/dexes/meteora/pools?sort=h24_volume_usd_desc`) → filter
+  X/SOL → on-chain `binStep`/`baseFactor` (LbPair u16 @ offsets 80 / 8;
+  baseFee = bf×step×1e-8) → `npx tsx scripts/pair-candles.ts --pool <addr>
+  --from <ISO> --to <ISO> --normalize 75 --out
+  simulator/data/<SYM>_1m_<fromMs>_<toMs>.csv` → run clean (band 0.49) +
+  live (band 99) on the SAME window as HYPE/SOLUSDC references. Fees always
+  D2-pessimistic = raw × 0.625.
+
+**Masters registry:** `HYPESOL_1m_1781697600000_1784577600000.csv` = HYPE/SOL
+Jun 17 12:00Z → Jul 20 20:00Z (splice k=75.904171, GT pool
+`81GpCm4d13y8TozYtThabuSCLQN2o3bbrvDogXFPn8sA`). Extend forward with
+`pair-candles.ts --splice <master> --from <master-end> --to <now floor 1m>`,
+then `cat` master+segment into the new-key master. Validation anchor
+(срез #2, 37h): 0 recenters exact, LP fees sim 0.90 vs real 1.00 (−10%),
+abs +1.08 vs honest +0.74 (gap = carry 0.03 + one-time collateral 0.11 +
+oracle noise) — the frame tracks the live срез.
+
+## Session 34 results (fresh grids to Jul 20 20:00Z — supersede stale runs)
+
+Frame A, HYPE param grid (edge / abs per window; base = live params):
+- base b20-c10: месяц −1.97/−19.17, неделя −2.28/−7.69, срез49h +1.06/+1.80,
+  full-master 800h −0.94/−19.29
+- **bins 28 (c10): месяц −1.86/−19.03, неделя −2.12/−7.52, срез +0.76/+1.50,
+  800h +0.99/−17.33 — THIRD independent confirmation (Sessions 32, 33, 34):
+  better on every multi-week frame, cost ≈ −20–30% fees on quiet windows.
+  Still the only robust candidate; proposed, NOT applied.**
+- b28-c5 / bins32: strong on some windows (b32 месяц −0.84), never robust on
+  all — jagged within noise, no overfit chase. reentry-min 240: месяц winner
+  (+5.12) / неделя loser — regime trap RE-confirmed. tol 0.10 parks 61% out.
+  storm-pct 1.5/3: zero effect (0 storms in the calm window).
+
+Frame B, SOL/USDC fresh windows (hedged abs = USD): band 0.25 месяц +0.54,
+неделя +1.94, 336h −2.14, срез49h +0.94; band 0.49≈0.62 everywhere ≥ 0.25
+(perp trades −25%, месяц +1.71) — pro-wide confirmed again. Unhedged
+band 99 = direction lottery (месяц abs +22.78 = SOL rally, not edge).
+Regime: 31 recenters/мес, 0 storms vs historical ~4.5/day — the calm that
+flatters the campaign persists ≥ a month; Session-33 verdict (no return)
+still stands on the month head-to-head, re-open only on a week+ window.
+
+Frame C, pair survey 336h same-calendar (Jul 6 → Jul 20, clean / live-abs):
+- SOLUSDC 10/6.5: +4.63 / +1.04·unhedged (hedged −2.14) — only basis-free ≈0
+- HYPE 20/12.5: +4.21 / −8.47 (basis slide; bins28: −0.44 edge, −8.30 abs)
+- JUP/SOL 80/9.4 b10: +6.34 / −10.73 — mechanically POSITIVE and calm
+  (6 recenters, 4.8% out), but JUP basis unhedgeable, slid −14%/2wk
+- PUMP 20/12.5: −28.83 / +15.36 — fresh data REJECTS (was «borderline» A20)
+- MET/SOL 20/12.5: −8.03 / −16.54 reject; USELESS/SOL: +7.15·82%-parked /
+  −41.25 reject; Jimothy/SOL 50/31: permanent storm (745 pauses/2wk),
+  wait-bag momentum lottery (abs +452 on a +263% pump) = ANSEM-class reject
+  + survivor bias (sampled BECAUSE it pumped).
+- HYPE alt pool step4/fee0.04% `6oQ9wVex4mKZti2GsGCfD8FWTMMC9PLQkztRU5cd6MK8`:
+  pool-wide fee density 0.265%/день vs ours 0.090%, BUT mechanically −5.14
+  clean vs +4.21 (fees 2.11 vs 8.78/2wk) — the A24 pattern: sim can't see
+  venue flow, and even ×3 density doesn't cover the ×4 thinner tier. Reject
+  without a live tx/h measurement (scripts/pool-activity.ts).
+- Old SOL/USDC pool 5rCf1DM8LjKTw4YqhnoLcngyZYeNnQqztScTogYHAS6 fee density
+  flipped ABOVE the campaign pool (0.34 vs 0.21 %/день pool-wide, GT
+  vol24h × baseFee / TVL) — A18's ×1.59 advantage is GONE; if SOL/USDC ever
+  re-opens, re-measure the venue first.
+
+Bottom line (USD, 148 USD LP): every construction ≈ 0 ± regime luck; the
+only data-backed change on the table is bins 20 → 28 on the hype instance.
 
 ## The three-layer verification (why this simulator can be trusted)
 

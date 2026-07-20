@@ -23,7 +23,11 @@ fn main() {
         let hours: i64 = flag(&args, "--hours").map(|h| h.parse().expect("--hours <n>")).unwrap_or(24);
         let start_ms = parse_iso_ms(&from);
         let end_ms = start_ms + hours * 3_600_000;
-        fetch_1m("SOLUSDC", start_ms, end_ms).expect("binance fetch")
+        // --symbol keeps non-SOL/USDC pair caches (scripts/pair-candles.ts)
+        // under their own names so they can never collide with real Binance
+        // windows ("poisoned cache" class, Session 33).
+        let symbol = flag(&args, "--symbol").unwrap_or_else(|| "SOLUSDC".into());
+        fetch_1m(&symbol, start_ms, end_ms).expect("candle load")
     };
 
     let points = to_price_points(&candles);

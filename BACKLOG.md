@@ -670,6 +670,31 @@ reentry-min 240/360 (месяц +7.7/+14.3 but неделя −5.0/−5.9 — th
 win is escape-the-falling-saw regime luck; the sim wait bag KEEPS HYPE
 exposure while parked, netΔ +1.1, so parking is not neutral either).
 
+Sim grid #2 on fresh candles (Session 34, Jul 20 20:00Z). Plumbing first:
+the sim grew a `--symbol` flag and the GT pipeline became a durable script
+(`scripts/pair-candles.ts` — fetch/normalize/splice + flat gap-fill); pair
+candles now live under their own names (`HYPESOL_1m_*` etc., cache-only, no
+Binance fallback), the «HYPE-poisoned SOLUSDC_*» class is CLOSED, ambiguous
+GT-derived files deleted (rebuildable by recipe). Master
+`HYPESOL_1m_1781697600000_1784577600000.csv` = Jun 17 12:00 → Jul 20 20:00,
+splice k=75.904171. Validation vs срез #2 (37h): 0 recenters exact, fees
+0.90 vs 1.00 real (−10%), abs +1.08 vs +0.74 honest (= carry 0.03 +
+one-time collateral 0.11 + oracle noise). Fresh grid (месяц 720h / неделя
+168h / срез 49h / full-master 800h; edge/abs): base −1.97/−19.17,
+−2.28/−7.69, +1.06/+1.80, −0.94/−19.29; **bins 28 better on every
+multi-week frame — THIRD confirmation (месяц −1.86/−19.03, неделя
+−2.12/−7.52, 800h +0.99/−17.33; cost −20–30% fees on quiet windows, срез
++0.76/+1.50); still proposed, NOT applied.** b28-c5 / bins32 jagged (b32
+месяц −0.84 best, неделя worse than base) — no overfit chase; reentry-min
+240 regime trap re-confirmed (месяц +5.12 / неделя −3.06); tol 0.10 parks
+61%; storm-pct insensitive (0 storms — calm). USD bottom line: no parameter
+flips the sign — basis swings ±20/мес vs tuning ±1–2/мес. Same-calendar
+campaign machine (SOL/USDC hedged, LP 148, band 0.25): месяц +0.54, неделя
++1.94, 336h −2.14, срез-49h +0.94 — BOTH constructions ≈ 0 ± regime; band
+0.49≈0.62 ≥ 0.25 everywhere (perp trades −25%, месяц +1.71) — pro-wide
+again; campaign regime stays ~4× calmer than historic (31 recenters/мес,
+0 storms) — the Session-33 re-open rule (week+ window) keeps ticking.
+
 Pre-execution simulation (same-calendar head-to-head) — retained below:
 
 Mechanism: a SOL short sized to the test's total SOL value converts the
@@ -817,6 +842,38 @@ week → migration spec conversation; negative → close the test, re-add
 the exact return flow to the baseline. Caveats: 1 month of history, GT
 volume split across 3 HYPE pools, bridge-token risk, no perp anywhere
 (Hyperliquid's own HYPE perp is another chain — not composable).
+
+**Survey refresh 2026-07-20 (Session 34; recipe now durable —
+`scripts/pair-candles.ts` + sim `--symbol`; fees ×0.625 pessimistic; ONE
+336h window Jul 6 20:00 → Jul 20 20:00 for every pair, LP 148; numbers =
+clean band0.49 edge / live band99 abs):** references SOLUSDC +4.63 / +1.04
+unhedged (hedged band0.25 abs −2.14), HYPE +4.21 / −8.47. New/re-checked:
+- **PUMP/SOL −28.83 / +15.36 — fresh data REJECTS the July «borderline»**
+  (37 storms, +34% trend; the +15 abs is bag ride, not edge).
+- MET/SOL `AsSyvUnbfaZJPRrNh3kUuvZTeHKoMVWEoHz86f4Q5D9x` (step 20/0.2%,
+  density 0.41%/д): −8.03 / −16.54 — REJECT (chops hard, +3.7% net path).
+- USELESS/SOL `8ztFxjFPfVUtEf4SLSapcFj8GW2dxyUA9no2bLPq7H7V` (step 20/0.2%):
+  +7.15 with 82% parked / −41.25 (−33% slide) — REJECT.
+- Jimothy/SOL `E3SotafntrgRg9XjppxqoJWSR4GUaJV7sA8u4a89rYo6` (step 50 /
+  0.5%!): permanent storm (745 pauses/2wk), wait-bag momentum lottery
+  (abs +452 on a +263% pump) — ANSEM-class REJECT + survivor bias (it is
+  in the volume top BECAUSE it pumped).
+- JUP/SOL `C8Gr6AUuq9hEdSYJzoEpNcdjpojPZwqG5MtQbeouNNwg` (step 80/0.15%):
+  +6.34 / −10.73 — the only mechanically-positive-and-calm alternative
+  (6 recenters, 4.8% out of pool) but JUP-vs-SOL basis is unhedgeable
+  (−14%/2wk realized, no composable perp) — same trap as HYPE, thinner
+  fees. Parked as a data point, not a proposal.
+Pool notes (the «разные пулы» leg): HYPE/SOL alt pool
+`6oQ9wVex4mKZti2GsGCfD8FWTMMC9PLQkztRU5cd6MK8` (step 4 / 0.04%) — pool-wide
+fee density 0.265%/д vs ours 0.090%/д (GT vol24h × baseFee / TVL), BUT
+mechanically −5.14 clean vs our +4.21 (own-position fees 2.11 vs 8.78/2wk)
+— the A24 pattern (sim cannot see venue flow; ×3 density < ×4 thinner
+tier): REJECT unless a live tx/h + fee-density measurement
+(scripts/pool-activity.ts) says otherwise. Old SOL/USDC pool
+`5rCf1DM8LjKTw4YqhnoLcngyZYeNnQqztScTogYHAS6` fee density flipped ABOVE the
+campaign pool (0.34 vs 0.21 %/д) — A18's ×1.59 advantage is GONE; if
+SOL/USDC ever re-opens, re-measure the venue first. VERDICT: no new pair
+beats HYPE/SOL + short; the only live proposal remains bins 20 → 28.
 
 ### A16. Wide-wait («расширять вместо выхода») — TESTED & REJECTED 2026-07-15
 

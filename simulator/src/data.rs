@@ -24,6 +24,13 @@ pub fn fetch_1m(symbol: &str, start_ms: i64, end_ms: i64) -> Result<Vec<Candle>,
     if cache.exists() {
         return read_csv(&cache);
     }
+    if symbol != "SOLUSDC" {
+        // Non-Binance pairs are cache-only: build the exact-window file with
+        // scripts/pair-candles.ts (GeckoTerminal pipeline) or slice a master.
+        return Err(format!(
+            "no cache for {symbol} [{start_ms},{end_ms}) — build it with scripts/pair-candles.ts; only SOLUSDC auto-fetches from Binance"
+        ));
+    }
 
     let mut candles = Vec::new();
     let mut cursor = start_ms;
