@@ -145,8 +145,19 @@ fn main() {
             params.fee_rate_net * 10_000.0,
             params.arb_deadband * 10_000.0
         );
-        println!("equity: {:.2} → {:.2} | hold-as-is: {:.2}", r.equity_start, r.equity_end, r.hold_as_is_end);
-        println!("EDGE vs hold-as-is:  {:+.4} USD   <- the срез metric", r.edge_vs_hold);
+        println!(
+            "equity: {:.2} → {:.2} | parked: {:.2} | hold-as-is (unhedged): {:.2}",
+            r.equity_start, r.equity_end, r.parked_end, r.hold_as_is_end
+        );
+        println!(
+            "EDGE vs PARKED:      {:+.4} USD   <- THE go/no-go metric (bar: > 0 by a margin)",
+            r.edge_vs_parked
+        );
+        println!(
+            "edge vs hold-as-is:  {:+.4} USD   (diagnostic ONLY — baseline is UNHEDGED, so a",
+            r.edge_vs_hold
+        );
+        println!("                                    falling window inflates it by the hedge's gain)");
         println!(
             "LP fees {:.4} | perp fees {:.4} | carry {:.4} | swaps {:.4} | network {:.4}",
             r.lp_fees_usd, r.perp_fees_usd, r.carry_paid_usd, r.swap_cost_usd, r.network_cost_usd

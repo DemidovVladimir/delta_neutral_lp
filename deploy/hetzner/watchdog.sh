@@ -124,17 +124,65 @@ if [ -f "$BOT_DIR/data/hodl-history.jsonl" ]; then
   [ "$hodl_age" -gt 90000 ] && problems="${problems}hodl-history.jsonl не обновлялся $((hodl_age/3600))ч — дневной срез не пишется;"
 fi
 
-# ── open-vitals-episode ledger (2026-07-10) ─────────────────────────────────
-# vitals_open holds `|`-separated rule texts of latched breaches whose
-# recovery line has not been seen yet. A breach opens an episode; ONLY the
-# bot's «✅ VITALS recovered — <rule>» line closes it.
-vitals_open=$(state_get vitals_open)
-if [ -n "$breach_rule" ] && ! printf '%s' "$vitals_open" | grep -qF "$breach_rule"; then
-  vitals_open="${vitals_open:+$vitals_open|}$breach_rule"
+# ── open-vitals-episode ledger (2026-07-10, un-latched 2026-07-31) ──────────
+# vitals_open holds `|`-separated `<opened_epoch>~<rule text>` entries for
+# latched breaches whose recovery line has not been seen yet. A breach opens
+# an episode; three things can close one:
+#   1. the bot's «✅ VITALS recovered — <rule>» line (the clean path);
+#   2. a bot RESTART older than the episode — the bot's VitalsLatch lives in
+#      the process, so a restarted bot can NEVER emit the recovery line for a
+#      breach latched before it started. The episode would hang forever
+#      (BUG-024: two rules stuck from 2026-07-27 across a container recreate,
+#      making every heartbeat cry wolf). If the condition is still real the
+#      bot re-logs the breach within a cycle and the episode simply reopens.
+#   3. a hard age ceiling, as a backstop for any silent-latch case we have
+#      not thought of. An episode this old is not actionable information.
+# Entries with no `~` are pre-2026-07-31 (undated) — treated as opened at 0,
+# so the rules above retire them on the first run.
+VITALS_EPISODE_MAX_SECS=${VITALS_EPISODE_MAX_SECS:-86400}   # 24h backstop
+
+bot_started_at=0
+if [ -n "$cid" ]; then
+  started_iso=$(docker inspect -f '{{.State.StartedAt}}' "$cid" 2>/dev/null || echo "")
+  [ -n "$started_iso" ] && bot_started_at=$(date -d "$started_iso" +%s 2>/dev/null || echo 0)
 fi
-if [ -n "$recovered_rule" ] && [ -n "$vitals_open" ]; then
-  vitals_open=$(printf '%s' "$vitals_open" | tr '|' '\n' | grep -vF "$recovered_rule" | paste -sd'|' -)
+
+vitals_open=""
+vitals_expired=""
+prev_open=$(state_get vitals_open)
+if [ -n "$prev_open" ]; then
+  while IFS= read -r entry; do
+    [ -n "$entry" ] || continue
+    case "$entry" in
+      *~*) opened=${entry%%~*}; rule=${entry#*~} ;;
+      *)   opened=0;            rule=$entry      ;;
+    esac
+    case "$opened" in ''|*[!0-9]*) opened=0 ;; esac
+    # (1) the bot said this rule released
+    [ -n "$recovered_rule" ] && [ "$rule" = "$recovered_rule" ] && continue
+    # (2) the bot restarted after the episode opened → its latch is gone
+    if [ "$bot_started_at" -gt 0 ] && [ "$opened" -lt "$bot_started_at" ]; then
+      vitals_expired="${vitals_expired:+$vitals_expired; }${rule} (бот перезапущен)"
+      continue
+    fi
+    # (3) age backstop
+    if [ $(( NOW - opened )) -gt "$VITALS_EPISODE_MAX_SECS" ]; then
+      vitals_expired="${vitals_expired:+$vitals_expired; }${rule} (старше $((VITALS_EPISODE_MAX_SECS/3600))ч)"
+      continue
+    fi
+    vitals_open="${vitals_open:+$vitals_open|}${opened}~${rule}"
+  done <<EOF
+$(printf '%s' "$prev_open" | tr '|' '\n')
+EOF
 fi
+if [ -n "$breach_rule" ] && ! printf '%s' "$vitals_open" | tr '|' '\n' | sed 's/^[0-9]*~//' | grep -qxF "$breach_rule"; then
+  vitals_open="${vitals_open:+$vitals_open|}${NOW}~${breach_rule}"
+fi
+if [ -n "$vitals_expired" ]; then
+  echo "$(date -u +%FT%TZ) VITALS-EPISODE-EXPIRED: ${vitals_expired}" >> "$LOG_FILE"
+fi
+# Rule texts only, for anything shown to the operator.
+vitals_open_text=$(printf '%s' "$vitals_open" | tr '|' '\n' | sed 's/^[0-9]*~//' | paste -sd'|' -)
 
 # ── heartbeat mode: one quiet daily "still alive" push ──────────────────────
 if [ "${1:-}" = "--heartbeat" ]; then
@@ -170,7 +218,7 @@ if [ "${1:-}" = "--heartbeat" ]; then
       fi
     fi
     if [ -n "$vitals_open" ]; then
-      notify default "💛 живой: итерация ${iter:-?}, рестартов ${restarts}${daily}; тревога ещё держится: ${vitals_open}"
+      notify default "💛 живой: итерация ${iter:-?}, рестартов ${restarts}${daily}; тревога ещё держится: ${vitals_open_text}"
     else
       notify default "💚 живой: итерация ${iter:-?}, рестартов ${restarts}${daily}, проблем нет"
     fi
@@ -208,8 +256,8 @@ else
     if [ -n "$vitals_open" ]; then
       # the 10m log window went quiet but a latched breach never released —
       # do NOT claim recovery (02:05Z 2026-07-10 false «восстановился»)
-      notify default "🟡 бот жив (циклы идут), но тревога ещё держится: ${vitals_open}"
-      echo "$(date -u +%FT%TZ) OK-BUT-VITALS-OPEN: ${vitals_open}" >> "$LOG_FILE"
+      notify default "🟡 бот жив (циклы идут), но тревога ещё держится: ${vitals_open_text}"
+      echo "$(date -u +%FT%TZ) OK-BUT-VITALS-OPEN: ${vitals_open_text}" >> "$LOG_FILE"
     else
       notify default "✅ восстановился: циклы идут, ошибок нет"
       echo "$(date -u +%FT%TZ) RECOVERED" >> "$LOG_FILE"

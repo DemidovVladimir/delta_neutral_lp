@@ -217,7 +217,19 @@ pub struct SimReport {
     pub equity_end: f64,
     pub hold_as_is_end: f64,
     /// The срез metric: strategy equity minus doing nothing with the same mix.
+    ///
+    /// ⚠ NOT a go/no-go criterion. `hold_as_is_end` is UNHEDGED, so on any
+    /// falling window this credits the machine with the hedge's entire gain
+    /// — work the parked wallet does too, for free. Use `edge_vs_parked`.
     pub edge_vs_hold: f64,
+    /// Equity of the REAL alternative to running the machine: the same
+    /// starting bag sitting in the wallet, hedged flat by a short held for
+    /// the whole window, paying carry and nothing else (no LP, no recenters,
+    /// no swaps, no perp churn). This is what "остаться в парковке" costs.
+    pub parked_end: f64,
+    /// THE go/no-go metric: strategy equity minus staying parked. Positive by
+    /// a margin = the machine earns its keep; ≤ 0 = parking wins.
+    pub edge_vs_parked: f64,
     pub lp_fees_usd: f64,
     pub perp_fees_usd: f64,
     pub carry_paid_usd: f64,
@@ -881,6 +893,22 @@ pub fn run(params: &StrategyParams, points: &[(i64, f64)]) -> SimReport {
         + short_unrealized;
     report.hold_as_is_end = deposit_sol0 * p_end + deposit_usdc0;
     report.edge_vs_hold = report.equity_end - report.hold_as_is_end;
+
+    // The parked counterfactual (the honest go/no-go baseline). Same bag, no
+    // machine: a single short opened at p0 over everything the hedge would
+    // cover (the wallet reserve is excluded from the hedge input by design,
+    // exactly as in the live controller) and held to the end, paying carry on
+    // a notional that never changes. No LP fees, no swaps, no perp churn.
+    let parked_short_sol = (deposit_sol0 - params.wallet_reserve_sol).max(0.0);
+    let parked_notional_usd = parked_short_sol * p0;
+    let parked_carry_usd =
+        parked_notional_usd * params.carry_cost_bps / 10_000.0 * total_ms as f64
+            / (365.25 * 86_400.0 * 1000.0);
+    report.parked_end = deposit_sol0 * p_end
+        + deposit_usdc0
+        + parked_short_sol * (p0 - p_end)
+        - parked_carry_usd;
+    report.edge_vs_parked = report.equity_end - report.parked_end;
     let final_lp_delta = if params.clamp_ramp_lo > 0.0 {
         crate::hedge::lp_ramp_delta(lp.total_sol(), lp.total_usdc(), pool_price, params.clamp_ramp_lo)
     } else {

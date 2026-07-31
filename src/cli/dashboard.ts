@@ -139,9 +139,12 @@ function applySnapshot(ui: Ui, s: DashboardSnapshot): void {
   });
 
   // Net-delta gauge: percent of band consumed; label carries the verdict.
-  const pctBand = s.delta.bandSol > 0 ? Math.min(100, (Math.abs(s.delta.netDeltaSol) / s.delta.bandSol) * 100) : 0;
+  // The band is measured around the TARGET, not around zero — so the gauge
+  // fills on the controller's error, and a deliberate tilt reads IN-BAND.
+  const pctBand = s.delta.bandSol > 0 ? Math.min(100, (Math.abs(s.delta.errorSol) / s.delta.bandSol) * 100) : 0;
+  const targetSuffix = s.delta.targetDeltaSol !== 0 ? ` (target ${fmt(s.delta.targetDeltaSol, 3)})` : '';
   ui.deltaGauge.setLabel(
-    ` Net ΔSOL ${fmt(s.delta.netDeltaSol, 3)} / ±${fmt(s.delta.bandSol, 2)}  ${s.delta.outOfBand ? 'OUT-OF-BAND' : 'IN-BAND'} `
+    ` Net ΔSOL ${fmt(s.delta.netDeltaSol, 3)}${targetSuffix} / ±${fmt(s.delta.bandSol, 2)}  ${s.delta.outOfBand ? 'OUT-OF-BAND' : 'IN-BAND'} `
   );
   ui.deltaGauge.setData([Math.round(pctBand)]);
 

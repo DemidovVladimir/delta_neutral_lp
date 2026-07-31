@@ -72,8 +72,9 @@ cargo run --release -- --from 2026-07-05T14:47:00Z --hours 20 --strategy \
 #                             rally +0.30 (noise), whipsaw: never fires.
 ```
 
-`--strategy` prints the ledger: `EDGE vs hold-as-is` (the срез metric —
-strategy equity minus doing nothing with the same starting mix), LP fees,
+`--strategy` prints the ledger: `EDGE vs PARKED` (the go/no-go metric —
+strategy equity minus staying parked; see the metric rule below),
+`edge vs hold-as-is` (diagnostic only), LP fees,
 perp fees, carry, swap/network costs, recenter count + how many the выдержка
 skipped, perp churn, final netΔ. Defaults = production params as deployed
 2026-07-07 incl. the ADR-025 clamp-commit freeze (`StrategyParams::default()`
@@ -94,9 +95,27 @@ never reads partial ranges.
 
 ## Canonical frames & the money metric (Session 34, 2026-07-20)
 
-**Metric rule (operator priority = прибыль в долларах):** `EDGE vs
-hold-as-is` compares configs on the same path (parameter search); the
-go/no-go USD verdict is **ABSOLUTE Δequity** (`equity: X → Y`). For the
+**Metric rule (operator priority = прибыль в долларах).** Three numbers, and
+mixing them up has cost us a wrong entry recommendation once already:
+
+1. **`EDGE vs PARKED` — THE go/no-go metric (added 2026-07-31).** Strategy
+   equity minus the REAL alternative: the same bag sitting in the wallet,
+   hedged flat by one short held all window, paying carry and nothing else.
+   Enter only when this is positive BY A MARGIN.
+2. **`edge vs hold-as-is` — DIAGNOSTIC ONLY. Never a criterion.** Its
+   baseline is UNHEDGED (`hold_as_is_end` = the starting mix marked to the
+   end price), so on any falling window it credits the machine with the
+   hedge's entire gain — work the parked wallet does too, for free. On
+   2026-07-28 this read **+4.99** and «passed» a +2 bar while the machine
+   actually LOST 1.28 USD over the week; the parked alternative cost only
+   0.19. As written it green-lights entry on any falling week. Historical
+   grids in this file quote it — treat those numbers as unusable for go/no-go.
+3. **ABSOLUTE Δequity** (`equity: X → Y`) — the honest USD result of the run
+   itself. For the hedged SOL/USDC machine abs IS the live USD result (the
+   sim short cancels price drift internally). Use it for parameter search on
+   the same path; use #1 to decide whether to run the machine at all.
+
+For the
 hedged SOL/USDC machine abs IS the live USD result (the sim short cancels
 price drift internally). For X/SOL constructions run `--band 99` (no perp in
 sim): abs ≈ the live срез USD number — the real SOL short only converts
@@ -264,8 +283,11 @@ on the same path stay valid.
 
 ## Interpretation rules
 
-- `EDGE vs hold-as-is` is directly comparable to the срез verdict block's
-  главное число (fees − IL − costs vs doing nothing).
+- `edge vs hold-as-is` is comparable to the срез verdict block's SECOND line
+  (vs «ничего не делать») — and carries the same caveat there: subtract the
+  mechanical hedge-protection term before reading it as skill. The срез
+  главное число (vs HODL-USDC) has no direct sim twin; `EDGE vs PARKED` is
+  the closest and is what decides go/no-go.
 - Compare parameter sets on the SAME path (cache guarantees identical
   candles). Sweep example: `for m in 0 3 5 10; do cargo run --release -q --
   --from ... --hours 24 --strategy --confirm-min $m; done`.

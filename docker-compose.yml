@@ -36,7 +36,11 @@ services:
   # pair roles auto-derived from the pool (base=HYPE, quote=SOL, SOL-metric).
   # Same image and wallet, separate pool, separate data dir (./data-hype) —
   # each instance discovers only its own pool's positions.
+  # RETIRED 2026-07-26 (A23 wind-down): the `hype` profile keeps a plain
+  # `docker compose up -d` from resurrecting it — reviving requires an
+  # explicit `docker compose --profile hype up -d`.
   delta-neutral-bot-hype:
+    profiles: ["hype"]
     build:
       context: .
       dockerfile: Dockerfile

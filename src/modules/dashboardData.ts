@@ -65,7 +65,11 @@ export interface DashboardSnapshot {
     lpSolLive: number;
     hedgeLpInput: 'live' | 'midpoint';
     shortSol: number; // magnitude of the short (0 if none)
-    netDeltaSol: number; // lpSol + perpBaseSol; target ≈ 0
+    netDeltaSol: number; // lpSol + perpBaseSol
+    /** HEDGE_TARGET_DELTA_SOL — what netDeltaSol is steered TO (0 = neutral). */
+    targetDeltaSol: number;
+    /** The controller's actual error: netDeltaSol − targetDeltaSol. */
+    errorSol: number;
     bandSol: number; // deltaThresholdSol
     outOfBand: boolean;
   };
@@ -217,8 +221,14 @@ export async function collectSnapshot(sources: SnapshotSources): Promise<Dashboa
       hedgeLpInput: config.hedgeLpInput,
       shortSol,
       netDeltaSol,
+      targetDeltaSol: config.hedgeTargetDeltaSol,
+      // Same law as hedgeController.ts: the controller acts on the error
+      // AROUND THE TARGET, not on the raw net delta. Testing |netDeltaSol|
+      // reported "out of band" for a perfectly-hedged deliberate tilt
+      // (HEDGE_TARGET_DELTA_SOL ≠ 0) while the engine sat happily idle.
+      errorSol: netDeltaSol - config.hedgeTargetDeltaSol,
       bandSol: effectiveBandSol,
-      outOfBand: Math.abs(netDeltaSol) > effectiveBandSol,
+      outOfBand: Math.abs(netDeltaSol - config.hedgeTargetDeltaSol) > effectiveBandSol,
     },
   };
 }
@@ -252,6 +262,16 @@ export function mockSnapshot(): DashboardSnapshot {
       carryRateBps: -1177, // negative = short pays borrow fee (~11.8% APR)
       liquidationPrice: 198.4,
     },
-    delta: { lpSol, lpSolLive: lpSol, hedgeLpInput: 'live', shortSol: 12.0, netDeltaSol, bandSol: 2.0, outOfBand: Math.abs(netDeltaSol) > 2 },
+    delta: {
+      lpSol,
+      lpSolLive: lpSol,
+      hedgeLpInput: 'live',
+      shortSol: 12.0,
+      netDeltaSol,
+      targetDeltaSol: 0,
+      errorSol: netDeltaSol,
+      bandSol: 2.0,
+      outOfBand: Math.abs(netDeltaSol) > 2,
+    },
   };
 }

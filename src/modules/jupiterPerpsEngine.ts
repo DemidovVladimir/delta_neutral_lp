@@ -81,6 +81,24 @@ const DEFAULT_PERP_SLIPPAGE_BPS = 50;
 const FULL_CLOSE_SHORT_PRICE_CEILING = new BN(100_000_000_000);
 const FULL_CLOSE_LONG_PRICE_FLOOR = new BN(1);
 
+/**
+ * A perp side's SOL-denominated delta (BUG-025).
+ *
+ * `notionalUsd` is `position.sizeUsd` — the notional FROZEN AT ENTRY, not a
+ * mark-to-market figure. The position's SOL size is therefore
+ * `sizeUsd / entryPrice`, constant for the life of the position: PnL moves,
+ * the base does not. Dividing by SPOT instead made the reported delta drift
+ * with price (0.068 SOL ≈ 27% of the band at a 2.7% move; a whole band at
+ * ±10%), so the controller chased a number the position never had.
+ *
+ * Spot is only a fallback for a position with no usable entry price.
+ */
+function sideBaseSol(side: { notionalUsd: number; entryPriceUsd: number } | null, spot: number) {
+  if (!side) return 0;
+  const basisPrice = side.entryPriceUsd > 0 ? side.entryPriceUsd : spot;
+  return basisPrice > 0 ? side.notionalUsd / basisPrice : 0;
+}
+
 /** Everything that differs between the two sides, in one place. */
 interface SideWiring {
   side: PositionSide;
@@ -389,8 +407,8 @@ export class JupiterPerpsEngine implements HedgeEngine {
     const sides = await this.readSides();
     const price = sides.oraclePriceUsd;
 
-    const longSol = sides.long && price > 0 ? sides.long.notionalUsd / price : 0;
-    const shortSol = sides.short && price > 0 ? sides.short.notionalUsd / price : 0;
+    const longSol = sideBaseSol(sides.long, price);
+    const shortSol = sideBaseSol(sides.short, price);
 
     if (sides.long && sides.short) {
       log.errorBanner('⚠️ BOTH hedge sides open — controller never does this (manual trades?)', {
@@ -821,8 +839,8 @@ export class JupiterPerpsEngine implements HedgeEngine {
 
     const sides = await this.readSides();
     const price = sides.oraclePriceUsd;
-    const longSol = sides.long && price > 0 ? sides.long.notionalUsd / price : 0;
-    const shortSol = sides.short && price > 0 ? sides.short.notionalUsd / price : 0;
+    const longSol = sideBaseSol(sides.long, price);
+    const shortSol = sideBaseSol(sides.short, price);
 
     // ADR-021 full-portfolio neutrality: idle wallet SOL above reserves
     // joins the hedge target so a drawdown cannot make HODL-USDC beat the

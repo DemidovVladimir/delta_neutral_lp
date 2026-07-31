@@ -626,6 +626,329 @@ settlement; the first срез absorbs a one-time −0.111218 face drift.
   −0.004 → no update. Found (cosmetic, not fixed): local dashboard
   outOfBand ignores HEDGE_TARGET_DELTA_SOL (dashboardData.ts:221) —
   always «OUT-OF-BAND» under the bridge target; controller unaffected.
+- #3 2026-07-21T08:22Z (62.1h): TOTAL 330.65 = pool 157.05 (1.999995 SOL,
+  fees cumulative 0.022999 SOL; окно #2→#3 +0.0098153 SOL=$0.77) + wallet
+  103.96 (0.802151852 SOL + 39.544888 USDC + 0.022725965 HYPE) + short
+  69.65 (collateral 76.384078, uPnL −6.720932, borrow 0.016845) →
+  **+3.58 formula / +3.05 honest**. Window #2→#3 +2.31: fees +0.77 +
+  residual long ~0.33 SOL × SOL 75.98→78.52 ≈ +0.8 + basis (HYPE
+  0.7915→0.8011 SOL, +1.21%) ≈ +0.56 + dust/шум; carry −0.03. NOT sterile:
+  BUG-023 качель 19:10–19:21Z (walletSol=0 false read → decrease $33.57 →
+  increase $38.65; cost ≈ 0, wallet USDC −1.759790 → collateral; 6 txs
+  all classified, 2 failed keeper TX2 cost 0). VITALS: 1 breach = the
+  false read itself, recovered 9s. 0 recenters both instances, main 5983
+  cycles max gap 15s, hype cadence 60s nominal. Liq 1.349× (was 1.394× —
+  SOL rose; breaches 1.3 norm at SOL ≈ 81.5). Fee pace окна 0.435%/день.
+  Target drift +0.030 (pool 2.000 vs 1.97) → not updated (12% of band).
+  Bins 28 config live, position still 21-bin (no recenter yet).
+- #4 2026-07-24T10:34Z (136.3h): TOTAL 325.64 = pool 0 (position closed
+  08:37Z on range exit — 5th close/reopen cycle since Jul 21; snapshot
+  taken during the ADR-026 re-entry wait; reopened 10:44Z as
+  8PgptLe3TFba5M1WrWqv9qbNxJDCfhpDXmtStoa9xw96, 50.65/49.35, range
+  0.7545–0.7947) + wallet 249.97 (2.764482624 SOL + 41.40053 USDC + 0
+  HYPE @ SOL 75.44441) + short 75.67 (collateral 70.911914, uPnL
+  +4.803699, borrow 0.045633) → **−1.44 formula / −1.97 honest — FIRST
+  MINUS срез**. Window #3→#4 −5.01: basis HYPE/SOL 0.8011→0.7743 (−3.3%)
+  + residual long ~0.31 SOL on SOL 78.52→75.44 + recenter churn (5
+  close/open cycles; wallet-paid fees окна 0.011317 SOL / 31 txs) − fees
+  earned while in range. NOT sterile: (a) hedge DISABLED
+  2026-07-23T05:04:40Z by the 5-failure kill switch (RPC 503 storm) —
+  short frozen 29.7h at 2.4502 SOL, which happened to keep true portfolio
+  delta ≈ +0.31 (the designed residual) even through the LP-closed window;
+  re-armed 2026-07-24T10:45Z by container restart AFTER the LP reopened
+  (operator-approved), first cycles «in band» netΔ −2.044…−2.048 vs
+  −1.97, band 0.25; (b) hype container auto-restarted in the same storm
+  Jul 23 ~05:30Z (watchdog still doesn't monitor it — known gap); (c)
+  Jul 22 16:14–21:01 bridge double-count качель around a close/reopen
+  cycle: increase −40.85 USDC collateral during the wait, blocked streak
+  (wallet USDC $0.00) 20:45–20:51, two live decreases 44.69 + 81.06 after
+  reopen — the «hedge input = hype-pool value» fix is now URGENT: it
+  fires on EVERY re-entry wait in a churny regime. tx-audit
+  2026-07-21T08:00Z→now: 62 txs, all classified ours/keeper; 1 external
+  = zero-effect (ΔSOL 0, ΔUSDC 0, fee not ours,
+  3xHpWPwesRjwxYiLZgqrCrhMESTkJSZXajQMftwdjKT9Y2e1NHpHmT5R7f3bJPYX5KLtNwjMgFxnkv9gZBptERjE).
+  Liq 1.418× (107.022263 vs spot 75.44). Per the срез-#3 rule this is
+  minus #1 of 2 — срез #5 (Jul 25) decides the return to SOL/USDC.
+- #5 2026-07-26T10:56Z (184.7h): TOTAL 319.59 = pool 148.88 (position
+  6xQvoaCnB2oEd4vhCeZAvrHB5xdtebwmGvf8atnLFsvw, 0.9032 HYPE + 1.270669
+  SOL + unclaimed 0.0032 HYPE/0.002995 SOL = 1.983945 SOL @ HYPE/SOL
+  0.783678574) + wallet 104.07 (0.684272805 SOL + 50.812475 USDC +
+  0.032550142 HYPE @ SOL 75.0410276614204 / HYPE 58.76686179619609) +
+  short 66.64 (collateral 66.980435, uPnL −0.305098, borrow 0.038541;
+  notional 173.914845 = 2.3163 SOL, entry re-averaged 74.951934) →
+  **−7.48 formula / −8.01 honest — SECOND minus, RULE FIRED: return to
+  SOL/USDC is data-supported.** Window #4→#5 −6.05 with SOL essentially
+  flat (75.44→75.04) — this is NOT beta, it is the saw: 2 more range
+  exits on Jul 24 (recenters 15:01:38, 21:50:53; NONE Jul 25–26) each
+  paying traversal IL (~$2 each, est.) + THE BRIDGE КАЧЕЛЬ ×2 LIVE:
+  increase $125.46 15:01:44 (netΔ −0.054, spent ALL wallet USDC —
+  affordable = 41.40/0.33 = the exact size) → decrease $133.70 17:02:49
+  (netΔ −3.781) → increase $145.00 21:52:01 (netΔ +0.043) → decrease
+  $147.89 23:51:05 (netΔ −3.972); $552 perp round-trip churn (fees +
+  impact + spread ≈ $1–1.5 est.) — and the 21:52 increase pushed gross
+  to 321.806746 while the LP reopen collapsed the ADR-022 auto-cap input
+  to 217.39355569552038 → the «should never fire» VITALS notional-cap
+  breach 23:51:05Z; NOT broken enforcement — the cap was honored at each
+  increase (wallet fat), then the bag definition shrank under the open
+  position. Self-resolved by the in-flight decrease by 00:05Z. Fee pace
+  current position ≈ 0.18%/день (0.0055 SOL / 1.55d on 1.98 SOL) — half
+  the calm-regime 0.4–0.5%. Vitals окна: that 1 breach + BUG-024 found
+  (watchdog vitals_open never clears — stale since Jul 23). tx-audit
+  2026-07-24T10:34Z→now: 32 txs (13 wallet-paid, fees 0.000815133 SOL),
+  all classified; 3 external = ≤1-lamport dust, fees not ours. Hype
+  errors 48h: 1 = known BUG-017 signature, self-recovered. Liq 1.380×
+  (103.599455 vs spot 75.08) ✓, netΔ −1.932 vs −1.97 in band ✓,
+  containers 0 restarts. Honest −8.01 is also below the −5 stop floated
+  at срез #4. Verdict per the pre-agreed rule: wind down A23, return to
+  SOL/USDC (bins 28; venue check campaign pool vs old pool fee density
+  first) — awaiting operator approval for the live wind-down.
+
+**WIND-DOWN EXECUTED 2026-07-26 ~11:29–11:45Z (operator «Да, сворачивай
+по плану»; all signatures verbatim):**
+- Both containers stopped cleanly (Exited 0) 11:29Z. HYPE LP
+  `6xQvoaCnB2oEd4vhCeZAvrHB5xdtebwmGvf8atnLFsvw` closed LIVE
+  `EtQf1qkmPR5hoFa45DkbnuwDLrbCyJbghcQguK9Nwq2Gb3QQiobA3Nx6qaWSFk6UXG42bEyJsQyzfgXJcxFEbWb`
+  (claimed fees 0.003179059 HYPE + 0.002995075 SOL). Full HYPE balance
+  0.93889276 sold → 0.735891959 SOL at 0.78378 HYPE/SOL ≈ mid, ~0
+  slippage,
+  `5qrJTD2nxLba55qa8h9JrA8nVwQ7t5o9HUrNgRvKaLaUQQTuVNb6Va417KxQ4rVa937bJ8HyAwB9Va2F1afQEhE4`.
+- Bridge retired: HEDGE_TARGET_DELTA_SOL=0 (server + local .env); main
+  container FORCE-RECREATED (GOTCHA re-hit: `docker compose start` does
+  NOT reload env_file — recreate, Session-34 pattern). Parked
+  hedged-neutral: wallet 2.750958478 SOL + 50.812475 USDC + 0 HYPE;
+  short 2.3163 SOL / $173.91, collateral $66.98; controller «in band»
+  netΔ +0.128 vs target 0, band 0.25 floor. Hype service retired behind
+  compose `profiles: ["hype"]` local+server — plain `up -d` cannot
+  resurrect it (explicit `--profile hype up -d` required).
+- **A23 FINAL mark: closing TOTAL ≈ 323.96 → −3.11 formula / −3.64
+  honest over 7.7 days.** Срез #5's −7.48 improved at close by the
+  refunded position rent ≈ +4.28 (the срез formula never counts
+  refundable rent — BUG-022 class artifact, recovered at close) +
+  mid-price HYPE exit.
+- **ENTRY DEFERRED — the plan's own замер checkpoint fired.** Venue
+  (2026-07-26, GT + on-chain): campaign pool
+  `BGm1tav58oGcsQJehL9WXBFXF7D27vZsKefj4xJKD5Y` organic flow DIED —
+  vol24h $1,049,203 / TVL $2,878,530 → 0.0364%/day, **h1 volume $135**,
+  66 ok tx/h (804/1000 failed); old pool
+  `5rCf1DM8LjKTw4YqhnoLcngyZYeNnQqztScTogYHAS6` alive — vol24h
+  $5,340,293 / TVL $4,760,927 → 0.0449%/day, 584 ok tx/h, but only
+  1.23× campaign density at a 2.5× thinner tier (0.04% vs 0.1%) — the
+  A24 rule says campaign still wins per OUR OWN sweeps; and BOTH pools
+  sit ~5× below the Jul-20 densities (0.2025 / 0.34 %/day) that
+  motivated «return to SOL/USDC».
+- Sim confirmation (fresh windows ending 2026-07-26T10:00Z, canonical
+  frame lp148/idle0.8/usdc41, D2-pessimistic fees, deadband=raw-fee/2):
+  МЕСЯЦ 720h old pool step4/fee2.5/deadband2 bins 28/40/56/70 → edge
+  −0.90 (93.2% time OUT of pool!) / −20.07 / −21.68 / −25.19 (40
+  recenters, $4463 churn at b70) vs campaign step10/fee6.5/deadband5
+  bins20 −13.64 / bins28 −13.52; НЕДЕЛЯ 168h campaign b28 **+0.32**
+  (tie with zero), old b70 −1.22. Step-4 geometry churns at ANY width;
+  old pool loses on EVERY window even before the real-fee haircut (sim
+  credits its sweeps ~0.35%/day own-pace vs plausible real ~0.2 from
+  pool-wide 0.045 × concentration).
+- Parking cost: short carry −5.56% APR on $173.91 ≈ $0.80/месяц —
+  cheapest neutral stance, instantly redeployable. **Re-entry criteria
+  (both required; restated 2026-07-31 after check #3):**
+  (a) pool-wide fee density on the chosen pool **≥0.15%/day, cleared
+  with margin on a 7-FULL-DAY mean** (recipe: GT daily volume ÷ TVL ×
+  baseFee, current partial day excluded, + h1 sanity + tx/h via
+  scripts/pool-activity.ts). A reading within ~10% of the bar does NOT
+  count — it flips week to week purely on which weekend sits in the
+  window (check #2 «passed» at 0.1680 and check #3 failed at 0.1386 with
+  no change in the venue). Two consecutive passing checks, or a clear
+  margin, before this counts as fired.
+  (b) week-frame **`EDGE vs PARKED` clearly positive (≥ +2 USD/week,
+  canonical frame)** — strategy equity minus staying parked. NOT
+  `edge vs hold-as-is`: that baseline is unhedged and green-lights entry
+  on any falling week (it read +4.99 at check #2 while the machine lost
+  1.28 and parking cost 0.19). The simulator prints both since
+  2026-07-31; only the PARKED line decides.
+  Config at entry: bins 28, confirm 10m, band 0.25 (0.49 pro-wide
+  candidate), and the venue is chosen by MEASURED FLOW, not by the sim
+  (class A24) — currently the old pool
+  `5rCf1DM8LjKTw4YqhnoLcngyZYeNnQqztScTogYHAS6` at a 3.90× turnover
+  advantage over the campaign pool.
+
+**PARKING WATCH LOG** (re-entry check at every срез; both criteria must
+fire, and the entry is a NEW campaign baseline + bins 28 + AUTO_CREATE
+true + container RECREATE):
+
+- **Check #1 — 2026-07-27T09:23Z (Session 38): BOTH criteria FAIL, stay
+  parked.** Window since the wind-down is fully sterile (0 wallet txs
+  after 11:34Z Jul 26, 0 hedge_actions, 5235 cycles / max gap 80 s,
+  0 VITALS, restarts 0).
+  - Portfolio: **TOTAL 324.47** = SOL 2.750958478 × 76.22475 = 209.691
+    + USDC 50.812475 + short (collateral 66.980435 + uPnL −2.953381
+    − borrow 0.063604 = 63.963). vs the A23 closing mark 323.96 →
+    **+0.51 over 21.8 h**, fully explained: residual portfolio delta
+    0.4306 SOL × ΔSOL +1.235 = +0.532, minus borrow accrual −0.025.
+    Liq 103.588654 = **1.359× spot** ✓ (норма ≥1.3).
+  - (a) FEE DENSITY — **FAIL.** GT daily volumes ÷ TVL × baseFee:
+    campaign `BGm1tav58oGcsQJehL9WXBFXF7D27vZsKefj4xJKD5Y` (TVL 2.917M,
+    fee 0.1%) 7-day mean **0.088 %/day** (best weekday Jul 22 0.148,
+    Sat Jul 25 0.028); old `5rCf1DM8LjKTw4YqhnoLcngyZYeNnQqztScTogYHAS6`
+    (TVL 4.991M, fee 0.04%) 7-day mean **0.142 %/day** (weekdays
+    0.19–0.30, weekend 0.038). Both below the 0.15 bar on a 7-day mean;
+    old/campaign ratio **1.60×** ≪ the 2.5× tier gap → venue verdict
+    unchanged (campaign pool remains the entry venue if we ever enter).
+    Volume DID recover 2.5× vs the Jul-26 reading — that was a Sunday
+    trough, not a permanent death: **measure density on a 7-day mean,
+    never on a single spot reading** (recipe correction).
+  - (b) SIM WEEK EDGE — **FAIL.** Canonical frame (swap-skip, lp148,
+    idle 0.8, usdc 41, confirm 10, reentry 120/0.20), week 168 h ending
+    2026-07-27T09:00Z: campaign b28 band0.25 **−1.77** (abs −1.79),
+    b28 band0.49 −2.01, b20 band0.25 −0.34; old pool step4/fee2.5
+    b28 −1.20 (78% out of pool), b70 −3.58. Other windows same sign:
+    336 h −0.62, month 720 h −9.82 (abs −1.00), last 72 h −2.54.
+    The sim already runs FEE-OPTIMISTIC (it credits our own sweeps
+    ≈0.45 %/day on LP dollars vs a pool-wide 0.09) and still cannot
+    reach zero — the bar of +2 is not remotely in sight.
+  - Standing arithmetic while parked: netΔ (engine convention) leaves
+    the 0.25 band at **SOL ≈ 79.0** (increase_short) and at
+    **SOL ≈ 64.4** (decrease_short) — one small automatic perp trade,
+    expected and healthy. True portfolio delta is **+0.43 SOL** (the
+    0.3 SOL reserve is excluded from the hedge input by design, plus
+    the in-band residual) ≈ 10% of the portfolio in SOL beta.
+  - Found: **BUG-025** (perp delta uses notional/SPOT instead of
+    notional/ENTRY — hedge input drifts with price inside a position's
+    life; 0.039 SOL today, ≈ the whole band at ±10%).
+
+- **Check #2 — 2026-07-28 (Session 39): BOTH criteria PASS on paper, but
+  the ENTRY IS REJECTED — criterion (b) is DEFECTIVE. Operator: «тогда
+  паркуемся».** No live action taken; the parked state was already
+  correct (`AUTO_CREATE_POSITIONS=false`, hedge cycling every ~15 s,
+  netΔ −0.084 SOL in band, container up 2 days, 0 errors, 0 VITALS,
+  wallet 2.750948478 SOL + 55.475732 USDC).
+  - (a) FEE DENSITY — **PASS on the OLD pool.** 7-day mean over the 7
+    FULL days Jul 21–27 (current partial day excluded — it drags the
+    mean): old `5rCf1DM8LjKTw4YqhnoLcngyZYeNnQqztScTogYHAS6` avg daily
+    volume 19,473,021 ÷ TVL 4,635,813 = turnover **4.20×/day**, × base
+    fee 0.04% = **0.1680 %/day** (bar 0.15 → PASS; was 0.142 at check
+    #1). Campaign avg 2,871,838 ÷ TVL 2,791,690 = turnover 1.03×/day,
+    × 0.10% = **0.1029 %/day** (FAIL; was 0.088). Both rose ×1.18 —
+    a market-wide pickup, not a shift between venues.
+  - VENUE now flips to the OLD pool. Turnover ratio old/campaign
+    **4.08×** clears the 2.5× base-fee handicap; depth per 1% of price
+    movement **316k vs 84k USD** (TVL within ±10 bins ÷ total width).
+    Transactions/day 11,325 vs 1,971. NOTE the sim ranks the CAMPAIGN
+    pool higher on mechanics (+5.16 vs +4.99) — it cannot see venue
+    flow (the A24 class), so **never pick a venue with the simulator**.
+  - (b) SIM WEEK EDGE — **PASS numerically (+4.99 vs bar +2), but the
+    metric is measuring the wrong thing.** Window 2026-07-21T00:00Z,
+    168 h, all 19 simulator tests green, same path for every config:
+
+    | config | pool | EDGE | ABS Δequity | LP fees | recenters | perp trades |
+    |---|---|---|---|---|---|---|
+    | b28 c10 band0.25 | old 4/4 | +4.99 | **−1.28** | 10.59 | 44 | 27 |
+    | b28 c10 band0.25 | campaign 10/6.5 | +5.16 | **−1.10** | 4.20 | 9 | 4 |
+    | b20 c10 band0.25 | old 4/4 | +4.45 | **−1.83** | 13.49 | 75 | 42 |
+    | b28 c10 band0.49 | old 4/4 | +5.04 | **−1.23** | 10.59 | 44 | 15 |
+
+  - **THE DEFECT.** `hold_as_is_end` in `simulator/src/strategy.rs:882`
+    is `deposit_sol0 × p_end + deposit_usdc0` — the UNHEDGED starting
+    mix. SOL fell 78.12 → 73.2 (−6.3%) over the window, so hold-as-is
+    loses 6.27 and the hedge "earns" the entire +4.99. The machine
+    itself lost **−1.28 USD**. Our real alternative is not «hold
+    unhedged» — it is «stay parked hedged», which costs only carry
+    ≈ **−0.19 USD/week**. Parking therefore beats entering by ≈1.1 USD.
+    As written, criterion (b) will green-light entry on ANY falling
+    week regardless of LP profitability.
+    → **ACTION (needs operator decision, NOT applied):** restate
+    criterion (b) as ABSOLUTE Δequity vs staying parked, positive by a
+    margin, and re-measure. The simulator skill's own metric rule
+    already says absolute decides go/no-go for the hedged SOL/USDC
+    machine — the written criterion contradicts it.
+  - CONCENTRATION MULTIPLIERS (new, on-chain, `.claude/skills/lp-army-playbook/scripts/pool-fee-depth.ts`):
+    old pool ±10 bins **18.3–23.3×**, ±14 bins **14.3×**; campaign ±10
+    **16.5×**, ±14 **12.0×**. It is a SNAPSHOT — the old-pool reading
+    moved 23.3 → 18.3 within one hour as other LPs shifted liquidity;
+    treat any single read as ±25%. Use ±14 for a 28-bin position (a
+    mistake made and corrected inside this session: ±10's 18.3× was
+    briefly applied to a 28-bin config, overstating gross return by a
+    quarter — correct gross is 0.168 × 14.3 = **2.40 %/day**).
+    Cross-check: sim LP fees fell 13.49 → 10.59 (−21%) going b20 → b28,
+    matching the multiplier drop 18.3 → 14.3 (−22%) — two independent
+    models agreeing to a percentage point.
+  - BIN-ARRAY RENT — **measured zero, not assumed.** All 179
+    position-open signatures in `data/pnl.db` scanned (0 missing): the
+    only rent amount that ever appears is `0.057406080 SOL` (position
+    account, ×176) and the close transaction drains the same account
+    for the same sum. No non-refundable bin-array rent has ever been
+    paid on either pool. Do NOT add this cost to the simulator or let
+    it inflate the sim-edge bar.
+  - FALSIFIED: the volatility accumulator ÷ its max is **not** a pool
+    liveness gauge. The alive pool read 410/300000 = 0.14% while the
+    weak pool read 10000/350000 = 2.9% — the weak one 20× higher.
+    `filterPeriod` 30 s / `decayPeriod` 600 s means it answers "is
+    price crossing bins in the last few minutes", and single reads
+    swing 50× within hours. Judge liveness by transactions/hour and
+    7-day turnover instead.
+  - Live `.env` still points at the CAMPAIGN pool with
+    `AUTO_TUNE_BIN_COUNT=20`. Harmless while `AUTO_CREATE_POSITIONS=false`,
+    but on entry both must change (old pool, bins 28, band 0.49) plus a
+    container RECREATE — `compose start` does not re-read env.
+
+- **Check #3 — 2026-07-31T12:02Z (Session 40): criterion (a) FAILS, stay
+  parked. Criterion (b) REBUILT and now honest.** Window Jul 28 00:17Z →
+  Jul 31 12:02Z (3.49 d). Portfolio **TOTAL 320.317432** = SOL
+  2.747841168 × 73.37503006 (201.622928) + USDC 53.115732 + short
+  (collateral 60.816637 + uPnL 4.866746 − borrow 0.104611 = 65.578772).
+  Δ vs Jul 28 **−2.8735**, explained −2.8291 (residual −0.0444 = snapshot
+  timing): Flash Trade −2.5880, price on residual delta −0.1430, carry
+  −0.0981. Liq 99.927775 = **1.3627× spot** ✓. Cycle density arithmetic-
+  proven continuous (bot1.log iterations 135068→147643 over 188 879 s =
+  15.02 s/cycle; bot.log 9 818 cycles, max gap 55.1 s, zero gaps >60 s),
+  restarts 0, **0 VITALS**, 3 isolated RPC errors each recovering at
+  `hedgeConsecutiveErrors: 1`, 0 storms/clamps, 0 hedge mutations.
+  - **NOT the bot: 11 Flash Trade transactions on 2026-07-29 14:45–14:58Z**,
+    3 signed by our wallet (program
+    `FLASH6Lo6h3iasJKWDs2F8TkW2UKf3s15C8PMGuVfgBn`; deposit 10 USDC →
+    withdraw 7.64 USDC, −0.003107310 SOL). Repo has zero Flash code; zero
+    `hedge_actions` rows; zero log lines. Scan of the last 2000 wallet
+    signatures back to 2025-12-22 finds Flash **exactly once** — this
+    episode. **Operator confirmed 2026-07-31: their own manual test.**
+    2.36 USDC written off at operator instruction («2 спиши»). Equity
+    formula does not see Flash balances — if that venue is used again,
+    the срез must add it or the money vanishes from the books.
+  - (a) FEE DENSITY — **FAIL on both pools.** 7 FULL days Jul 24–30:
+    old `5rCf1DM8LjKTw4YqhnoLcngyZYeNnQqztScTogYHAS6` avg volume
+    17,417,693 ÷ TVL 5,025,892 = turnover 3.47×/day × 0.04% =
+    **0.1386 %/day** (bar 0.15; was 0.1680 at check #2). Campaign
+    2,634,479 ÷ 2,945,842 = 0.89×/day × 0.10% = **0.0894 %/day** (was
+    0.1029). **The check-#2 pass was a CALENDAR ARTEFACT**: the strong
+    Jul 21–23 days rolled out of the window and the weekend rolled in
+    (Jul 25 0.0379, Jul 26 0.0742) — even though Jul 27 (0.2167) and
+    Jul 29 (0.2390) were excellent. Lesson: a 7-day mean sitting within
+    ~10% of the bar flips week to week; require it to CLEAR the bar with
+    margin, or demand two consecutive passing checks.
+    Venue verdict unchanged: turnover ratio old/campaign **3.90×** still
+    clears the 2.5× base-fee handicap → the old pool remains the entry
+    venue.
+  - (b) SIM WEEK EDGE — **criterion REPLACED (operator «5 почини»).** The
+    simulator now reports `EDGE vs PARKED` = strategy equity minus the
+    real alternative (same bag, one short held all window, carry only):
+    `parked_end` / `edge_vs_parked` in `SimReport`, computed at
+    `strategy.rs` next to `hold_as_is_end`. `edge_vs_hold` is kept but
+    demoted to a labelled diagnostic in both the code doc-comment and the
+    CLI output. Re-measured on the canonical frame (168 h from
+    2026-07-24, bins 28, confirm 10, band 0.25, reentry 120/0.20,
+    lp 148, idle 0.8, usdc 41, swap-skip):
+
+    | pool | EDGE vs PARKED | edge vs hold-as-is | abs Δequity | LP fees | recenters |
+    |---|---|---|---|---|---|
+    | old 4/2.5 | **−2.6906** | −0.4546 | −3.23 | 0.59 | 6 |
+    | campaign 10/6.5 | **−2.4569** | −0.2235 | −3.00 | 4.66 | 10 |
+
+    The `--demo` whipsaw shows the pathology in one line: **+0.4951 vs
+    hold-as-is but −0.7793 vs parked** — the old criterion would have
+    called that a win. Both criteria now fail; entry stays off.
+    Note this window ran 81.9% of the time OUT of the pool (re-entry
+    выдержка), which is why old-pool LP fees are only 0.59.
+  - BUG-025 and BUG-024 FIXED this session (see bugs.md); the live netΔ
+    reading changed −0.0711 → **−0.0031** as a result — the parked
+    position was already essentially neutral and the old number was 96%
+    artefact. Re-derive the «band exit price» arithmetic from check #1
+    before quoting it; it was computed on the buggy delta.
 
 **Head-to-head on the срез-#2 window (Session 33, operator asked «а что
 если бы оставили SOL/USDC?»)** — campaign machine replayed on REAL Binance
@@ -699,6 +1022,27 @@ campaign machine (SOL/USDC hedged, LP 148, band 0.25): месяц +0.54, нед�
 0.49≈0.62 ≥ 0.25 everywhere (perp trades −25%, месяц +1.71) — pro-wide
 again; campaign regime stays ~4× calmer than historic (31 recenters/мес,
 0 storms) — the Session-33 re-open rule (week+ window) keeps ticking.
+
+Head-to-head #3 on fresh candles (Session 35, Jul 21 08:16Z; master
+extended `HYPESOL_1m_1781697600000_1784621760000.csv`, splice k matched
+75.904171; same calendar, LP 148 both, abs Δequity = USD frame):
+- срез-62h (= live A23 window): HYPE b20 **+2.07** (b28 +1.69) vs SOL/USDC
+  band0.25 **+1.51** (0.49 identical) — live honest +3.05 confirms the
+  HYPE side (sim does not see the +0.33 residual long that gained ~+0.8).
+- неделя 168h: HYPE b20 **−7.44** / b28 −6.14 (9/5 recenters, 21/14% out)
+  vs SOL/USDC **+1.48** / 0.49 +1.73 (11 recenters, 20 perp trades, 41%
+  out) — the whole gap = HYPE-vs-SOL basis slide Jul 14→18, BEFORE the
+  live test's anchor.
+- месяц 720h: HYPE b20 **−13.50** / b28 −13.81 vs SOL/USDC **+1.03** /
+  0.49 +1.75 (31 recenters, 88 skipped, 70.3% out of pool, churn $2708,
+  10 storms).
+**The Session-33 re-open condition has now FIRED**: calm ≥ month AND the
+week+ window favors SOL/USDC (+1.5 vs −6…−7). Counterweights: the live
+62h window still favors HYPE (tie-to-win), the week window predates the
+anchor, and basis just swung +1.2%/day toward HYPE. Recommendation logged
+at срез #3: hold A23 to its ~Jul 24–25 verdict; if срезы #4–#5 lose the
+plus, return to SOL/USDC is now DATA-SUPPORTED (supersedes the flat «no
+return» of Session 33). Band 0.49 ≥ 0.25 on every window again.
 
 Pre-execution simulation (same-calendar head-to-head) — retained below:
 
