@@ -950,6 +950,48 @@ true + container RECREATE):
     artefact. Re-derive the «band exit price» arithmetic from check #1
     before quoting it; it was computed on the buggy delta.
 
+- **Check #4 — 2026-08-01T15:50Z (Session 41): criterion (a) FAILS again,
+  stay parked. Sterile window, nothing to fix.** Window Jul 31 11:01:44Z →
+  Aug 1 15:50Z (28.81 h). Portfolio **TOTAL 320.095093** = SOL 2.747841168
+  × 72.74583286 (199.893994) + USDC 53.115732 + LP 0 + short (collateral
+  60.816637 + uPnL 6.408889732 − borrow 0.140160 = 67.085367). Δ vs check
+  #3's 320.363802 = **−0.268709**, explained to the cent: residual delta
+  0.296870 SOL (the 0.3 SOL wallet reserve, excluded from the hedge input
+  BY DESIGN) × ΔSOL −0.789300 = **−0.234320**, carry **−0.034389**. Liq
+  99.913278 = **1.3735× spot** ✓. Verification: **0 wallet transactions**
+  (tx-audit `--since 2026-07-31T11:01:44Z`: 0 tx, 0 SOL fees, net ΔSOL 0,
+  net ΔUSDC 0), **0 hedge_actions rows**, **0 VITALS**, 0 `[error]` lines
+  in the window (the 3 in bot1.log are all BEFORE it: two isolated RPC 504s
+  recovering at `hedgeConsecutiveErrors: 1`, plus the deploy's LIVE banner),
+  restarts 0, cycles 4 377 over 65 751 s = **15.02 s/cycle**, no gap >60 s.
+  Hedge sat `no action / in band` all window at netΔ −0.003129729684428817
+  (band 0.25).
+  - **Session 40 IS deployed** — HANDOVER's «НЕ ЗАДЕПЛОЕНО» was stale.
+    Container restarted 2026-07-31T10:54:51Z; verified on the server:
+    `sideBaseSol()` byte-identical to local (BUG-025), watchdog carries the
+    `(бот перезапущен)` expiry branch (BUG-024) and it fired at
+    2026-07-31T10:55:01Z (`VITALS-EPISODE-EXPIRED`, `vitals_open` now
+    empty), `data/hodl-baseline.json` on the server reads totalUsd
+    336.52055387901737.
+  - (a) FEE DENSITY — **FAIL on both pools.** 7 FULL days Jul 25–31 (GT
+    daily volume ÷ TVL × baseFee): old
+    `5rCf1DM8LjKTw4YqhnoLcngyZYeNnQqztScTogYHAS6` (TVL 5,069,395) =
+    **0.1441 %/day** (was 0.1386), campaign
+    `BGm1tav58oGcsQJehL9WXBFXF7D27vZsKefj4xJKD5Y` (TVL 2,956,005) =
+    **0.0925 %/day** (was 0.0894). The old pool is within 4% of the 0.15
+    bar — by the check-#3 rule that is explicitly NOT a pass, and it is not
+    a second consecutive pass either (check #3 failed). Venue verdict
+    unchanged: turnover ratio old/campaign 3.75× still clears the 2.5×
+    base-fee handicap.
+  - (b) EDGE vs PARKED — **not re-measured, moot.** (a) is a hard gate and
+    check #3's reading was −2.6906 (old) / −2.4569 (campaign) per week;
+    one calendar day cannot move a 168 h frame across a +2 bar.
+  - **Tooling drift found:** `scripts/pool-fee-depth.ts` is cited by
+    HANDOVER, BACKLOG and progress.md but **was never committed** (`git log
+    --all -- scripts/pool-fee-depth.ts` is empty). The density measurement
+    above was re-derived from the raw GeckoTerminal recipe. Either commit
+    the script or stop citing it.
+
 **Head-to-head on the срез-#2 window (Session 33, operator asked «а что
 если бы оставили SOL/USDC?»)** — campaign machine replayed on REAL Binance
 candles, SAME calendar 2026-07-18T18:16Z → 2026-07-20T07:30Z (39h, 2319
