@@ -1,0 +1,91 @@
+TITLE: Robinhood launched a Wall Street layer 2 chain and the market crowned a $150M cat coin first
+META og:description Robinhood’s new chain lets third-party markets form around its brand, adding a question about where the broker ends and permissionless infrastructure begins.
+META article:published_time 2026-07-09T16:25:31+00:00
+META article:modified_time 2026-07-09T14:07:42+00:00
+Robinhood launched a Wall Street layer 2 chain and the market crowned a $150M cat coin first News
+Directory Browse Companies
+01 Robinhood Chain’s launch has already produced CASHCAT, a memecoin near $150 million that trades without Robinhood app approval.
+02 The token shows Robinhood’s permissionless L2 can attract retail activity and external liquidity around its brand, not just listed assets.
+03 But liquidity is concentrated, copycats are emerging, and new token launches may fragment attention before RWA adoption builds.
+Robinhood launched the public mainnet of Robinhood Chain this month, describing it as a permissionless Layer 2 built on Arbitrum for tokenized stocks, real-world assets, DeFi lending, and AI-native finance.
+One week in, the chain's loudest retail activity is driven by CASHCAT, a memecoin built on Robinhood's own discarded “CashCat” name. The token reached nearly $150 million in market cap and over $159 million in 24-hour volume.
+CASHCAT gained liquidity, price charts, and social attention through Uniswap V3 pools and third-party launch and routing infrastructure, including Noxa.fun and Pump.fun, rather than through Robinhood's own app-listing process.
+Behind an unapproved listing
+Robinhood built Robinhood Chain with Uniswap and other partners live on day one, connected to Robinhood's own on-chain wallet users.
+That same open architecture, designed to support tokenized equities and RWA collateral, also lets any token deployed on the chain reach external DEX liquidity, charting pages and aggregator surfaces that can resemble parts of a formal listing without passing through Robinhood's app-level approval process.
+Vlad Tenev and Baiju Bhatt called the company CashCat before settling on Robinhood, a name tied in company lore to Bhatt's fondness for cats. That history gave an anonymous memecoin a reference drawn directly from Robinhood's own origin story.
+A Dune dashboard built by user Adam_tehc showed CASHCAT accounting for roughly 79% of the aggregate market cap and 74% of the volume among the top 25 Robinhood Chain memecoins. The next-largest token, Dog In Hood, sat about 16 times smaller.
+The same Dune dashboard shows the chain's trading activity accelerated, with daily transactions moving from about 1.2 million on July 7 to nearly 2.8 million on July 8, a 133% jump in a single day.
+Deployments through the Noxa.fun launchpad climbed from 1,858 to 6,675 tokens over the same period, a 259% increase.
+Noxa.fun token deployments
+Deployments as share of transactions
+Implied transactions per new token
+Supply creation accelerated
+By July 8, new-token creation was accelerating faster than overall transaction growth, with Noxa.fun deployments accounting for 0.155% of daily transactions on July 7 and 0.238% the next day.
+That pace raises the possibility that new tickers are fragmenting attention across the chain rather than deepening liquidity in the few tokens already proving durable.
+DefiLlama data show the chain's total value locked at around $107.8 million, with the stablecoin market cap near $246.8 million and the active RWA market cap around $12.5 million.
+CASHCAT's volume-to-market-cap ratio points to same-day turnover, a pattern more consistent with high-velocity trading than long-horizon holding.
+What’s moving crypto. Why it matters.
+Get CryptoSlate’s essential stories and what to watch next.
+Seven days a week. Unsubscribe anytime.
+Your signup request was sent. If confirmation is required, follow the email from Substack.
+Look in spam or promotions if you don’t see it.
+The risk sitting underneath the rally
+Vlad Tenev told CNBC on July 2 that crypto's future runs through real-world assets, and days later, he posted that Robinhood Chain is being built to be the best chain for RWAs, adding that it “ works great for memes too .”
+That turn reveals something about permissionless infrastructure, as once Robinhood opened the chain to any builder, the market picked its own breakout asset, and CASHCAT's Robinhood-coded name pulled the chain's founder into the meme narrative around a token built outside the company.
+Copycat tokens and impersonator accounts are already circulating, and liquidity sits concentrated in a single new-chain DEX pair prone to slippage and sharp wicks.
+A 2026 academic study covering 34,988 memecoins across Ethereum , BNB Chain, Solana , and Base found that 1,801 tokens, or 5.15%, stopped trading entirely within 24 hours of launch.
+CASHCAT's size puts it well outside that failure group today, and the same permissionless rails that lifted it also host thousands of tokens built to fail fast.
+What the next 60 days could show
+In the bull scenario, CASHCAT or the broader meme category holds above $100 million, weekly average transactions are still above 2 million, the stablecoin market cap holds above $200 million, and the active RWA market cap climbs toward the $50 million to $100 million range.
+Under that path, meme liquidity becomes the bootloader for Robinhood Chain's user base, and the RWA thesis Robinhood pitched on July 1 finally gets wallets and stablecoins to build on.
+In the bear scenario, CASHCAT falls between $30 million and $50 million, daily transactions drop below 600,000, Noxa.fun deployments fall below 700 per day, and the active RWA market cap sits flat near its current level.
+Under that path, CASHCAT reads as an attention spike the chain absorbed and moved past, leaving Robinhood Chain's RWA ambitions to build their own user base separately.
+CASHCAT or meme-category market cap
+Weekly average stays above 2M
+Normalizes without fragmenting liquidity
+Liquidity leaves the chain
+Stays flat near current level
+Memes bootstrap Robinhood Chain activity
+CASHCAT was a launch-week attention spike
+Citi's 2026 tokenization research puts today's global tokenized-asset market near $17 billion and projects $5.5 trillion by 2030 in its base case, with public equities and Treasuries expected to lead early adoption .
+The report estimates that just 10% of US retail investors moving to on-chain solutions by 2030 could create $2.6 trillion in demand for tokenized public equities alone.
+Robinhood's crypto revenue fell 47% year over year to $134 million in the first quarter of 2026. Total net revenue for the same quarter climbed 15% to $1.07 billion, with platform assets reaching $307 billion.
+A chain that captures activity outside app-listed tokens gives Robinhood a second crypto engagement surface, one that grows independently from individual memecoin survival.
+Robinhood Chain's RWA ambitions still depend on years of institutional adoption that Citi's own forecast treats as a decade-long build.
+CASHCAT already delivered proof that the moment permissionless infrastructure goes live, the market builds its own hundred-million-dollar listing, with or without Robinhood's approval.
+Gino Matos is a law school graduate and a seasoned journalist with six years of experience in the crypto industry. His expertise primarily focuses on the Brazilian blockchain…
+Also known as "Akiba," Liam Wright is a reporter, podcast producer, and Editor-in-Chief at CryptoSlate. He believes that decentralized technology has the potential to make…
+Robinhood engineers face up to 30 years over $50,000 alleged Hyperliquid profits
+Bitwise is closing the lowest-fee Dogecoin ETF after rivals captured nearly all the capital
+Strategy and Robinhood now lead a $4.5 billion large-cap ETF that was not built for crypto
+Robinhood rejects AMC CEO’s demand to halt AMC tokenized ‘meme stock’ which offers no shareholder rights
+CryptoSlate may use AI tools to support research, editing, and production workflows. Our journalism remains human-led, with our editorial team responsible for every published article. Read our full AI usage disclaimer .
+Our writers' opinions are solely their own and do not reflect the opinion of CryptoSlate. None of the information you read on CryptoSlate should be taken as investment advice, nor does CryptoSlate endorse any project that may be mentioned or linked to in this article.
+Buying and trading cryptocurrencies should be considered a high-risk activity. Please do your own due diligence before taking any action related to content within this article. Finally, CryptoSlate takes no responsibility should you lose money trading cryptocurrencies. For more information, see our company disclaimers .
+We use cookies to improve your experience on our site. By using our site, you consent to cookies.
+Manage your cookie preferences below:
+Essential cookies enable basic functions and are necessary for the proper function of the website.
+CloudFlare provides web performance and security solutions, enhancing site speed and protecting against threats.
+Service URL: developers.cloudflare.com (opens in a new window)
+Google Analytics is a powerful tool that tracks and analyzes website traffic for informed marketing decisions.
+Service URL: policies.google.com (opens in a new window)
+Statistics cookies collect information anonymously. This information helps us understand how visitors use our website.
+Clarity is a web analytics service that tracks and reports website traffic.
+Service URL: clarity.microsoft.com (opens in a new window)
+You can find more information in our Privacy Policy and .
+This image could not be loaded.
+The Catalyst by CryptoSlate
+Understand what’s moving crypto.
+The stories that matter, the context behind them, and what to watch next.
+Seven days a week. Unsubscribe anytime.
+The Catalyst by CryptoSlate
+Your signup request was sent. If confirmation is required, follow the email from Substack.
+Look in spam or promotions if you don’t see it.
+By subscribing, you agree to our Terms and Privacy Policy .
+The Catalyst by CryptoSlate
+Understand what’s moving crypto.
+The stories that matter, the context behind them, and what to watch next.
+Subscribe to The Catalyst by CryptoSlate through Substack.
+Look in spam or promotions if you don’t see it.
+[len 9918 ]

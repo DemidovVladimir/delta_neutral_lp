@@ -1,0 +1,78 @@
+TITLE: 🤝🏻 Cooperation-API:🕹Integrate GMGN Solana Trading API | GMGN Tutorial
+META og:description Welcome to integrate GMGN&#x27;s Solana trading API for fast quantitative trading.
+🤝🏻 Cooperation-API:🕹Integrate GMGN Solana Trading API | GMGN Tutorial GMGN Tutorial 💻 GMGN.AI Tutorial
+😀 Featured Icon Definition
+FOLLOW: Monitor Square/ Follow/ Watchlist
+ALERT: Sniper New, Following, Limit Orders
+Token page: Chart - multicharts, Activity, Trading system
+Transaction/Limit Order failure
+⚡ Zero-Latency Wallet Tracking Bot
+🤖 GMGN TG Alert Channel＆Bot
+🤖 GMGN TG Sniper Bot - SOL
+🔄 TG Wallet: Connect TG, Multi-Wallet system
+🔄 TG Wallet: Import ＆ Export private key, Deposit, Withdraw
+🎯 Copy Trade: Copy smart money, automatically earn SOL！
+🎯 Auto Trading: Migrated Snipe
+🎯 Auto Trading: Migrated Sell
+🏳️‍🌈 Auto Trading: Quick Buy ＆ Take-Profit / Stop-Loss
+💥 Auto Buy: Auto Buy ＆ Limit buy
+💥 Auto Sell: Auto sell ＆ Take-profit/Stop-loss
+🎯 Insider Traders,Snipers,First 70 Buyers
+🤝🏻 Cooperation-Referral:💰Refer friends to earn rebate-30% rebates, easily earn over $8000 monthly
+🤝🏻 Cooperation-Referral:📸Share transaction profits
+🤝🏻 Cooperation-Referral:🌈Invite Bots to Telegram group to earn trading commissions automatically
+🤝🏻 Cooperation-API:📈Integrate GMGN price chart
+🤝🏻 Cooperation-API:🕹Integrate GMGN Solana Trading API
+🤝🏻 Cooperation-API:🕹Integrate GMGN ETH/Base/BSC Trading API
+🤝🏻 Cooperation-API: 🔄Data crawling IP whitelist
+🤝🏻 Cooperation-Script:💵How to Quickly Create an Automated Script for Trading with GMGN Bot
+GMGN Vulnerability Bounty Program
+✅ Approved: API Key sent to your email ❌ Rejected: No notification sent
+GMGN provides professional users with SOL/BSC/Base/ETH Trading API. Access is granted solely based on sufficient Trading Volume on GMGN. Review will be completed within 24 hours after submission
+To access the GMGN Trade API, apply for permission by filling out the following Google Form: https://forms.gle/CWABDLRe8twvygvy5
+Upon approval, GMGN will issue an API Key to your email. Include the API Key in the request header with the name: x-route-key
+Each API Key is rate-limited to one call every 5 seconds
+1. Query Router Endpoint (Anti-MEV Supported):
+< https : //gmgn.ai/defi/router/v1/sol/tx/get_swap_route?token_in_address=${inputToken}&token_out_address=${outputToken}&in_amount=${amount}&from_address=${fromAddress}&slippage=${slippage}> Request Method: GET
+API Key: Upon approval, GMGN will issue it to your email
+The address of the token to spend, e.g., So11111111111111111111111111111111111111112
+The address of the target token, e.g., 7EYnhQoR9YM3N7UoaKRoA44Uy8JeaZV3qyouov87awMs
+Amount in lamports, 100000000=0.1SOL
+The wallet address initiating the transaction, e.g., 2kpJ5QRh16aRQ4oLZ5LnucHFDAZtEFz6omqWWMzDSNrx
+Slippage percentage, e.g., 10 for 10%
+ExactIn or ExactOut, default is ExactIn
+Network priority fees and PRC node tip fees. For example, 0.006, unit SOL. GMGN will automatically allocate node tip tips and network priority fees. If 'is_anti_mev' is 'true', 'fee' needs to be at least 0.002
+Optional, set 'true' when swap with JITO Anti-MEV
+(optional) partner source name
+Result description, success
+inputMint: 'So11111111111111111111111111111111111111112',
+outputMint: '7EYnhQoR9YM3N7UoaKRoA44Uy8JeaZV3qyouov87awMs',
+otherAmountThreshold: '77530876359',
+swapTransaction: 'AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAQAIDxoVIz70VFGJdL5OoCKmFca4NP2MXOcNEiFO6y6JoFUNGWxA6mmc96B1sKHdcYHTM1M1QYNOOSahRPMddzM8XdRsp8RcOMdvjkujt1otIW/R6tIhAHlyC8kUDXj133RK+Ye1I/p3Gy551653GdDPX3KX0D4dWPXyZvsBemb3XlwHyQ+0ezK8pEPmQbXwZ8Tz3O52/YACoT20v0iE4A7D1bTgIWD7ScmJ4Koq6/mSOQVxqfFkoUZ5qTF4TbXDFfH1U+qMakgEp96ZVF6SJaXlGdV6w0mXkHJVedqOxh5rfjqMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADBkZv5SEXMv/srbpyw5vnvIzlu8X3EmssQ5s6QAAAAAR51VvyMcBu7nTFbs5oFQf9sbLeo/SOUQKxzaJWvBOPBt324ddloZPZy+FGzut5rBy0he1fWzeROoz1hX7/AKlcnp1fowmGSs19gRjTJjE83nuG3xjhl5JKAxhv/p89eoKX5UT/REBqE7f6ZMLP+j7G4V34k14Ax0Fw3q7wE/N9jJclj04kifG7PRApFI4NgwtaE5na/xCEBI572Nvp+Fm0P/on9df2SnTAmx8pWHneSwmrNt/J3VFLMhqns4zl6PSRqslFk9OGKukg94vbePj7SOGor/mX5COZhlMmlOYbCAgABQI6UwcACAAJAyBOAAAAAAAADQYABQAnBwoBAQcCAAUMAgAAAIDw+gIAAAAACgEFARENBgACAAsHCgEBCTMKDAAFAwYCJwsJCQ4JIAoMHAMdAR4aHxsoIiMYDAEEFxkWFQokJiUgCgwSBhMEFBAPESEuwSCbM0HWnIEGAwAAABEBZAABGWQBAhEAZAIDgPD6AgAAAAAgJmwkEgAAADIAAAoDBQAAAQkDegmW2ZAMszm+4Eneq5orFPHiSoriEDigyGyG9FUTd+oGpqilp6GiAp+jq4YFkrWa2UlUnmJKVsvmeovDYVI3GhRB1TB5/repN9MFSEVDREcFQkxGSUuC/JDNwibla4b9UHQsSYKI/HmR9edfsxbKg36RCgUpKAaNi5CGiogCkY4=',
+lastValidBlockHeight: 221852977,
+prioritizationFeeLamports: 9601,
+recentBlockhash: 'HThJomQ74BKBYYfFewg9m5MrRwAsHjrpuTwEcohxpAEW'
+Explanation of data.quote Fields:
+Input token address, e.g., So11111111111111111111111111111111111111112
+Input token amount in lamports
+Output token address, e.g., 7EYnhQoR9YM3N7UoaKRoA44Uy8JeaZV3qyouov87awMs
+Expected output amount in lamports
+Slippage-adjusted value in lamports
+Slippage Bps value, with 10000 as the denominator.
+Platform fee, null if none
+Price impact percentage, 0
+Time taken for routing in seconds
+Explanation of routePlan Type:
+Explanation of data.raw_tx Fields:
+Base64-encoded unsigned transaction
+Block height at the time of transaction creation, e.g., 221852977
+Recent block hash at the time of transaction creation, e.g., HThJomQ74BKBYYfFewg9m5MrRwAsHjrpuTwEcohxpAEW
+Suggested prioritization fee in lamports, e.g., 9601
+2. Submit Transaction Endpoint
+After receiving the routing interface response, decode the base64 string and deserialize using VersionedTransaction , sign with the local wallet, and then encode the signed transaction in base64 and post to the endpoint:
+Signed transaction, base64-encoded string
+Optional, set 'true' when swap with JITO Anti-MEV
+{ "hash": "2WN388zpPEy5zZR1uDGRqYbWotHFWo2Y6atAwfLGwUvDEi8LGk93X9S5pimNMv4uQgpJNf6SFQbZF83XbvgTuikj" "resArr": [ { "hash": "2WN388zpPEy5zZR1uDGRqYbWotHFWo2Y6atAwfLGwUvDEi8LGk93X9S5pimNMv4uQgpJNf6SFQbZF83XbvgTuikj", "err": null }, { "hash": "2WN388zpPEy5zZR1uDGRqYbWotHFWo2Y6atAwfLGwUvDEi8LGk93X9S5pimNMv4uQgpJNf6SFQbZF83XbvgTuikj", "err": null } ] }
+3. Transaction Status Query Endpoint:
+Transaction hash returned after submission, e.g., 3Qr9Kb8XfQiTa2E4butFR
+[len 6771 ]

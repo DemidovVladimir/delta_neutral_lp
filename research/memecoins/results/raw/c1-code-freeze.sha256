@@ -1,0 +1,25 @@
+C1 code freeze (HYPOTHESES.md Amendment A1.4/A1.1), recorded 2026-09-25T12:55:04Z, before look 1 (backfill week) was run
+1b21b958ad4fa61cd9b45d4af22642780233b200a83d4c04e696da7ec9606577  curve.ts
+6614648565a7799b92802bb59358202ba79bea42f99dcb826bd01c39be88a504  sim.ts
+6079f794aaf4fe36d961bae7affca8bb5d9c955e37e3984fd108e22e8fdaa46c  signals.ts
+e759f2423de29e9ca86e10732d5ab06a4b10c7be8d8649ed986ef9cf24ebde4c  stats.ts
+3a530c3366b137d62dd99b87fb0b0d4f3635dd79a727bbb8d467407e0a19f304  chain.ts
+2be69762eefeb77213fdfab25734422117c88c118a83140b572a92e7ef070a7d  tape.ts
+3bcade98e92b75c6029877dd1a266db36ae46618c98a84ed1d18abbfab775072  context.ts
+ca54a90ecd7f8318e146be7a2498d0ae11c71af83d525d34ebb1675a242c96eb  run-futility.ts
+106232e80955713702103a92f5377f7ed899c53f99bcb0d7527f432528cbbbe1  adapters/collector.ts
+06896f74dc1ab2f12d7d9860eacc4e4255f02dd7db46623d6d3d16fb0008ec9f  adapters/vdw.ts
+091ce9d9cb400e23eede65d56cf8bc353063faef7e8b9ab427230102a8bccc64  c1.ts
+
+Re-freeze 2026-09-25T12:56:43Z, still before look 1: adapters/collector.ts changed ONLY in memory/I-O (typed growable buffers, streaming slot->unix anchor buckets keyed by floor(slot/2000)), as allowed by Amendment A1.4 (a)/(b); all other files unchanged.
+1b21b958ad4fa61cd9b45d4af22642780233b200a83d4c04e696da7ec9606577  curve.ts
+6614648565a7799b92802bb59358202ba79bea42f99dcb826bd01c39be88a504  sim.ts
+6079f794aaf4fe36d961bae7affca8bb5d9c955e37e3984fd108e22e8fdaa46c  signals.ts
+e759f2423de29e9ca86e10732d5ab06a4b10c7be8d8649ed986ef9cf24ebde4c  stats.ts
+3a530c3366b137d62dd99b87fb0b0d4f3635dd79a727bbb8d467407e0a19f304  chain.ts
+2be69762eefeb77213fdfab25734422117c88c118a83140b572a92e7ef070a7d  tape.ts
+3bcade98e92b75c6029877dd1a266db36ae46618c98a84ed1d18abbfab775072  context.ts
+ca54a90ecd7f8318e146be7a2498d0ae11c71af83d525d34ebb1675a242c96eb  run-futility.ts
+bc09f7acc48405b73f228eb6a8453ee880861943b360faa3c48edc7084f5d8d8  adapters/collector.ts
+06896f74dc1ab2f12d7d9860eacc4e4255f02dd7db46623d6d3d16fb0008ec9f  adapters/vdw.ts
+091ce9d9cb400e23eede65d56cf8bc353063faef7e8b9ab427230102a8bccc64  c1.ts

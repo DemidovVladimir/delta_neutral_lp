@@ -1,0 +1,17 @@
+TITLE: Robinhood Engineers Charged After Allegedly Trading Crypto on Secret Listing Information
+META article:published_time 2026-09-21T01:54:00+00:00
+Robinhood Engineers Charged After Allegedly Trading Crypto on Secret Listing Information Latest news
+Robinhood Engineers Charged After Allegedly Trading Crypto on Secret Listing Information
+Two Robinhood engineers have been charged in the US over an alleged crypto trading scheme involving confidential company information.
+The US Department of Justice said Hefu Chai and Huaisong Xiang allegedly used non-public information from Robinhood to trade crypto perpetual futures on Hyperliquid.
+Trading on Confidential Data
+According to complaints unsealed by the Southern District of New York, Chai and Xiang had access to information about upcoming cryptocurrency listings on Robinhood Crypto. Prosecutors allege that they used that information before the listings were announced to the public.
+The two engineers allegedly bought perpetual futures linked to tokens that Robinhood was preparing to list. They traded on Hyperliquid before Robinhood made the listings public. The DOJ said both men repeatedly followed this pattern between 2025 and 2026. Each defendant allegedly made more than $50,000 from the trades.
+The DOJ has charged both Chai and Xiang with commodities fraud and wire fraud. The commodities fraud charge carries a maximum sentence of 10 years in prison. The wire fraud charge carries a maximum sentence of 20 years.
+Chai, 36, is from Menlo Park, California. Xiang, 30, is from Jersey City, New Jersey. Chai is set to appear in federal court in Northern California, while Xiang is scheduled to appear before a federal magistrate judge in New York.
+US Attorney Jamie McDonald stated,
+“Misappropriating confidential information to trade in the derivatives markets for personal benefit is illegal. That is exactly what we allege Hefu Chai and Huaisong Xiang have done. Today’s charges make clear that corporate insiders cannot evade the securities and commodities laws by trading based on misappropriated information in derivatives like perpetual futures, tokenized securities, or other similar financial instruments.”
+The allegations also bring another similar high-profile case back into focus.
+Earlier this year, Jane Street Group faced allegations over its trading activity around the collapse of TerraUSD (UST) in May 2022. New York prosecutors accused the major Wall Street trading firm of using a private Telegram channel to communicate with insiders at Terraform Labs, the company behind UST.
+Prosecutors alleged that the access gave Jane Street an early view of what was happening around the stablecoin. The firm was then accused of selling about $192 million worth of UST before the token collapsed.
+[len 2622 ]

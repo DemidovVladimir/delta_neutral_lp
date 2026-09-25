@@ -1,0 +1,20 @@
+TITLE: Solana Loses 97% Of Traders During 2025 As Institutional Money Exits | Yellow
+META og:description Network data reveals institutional exodus while retail wallets accumulate the Solana.
+
+META article:published_time 2025-12-24T03:54:55.251Z
+META article:modified_time 2025-12-24T06:21:22.968Z
+Solana Loses 97% Of Traders During 2025 As Institutional Money Exits
+Solana network activity has collapsed 97% from its November 2024 peak as retail investors continue buying while institutional wallets exit. The cryptocurrency reached an all-time high of $296 in November 2024 but has since fallen nearly 58% as on-chain data reveals a stark divergence between wallet sizes and trading behavior.
+What Happened: Institutional Exit
+Crypto trader Ardi disclosed that buying pressure has been dominated by retail-sized wallets making purchases between $0 and $1,000 since Solana's November peak.
+Distribution began before the all-time high, with selling volume accelerating months before Oct. 10, 2024, indicating major players planned exits well ahead of the drawdown.
+Mid-sized wallets handling $0 to $100,000 and institutional-sized wallets managing $100,000 to $10 million have been in steady decline for approximately 13 months. Retail wallets showed consistent growth over the same period, suggesting smaller investors believe SOL remains undervalued despite institutional withdrawal.
+On-chain data reveals near-perfect correlation between Solana demand and memecoin activity on the network.
+Also Read: Dogecoin After The Election Surge: What Went Wrong With The $1 Thesis
+Why It Matters: Revenue Collapse
+Investor and trader Jas reported that Solana's active monthly traders dropped from roughly 30 million to under 1 million in 2025, representing a 97% decline in network activity.
+Network revenue fell fivefold year-over-year from $2.5 billion in 2024 to $500 million in 2025.
+Ethereum generated $1.4 billion in revenue this year and outperformed Solana by 56% year-to-date. "SOL's future may depend less on memes and more on what follows them," Jas stated.
+Read Next: Are Bitcoin Rallies Running Out Of Steam? Analysts Flag Supply Risks As Ether Firms Up
+Alexey Bondarev is the Head of Content at Yellow.com, having reported on crypto for the last 10 years. He specializes in in-depth Research and Learn pieces, with a focus on analytical reporting, industry context, and the bigger forces shaping crypto, from the AI era and security technologies to fintech innovation. He believes that everything digital will imminently overcome everything analogue and is working hard to make that come true.
+[len 2302 ]

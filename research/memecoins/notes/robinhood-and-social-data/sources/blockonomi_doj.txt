@@ -1,0 +1,33 @@
+TITLE: DOJ Charges Two Former Robinhood Engineers Over Crypto Listing Trades
+META og:description DOJ charges two former Robinhood engineers with fraud for allegedly using secret crypto listing data to trade on Hyperliquid, earning over $1.13 million.
+META article:published_time 2026-09-16T09:28:10+00:00
+Facebook X (Twitter) LinkedIn Telegram Facebook X (Twitter) LinkedIn Telegram Home / Contact / Advertise / Submit Press Release Regulation DOJ Charges Two Former Robinhood Engineers Over Crypto Listing Trades DOJ charges two former Robinhood engineers with fraud for allegedly using secret crypto listing data to trade on Hyperliquid, earning over $1.13 million. By Maisie Morrison September 16, 2026 No Comments 3 Mins Read Telegram Twitter LinkedIn WhatsApp Facebook Email Share Facebook Twitter LinkedIn Email Telegram WhatsApp TLDR Table of Contents Toggle The DOJ charged former Robinhood engineers Hefu Chai and Huaisong Xiang with commodities fraud and wire fraud on September 15, 2026.
+Prosecutors say the pair used confidential listing information from a private Slack channel to trade ahead of public announcements.
+The alleged trades happened on Hyperliquid, a decentralized perpetual futures platform, generating more than $1.13 million combined.
+Tokens named in the case include MEW, MOODENG, ASTER, XPL, HYPE, ENA, AERO and POPCAT.
+Each defendant faces up to 10 years for commodities fraud and up to 20 years for wire fraud.
+The U.S. Department of Justice charged two former Robinhood engineers with fraud on September 15, 2026. Prosecutors say Hefu Chai and Huaisong Xiang used confidential company information to profit from crypto trades.
+The charges include commodities fraud and wire fraud. Both men worked on Robinhood’s crypto listing process before leaving the company this year.
+Chai worked at Robinhood from around 2021 until May 2026. He served as a technical lead responsible for new digital asset listings.
+Xiang joined Robinhood in 2024. He worked as a software engineer on the crypto team until September 2026.
+How the Alleged Scheme Worked
+Robinhood designated Chai and Xiang as “Coin Aware Individuals.” This gave them access to a private Slack channel with planned listing dates for new tokens.
+Company policy barred anyone in that group from trading related tokens for 24 hours before or after a listing announcement. Prosecutors allege the two engineers ignored that rule.
+Instead of buying tokens directly, the DOJ says the pair opened positions on Hyperliquid, a decentralized platform for perpetual futures trading. Perpetual futures let traders bet on price moves without holding the actual token.
+Prosecutors allege the men closed their positions once prices rose after Robinhood made its listings public. Each is accused of earning more than $50,000, with total alleged profits topping $1.13 million.
+Chai is accused of trading ahead of at least 10 listing announcements. The tokens named in the complaint include Cat in a Dogs World, Moo Deng, Aster, Plasma, Hyperliquid, Ethena and Aerodrome Finance.
+Xiang allegedly first traded Popcat perpetuals in March 2025. He is accused of repeating the pattern ahead of at least 10 more listing announcements afterward.
+Penalties and What Comes Next
+Each defendant faces one count of violating the Commodity Exchange Act, which carries a maximum sentence of 10 years. They also each face one count of wire fraud, carrying a maximum of 20 years.
+US Attorney Jamie McDonald said corporate insiders cannot avoid securities and commodities laws by routing trades through perpetual futures or similar instruments. The statement points to how regulators are applying existing fraud rules to newer trading tools.
+The case draws comparisons to a 2023 matter involving a former Coinbase product manager. That case involved someone using inside information to trade tokens directly before a public listing, ending in a 24 month prison sentence.
+This case differs because it involves a decentralized derivatives platform rather than a direct token purchase. It shows how confidential company information can move through newer corners of the crypto market.
+Robinhood itself is not accused of wrongdoing. The company was contacted for comment but had not responded at the time of publication.
+Chai and Xiang have not been convicted. Both are presumed innocent unless proven guilty, and the case will proceed through federal court in the Southern District of New York.
+Maisie is an experienced Crypto & Financial news journalist, having written for Moneycheck.com, Blockonomi.com, Computing.net and is Editor in Chief at Blockfresh.com
+ARK Invest Tokenizes $1.3 Billion ARK Venture Fund on Ethereum With Securitize
+KelpDAO Sues LayerZero and CEO Bryan Pellegrino Over $292M rsETH Exploit
+Brazil Central Bank Sets $10,000 Reporting Rule for Self-Custody Crypto Transfers
+Type above and press Enter to search. Press Esc to cancel.
+Crypto Casino:100% Up To 1 BTC; Instant Withdrawals; PLAY NOW!
+[len 4661 ]

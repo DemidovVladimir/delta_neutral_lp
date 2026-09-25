@@ -1,0 +1,24 @@
+TITLE: DoJ targets Robinhood engineers: ‘Misappropriating confidential information is illegal’
+META article:published_time 2026-09-17T02:04:00+00:00
+DoJ targets Robinhood engineers: ‘Misappropriating confidential information is illegal’ Latest news
+DoJ targets Robinhood engineers: ‘Misappropriating confidential information is illegal’
+The U.S. Department of Justice (DoJ) has charged two Robinhood engineers for insider trading related to crypto listings on the platform.
+In a statement, Jamie McDonald, the U.S. Attorney for the Southern District of New York (SDNY), said the accused made over $50K each by trading confidential information.
+Misappropriating confidential information to trade in the derivatives markets for personal benefit is illegal.
+Today’s charges make clear that corporate insiders cannot evade the securities and commodities laws by trading based on misappropriated information in derivatives like perpetual futures, tokenized securities, or other similar financial instruments.
+DoJ increases scrutiny in crypto sector
+The two engineers (Hefu Chai and Huaisong Xiang) were charged with commodities and wire fraud for front-running crypto tokens that were to be listed on Robinhood Crypto. They did so by trading the said listings on Hyperliquid, a popular trading platform for perpetual futures (perps), before Robinhood made the announcements public.
+Although not all crypto token listings spark wild rallies, there have been some instances where such announcements across Upbit, Binance, and other platforms triggered wild volatility.
+However, Mikko Ohtamaa, co-founder of Trading Protocol, noted that Robinhood listings were less impactful.
+I do not think Robinhood listings really moved the price except maybe for something like CASHCAT (not on the list), so they go to prison for nothing.
+Some of the listed tokens on the platform include POPCAT, Aster [ASTER], Hyperliquid [HYPE], and Ethena [ENA], among others.
+Beyond Robinhood, the DoJ has actively pursued alleged criminal activity in the space. In late August, a New York judge allowed the RICO claims against memecoin launchpad Pump.fun to proceed. Victims claimed that the ecosystem was being manipulated and favored insiders.
+Apart from platforms, market makers driving pump-and-dump schemes have also been aggressively targeted by the justice system.
+That said, it’s unclear whether the Robinhood engineers’ incident will affect the platform’s traction.
+Is Robinhood’s memecoin strategy paying off?
+In Q3, Robinhood embraced memecoins to jumpstart its new L2 towards its tokenization goal. While memecoins and insider trading continue to attract scrutiny, Robinhood’s bet seems to be paying off.
+So far in September, Robinhood has dominated tokenized stock trading volumes with over 60% market share.
+Overall, Robinhood engineers’ update means the DoJ is actively tracking front-running and insider trading are rampant in the sector. This is great for the industry, as it could limit scams, fraud, and the negative impact on victims.
+Two Robinhood engineers have been charged with fraud for front-running crypto listings and making over $50K each using insider information.
+Robinhood now dominates tokenized stock trading after leveraging its ecosystem’s memecoin mania
+[len 3110 ]

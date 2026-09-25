@@ -1,0 +1,47 @@
+TITLE: X Revamps API Pricing, Adds xAI Credits | Social Media Today
+META og:description X is looking to increase its appeal to developers and expand X and xAI usage.&nbsp;
+Skip to main content Don't miss tomorrow's social media industry news Let Social Media Today's free newsletter keep you informed, straight from your inbox. By signing up to receive our newsletter, you agree to our Terms of Use and Privacy Policy . You can unsubscribe at anytime. Informa TechTarget | CX Dive
+X Revamps API Pricing, Adds xAI Credits
+X has rolled out a new pricing structure for its API access , which will see developers charged for what they use, as opposed to having to pay a pricey monthly subscription fee in order access the data stream.
+X’s API is what enables third-party developers to build apps that utilize X data and connection, but in recent years, many third-party tools and apps have been forced to shut down due to X increasing the price of its API access , as a means, primarily, to keep artificial intelligence projects from integrating vast amounts of X data.
+But now, X seems to be looking to realign itself with the developer community, as it seeks to make X a bigger element of focus, while also hopefully integrating xAI and Grok into more projects.
+As you can see in this table , X’s new pricing structure is based on usage, which means that data access costs now increase depending on your activity. That means that developers who are creating X-aligned apps will have more capacity to scale their projects in line with user demand, as opposed to having to sign up to expensive monthly access feeds.
+And there’s also an added element of the new structure, and a new incentive for X to be looking to work with developers.
+As per X: “ When you purchase X API credits, you can earn free xAPI credits based on your cumulative spend during a billing cycle. ”
+So now, when developers cross certain thresholds in X API usage, they'll also be eligible to earn xAI API credits worth up to 20% of their cumulative spend.
+As shown in this table , the xAI credit incentive will allocate additional access credits as the developer spends more on X API usage. That will then give developers a direct incentive to experiment with xAI and Grok within their projects, which could lead to expanded use cases for X’s growing AI business.
+And xAI certainly needs to demonstrate more usage options, and a broader capacity to generate cash.
+Elon Musk’s AI project, which he recently merged with his other business SpaceX , is reportedly burning through $1 billion per month , as Musk looks to quickly scale his AI data centers to keep up with other AI projects.
+xAI has raised over $45 billion in direct funding, with its latest Series E round raising $20 billion alone , though some have speculated that its merger with SpaceX is designed to cover for any funding shortfalls, and keep the money coming into the project. In combination, xAI and SpaceX are reportedly worth over $1 trillion , but that value is largely speculative, and based on Musk’s projections and forecasts, which are often inaccurate.
+Which is why xAI needs to start showing more value, and how it plans to actually make money to support its expansion. The company has signed contracts with the Defense Department and the General Services Administration (GSA) , but combined, those won’t even come close to covering a month of costs for the project.
+At some stage, xAI will need a lot more revenue intake. That could come from further government contracts, with Musk using his links to the government to secure more deals, but right now, xAI has a long way to go to become a cash flow-positive business.
+Maybe, if more developers start playing with Grok, more use cases will emerge, and provide more avenues for revenue. That seems like the real motivation for X’s API revamp, which could also result in users getting access to more apps that analyze and utilize X info and functions.
+Social Media Today news delivered to your inbox
+Get the free daily newsletter read by industry experts
+Select user consent: By signing up to receive our newsletter, you agree to our Terms of Use and Privacy Policy . You can unsubscribe at anytime.
+Getty Images Deep Dive 3 Steps for Establishing a Core Marketing Message The key to maximizing a social media marketing strategy is to ground the approach in purpose. By Andrew Hutchinson • Jan. 19, 2024
+Retrieved from Daniel Oberhaus/Wikimedia Commons on April 18, 2022 Tracker The Complete Elon Musk–Twitter Saga For months, we’ve been tracking Elon Musk’s $44 billion deal with Twitter. Now that the deal is done, we watch as the Musk-Twitter era begins. By Andrew Hutchinson and Emma Wiltshire • Nov. 2, 2022
+Subscribe to Social Media Today for top news, trends & analysis
+Select user consent: By signing up to receive our newsletter, you agree to our Terms of Use and Privacy Policy . You can unsubscribe at anytime.
+Take your knowledge further with
+Sign up for the free newsletter.
+Interested? Explore more of what has to offer.
+Thanks for signing up! Please keep an eye out for a confirmation email from [email protected] To ensure we make it into your inbox regularly, add us to your allow list, mark us as a safe sender, or add us to your address book. Check out more from
+Facebook Pages get charged for link posts
+LinkedIn expands verifications
+YouTube presents new AI and engagement features at Made On 2026
+Meta outlines Muse, AI glasses and VR device updates at Connect 2026
+Webinar - on demand The always-on advantage: How UGC fuels a strategy that outlasts any campaign Custom content for Skeepers
+Playbook What Programmatic Data Isn't Telling You About Lift, Reach, and Waste Custom content for illumin
+Webinar - on demand Lost in Translation? Avoiding Common Pain Points Global Brands Face While Scaling at Speed Custom content for LILT
+Social Media Today news delivered to your inbox
+Get the free daily newsletter read by industry experts
+Select user consent: By signing up to receive our newsletter, you agree to our Terms of Use and Privacy Policy . You can unsubscribe at anytime.
+Want to share a company announcement with your peers?
+Retrieved from Daniel Oberhaus/Wikimedia Commons on April 18, 2022 Tracker The Complete Elon Musk–Twitter Saga For months, we’ve been tracking Elon Musk’s $44 billion deal with Twitter. Now that the deal is done, we watch as the Musk-Twitter era begins. By Andrew Hutchinson and Emma Wiltshire • Nov. 2, 2022
+Getty Images Deep Dive 3 Steps for Establishing a Core Marketing Message The key to maximizing a social media marketing strategy is to ground the approach in purpose. By Andrew Hutchinson • Jan. 19, 2024
+X updates third-party livestream support By Andrew Hutchinson
+X Numbers officially launch By Andrew Hutchinson
+X shares more insight into penalties impacting post reach By Andrew Hutchinson
+XChat disappears from app stores By Andrew Hutchinson
+[len 6734 ]

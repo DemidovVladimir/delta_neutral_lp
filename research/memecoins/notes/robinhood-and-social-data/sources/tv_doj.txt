@@ -1,0 +1,18 @@
+TITLE: US charges ex-Robinhood engineers over alleged pre-listing crypto trades — TradingView News
+META og:description US prosecutors on Tuesday charged two former Robinhood engineers with commodities fraud and wire fraud for allegedly using confidential information about upcoming cryptocurrency listings to profit from perpetual futures trades on Hyperliquid.According to the US Department of Justice (DOJ), Hefu Cha…
+US charges ex-Robinhood engineers over alleged pre-listing crypto trades
+US prosecutors on Tuesday charged two former Robinhood engineers with commodities fraud and wire fraud for allegedly using confidential information about upcoming cryptocurrency listings to profit from perpetual futures trades on Hyperliquid.
+According to the US Department of Justice (DOJ), Hefu Chai and Huaisong “Jerry” Xiang bought perpetual contracts linked to tokens ahead of Robinhood Crypto listings. The DOJ alleged each profited more than $50,000 from the trades between 2025 and 2026.
+The DOJ said Chai and Xiang had access to a private company Slack channel containing information about planned listings. Prosecutors allege they used that information to open long positions on Hyperliquid, closing them when their value increased after their debut on Robinhood.
+The allegations have parallels to the Coinbase insider-trading case in 2023, in which a former employee used confidential information to profit from listings of new tokens by directly buying the underlying asset, though the Robinhood case extends the issue into decentralized derivative markets.
+Cointelegraph contacted Robinhood for comment but did not receive a response by the time of publication.
+Robinhood barred employees from trading around listings
+According to the DOJ’s complaints, Chai worked at Robinhood from around 2021 until May 2026 and served as a technical lead responsible for new digital-asset listings. Xiang worked there from around 2024 until September 2026 as a software engineer involved in crypto listings.
+Robinhood designated both engineers as “Coin Aware Individuals,” giving them access to a private Slack channel containing planned listing dates, according to the complaints.
+The company’s policy prohibited members of the group from trading on Robinhood or any other platform 24 hours before or after a listing or delisting announcement.
+Prosecutors allege Chai traded perpetuals ahead of at least 10 announcements involving tokens including Cat in a dogs world (MEW), Moo Deng (MOODENG), Aster (ASTER), Plasma (XPL), Hyperliquid (HYPE), Ethena (ENA) and Aerodrome Finance (AERO). Xiang allegedly first traded Popcat (POPCAT) perpetuals in March 2025 before trading ahead of at least 10 other listing announcements.
+US Attorney Jamie McDonald said corporate insiders cannot evade securities and commodities laws by trading misappropriated information through perpetual futures, tokenized securities or similar instruments.
+Each defendant faces one count of violating the Commodity Exchange Act, which carries a maximum prison sentence of 10 years, and one count of wire fraud, which carries a maximum of 20 years.
+The charges against Chai and Xiang remain allegations, and both defendants are presumed innocent unless convicted.
+More news from Cointelegraph
+[len 2836 ]

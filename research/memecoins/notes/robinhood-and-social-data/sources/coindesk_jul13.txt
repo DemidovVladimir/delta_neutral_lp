@@ -1,0 +1,44 @@
+TITLE: Robinhood's blockchain finds early success — Thanks to memecoins, not stocks
+META og:description Robinhood Chain has pulled in $135 million of value and 800,000 addresses since July 1. Almost none of it is doing what the chain was built for.
+Robinhood's blockchain finds early success — Thanks to memecoins, not stocks Tech Robinhood built a blockchain for tokenized stocks. Memecoins took over Robinhood Chain has pulled in $135 million of value and 800,000 addresses since July 1. Almost none of it is doing what the chain was built for. By Shaurya Malwa | Edited by Aoyon Ashraf Jul 13, 2026, 11:17 a.m. EDT 4 min read Make preferred on Share Share this article Copy link X (Twitter) LinkedIn Facebook Email Make preferred on Baiju Bhatt (right) and Vlad Tenev, founders of Robinhood (Getty Images/Spencer Platt) Summary Show Robinhood Chain, an Ethereum layer-2 launched July 1 to host tokenized stocks, has quickly become one of crypto’s busiest new networks, with about $312 million in total value locked and 3.6 million daily transactions.
+Despite Robinhood’s pitch of a regulated venue for tokenized real-world assets, those assets account for only about $12.8 million on the chain, while memecoins like CASHCAT and stablecoins dominate activity and market value.
+The chain’s future hinges on whether speculative memecoin traders convert into users of its tokenized equity and real-world asset offerings.
+Robinhood Chain, the blockchain network built by the popular trading app to power tokenized stocks, has become one of the busiest new chains in crypto. But despite being built around tokenized stocks and other real-world assets (RWAs), speculative memecoin trading has so far become the network's defining use case.
+A cat-themed token called CASHCAT , named after Robinhood's former mascot before the company rebranded, has surged 2,158% over the past 7 days, and the memecoin has a $156 million market cap. By comparison, tokenized real-world assets on the chain are worth just $12.81 million, of which $10.68 million is stocks, with the rest split across commodities, tokenized ETFs and a $410,000 sliver of U.S. Treasuries as of Monday morning.
+The contrast comes as the chain has posted explosive early growth since it officially went live on July 1 .
+Data reviewed by CoinDesk shows that total value locked for the chain reached about $135 million, up more than sevenfold from $17 million on July 3, according to DefiLlama . It even ranked among the top three networks for decentralized exchange trading volume over the past week, generating $3.1 billion in volume.
+This means the tokenized-equity book remains tiny in a chain that clears billions of dollars in weekly trading volume. The pattern is similar to when prominent exchange Coinbase launched its own network, Base, in 2023. Memecoins and speculation filled it first, while the durable applications arrived later, per CoinDesk reports from that time.
+Robinhood Chain also recently surpassed Base in daily transaction count, according to Token Terminal. "Robinhood Chain overtook Base in just 1.5 weeks. Yesterday, Robinhood Chain processed 10.4 million transactions versus Base's 6.4 million," it posted on X .
+Robinhood Chain is an Ethereum layer-2 built on Arbitrum's Orbit stack. It settles transactions on the Ethereum network and uses ether to pay network fees.
+An anchor product of the chain is Stock Tokens , onchain versions of equities like Nvidia and Apple that trade around the clock and, unusually, are structured as tokenized debt securities barred to U.S. persons. Crypto applications, including Uniswap, Chainlink and the Morpho lending protocol, were also integrated at launch.
+As of Monday morning, the value of all tokens locked on the protocol is $312 million, and the total asset market cap is $480 million. The chain has drawn nearly 800,000 lifetime active addresses, processed 3.6 million transactions in a day, and cleared $838 million in decentralized exchange volume over 24 hours. Fees run a fraction of a cent per transaction.
+Robinhood positioned it as a regulated venue where tokenized real-world assets plug into decentralized finance (DeFi), enabling blockchain-based versions of traditional financial assets to interact with onchain lending, trading and other applications.
+Yet the composition of activity tells a different story.
+According to data tracked by Dune Analytics, asset management accounts for 40.5% of value locked on the chain, while lending accounts for 38.3%. Spot exchanges are 11.9% and perpetual futures 5.2%. Real-world assets, Robinhood's flagship use case behind the chain's existence, are just 4.1%.
+The CASHCAT memecoin has also spawned an entire ecosystem of Robinhood-themed tokens , including Cash Dog in Hood, Little John, Hoodrat, and Arrow, none of which existed two weeks ago. The launchpad feeding them, NOXA.fun, and a trading bot called basedbot now have their own dedicated tracking dashboards.
+Stablecoins account for much of the remaining activity.
+Global Dollar, the USDG token issued by the Paxos-led consortium Robinhood helped found, holds about $200 million of the roughly $299 million stablecoin market cap on the chain, with Ethena's USDe making up most of the rest.
+While the chain may not yet be serving its original purpose, speculative trading often provides the earliest burst of activity on new blockchains, generating addresses, liquidity and transaction volume well before their intended use cases mature.
+But it remains to be seen if the traffic converts. Memecoin traders run to where the activity is and are not loyal to any specific chain, meaning Robinhood Chain's current users may not overlap with the investors it ultimately hopes to attract.
+And the platform's executives might even be leaning into that behavior.
+On July 2, Robinhood's CEO, Vlad Tenev, told CNBC that assets without utility do not serve a lasting purpose and that tokenized real-world assets were the durable direction for crypto.
+Six days later, as CASHCAT climbed, he posted that while the company is building the chain to be the best for real-world assets, 'it works great for memes too.' He later followed the token's X account.
+The key question over the coming months is whether Robinhood can convert speculative demand into adoption of its tokenized equity platform. If tokenized real-world assets grow beyond today's roughly $13 million while memecoin activity fades, the strategy may be working.
+But if real-world assets stay flat while the speculation moves on to the next flashy chain where memecoins start to rack up quick profits, Robinhood Chain may risk following a familiar crypto pattern: attracting an early wave of speculation without becoming the financial infrastructure it was built to support.
+Read more: Robinhood Chain surges into top five by DEX volume: Bernstein
+1 Altcoins rally across the board as bitcoin consolidates near $84,000 50 minutes ago
+2 Bitcoin ETFs have erased a $5.8 billion hole 1 hour ago
+3 KelpDAO sues LayerZero for the largest exploit 2026 has seen so far 1 hour ago
+4 Live updates: Bitcoin steadies near $84,000 as the bond selloff pauses 3 hours ago
+5 Bitget's $352 million hack happened via spoofed transfers, not private keys, CEO Gracy Chen says 6 hours ago
+6 New York sues Polymarket, alleging it is running an illegal gambling operation 12 hours ago
+7 U.S. Federal Reserve moves on proposals to implement GENIUS Act for stablecoins 12 hours ago
+8 Crypto exchange Bitget says $352 million affected in a hack, claims user funds are 'safe' 12 hours ago
+9 Someone was trying to sell Ondo Finance after founder Nathan Allman's death 14 hours ago
+10 Bullish, Alpaca and Apex Fintech form coalition to push issuer-backed tokenized stocks 14 hours ago
+The Definitive Stablecoin Landscape Series: Asia Pacific
+The Definitive Stablecoin Landscape Series: Asia Pacific
+As stablecoins move into regulated finance, APAC is becoming a key proving ground. This report maps the region’s rules, use cases, and RLUSD’s role.
+As stablecoins move into regulated finance, APAC is becoming a key proving ground. This report maps the region’s rules, use cases, and RLUSD’s role.
+As stablecoins move into regulated finance, APAC is becoming a key proving ground. This report maps the region’s rules, use cases, and RLUSD’s role.
+[len 8056 ]

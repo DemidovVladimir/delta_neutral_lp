@@ -1,0 +1,24 @@
+TITLE: Robinhood Chain Flips Solana For The First Time With $1.45B In Daily DEX Volume | Yellow
+META og:description A first-ever daily volume flip put Robinhood Chain ahead of Solana as memecoin liquidity rotates between the two chains.
+META article:published_time 2026-09-07T19:07:08.866Z
+META article:modified_time 2026-09-08T08:15:59.983Z
+Robinhood Chain Flips Solana For The First Time With $1.45B In Daily DEX Volume Murtuza Merchant Sep, 07 2026 19:07 #Solana #Robinhood Money moving into Solana ETFs led by Bitwise as crypto funds draw $1.3 billion before the Senate CLARITY Act vote (Image: Shutterstock) Robinhood Chain overtook Solana (SOL) in daily decentralized exchange volume for the first time, clearing $1.45 billion on Sept. 5. Key Points: Robinhood Chain processed $1.45 billion in daily DEX volume on Sept. 5, edging past Solana's $1.25 billion in the first such flip between the two.
+Solana still leads on a 30-day basis with more than $65 billion in cumulative volume, roughly three times the Robinhood total.
+A cat-themed Solana token has paid holders about $2.8 million in Zcash, drawing speculative money back toward the network.
+Robinhood Chain Flips Solana DEX Volume
+Tracking data showed the Ethereum layer-2 network handling $1.45 billion that day against Solana's $1.25 billion, the first daily reversal recorded between the two chains. Robinhood carried the lead into the following session.
+Transaction counts on Solana have since fallen 37% from the peak they set on Aug. 28.
+The rotation has hit Solana's flagship memecoin venue hardest, with Pump.fun volume sliding to $1.18 million from a $3.16 million peak recorded only eight days earlier. Pons, the Robinhood Chain launchpad that Uniswap Labs agreed to acquire, has beaten it on raw throughput every day since Aug. 29 and collected $4.89 million in fees on Aug. 31 alone.
+Solana still holds the wider lead, with 30-day decentralized exchange volume above $65 billion, roughly three times what the Robinhood network has processed over the same stretch. The token recovered from the low $70s in early August to trade near $105 on Monday, closing out one of its strongest months of the year. That cushion buys time.
+Also Read: OpenAI Calls GPT-6 Astra The Smartest Model, Testers Disagree
+ZCAT Rally Pulls Memecoin Liquidity Back
+Speculative flows have started running the other way, led by Anonymous Cat (ZCAT) , a Solana token built on the Zcash (ZEC) privacy narrative and traded against ZEC on a launchpad that allows pairs outside SOL and stablecoins.
+The token has distributed roughly 2,320 ZEC, worth close to $2.8 million, to wallets holding at least $20 of it through a 3% tax applied on every transfer.
+ZCAT changed hands near 13 cents on Monday for a market value of about $124 million, second among cat-themed tokens behind a rival that launched alongside Robinhood Chain in July. It briefly touched 19 cents over the weekend before selling off. Trader Ansem posted about the token days earlier, after which it climbed more than 230% in a single session before giving much of that back.
+Solana Q4 Outlook Hinges On Subsidy
+Memecoin share of the broader altcoin market still sits at its lowest level since January, which points to a narrow rally concentrated in a handful of names rather than a sector-wide bid. Concentrated flows cut both ways.
+Robinhood Chain launched on Jul. 1 as an Arbitrum Orbit rollup and crossed $47 billion in cumulative decentralized exchange volume in under two months, with total value locked climbing past $790 million. Daily chain revenue reached $4.01 million on Sept. 2, against the $81,714 Solana booked the same day.
+A 90-day gas subsidy covering Robinhood Wallet trades expires on Sept. 29, and that date now shapes up as the first honest read on how much of the activity is real.
+Read Next: Hugging Face $12.9B Acquisition Reveals Critical AI Chip Gap
+Murtuza is a seasoned finance journalist with extensive experience covering cryptocurrencies and blockchain technology. He has contributed to Benzinga and Cointelegraph, among other publications, reporting on emerging trends, the regulatory landscape, and more. Find him at @murtuza_merc on Twitter and mmerchant001 on Telegram. Disclosure: Murtuza holds ATOM, AKT, TIA, INJ, and OSMO.
+[len 3927 ]

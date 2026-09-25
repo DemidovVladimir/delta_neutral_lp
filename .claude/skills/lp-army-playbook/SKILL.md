@@ -71,6 +71,11 @@ Realized fee density from 175 closed positions (fees ÷ capital ÷ time in pool)
    → The entry criterion (pool density ≥ 0.15 %/day) is measured in POOL units
    and compared against a POOL-units threshold. It is internally consistent.
    **Do not "correct" it.** 0.15 %/day pool-side ≈ 2.5–3.5 %/day on our capital.
+   ⚠ **2026-09-25 (BACKLOG A26): density is internally consistent but does
+   NOT predict net profit** — gross fees are matched by traversal loss.
+   The go/no-go metric is now R = (LP fee flow ÷ depth D per unit ln-price)
+   ÷ (σ_d²/2); R < 1 loses at any width. On 2026-09-24 the campaign pool
+   PASSED density (0.266) with R 0.71–0.80.
 
 2. **The dynamic fee component on our bin steps is currently ZERO.** Ceiling is
    real (5.3–5.9x base) but only reachable at extreme volatility. The variable

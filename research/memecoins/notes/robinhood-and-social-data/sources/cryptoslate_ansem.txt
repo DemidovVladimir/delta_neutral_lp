@@ -1,0 +1,97 @@
+TITLE: ANSEM soars 299% and brings Solana’s memecoin trenches back to life - but do we need it now?
+META og:description ANSEM’s 299% rally is driving Solana memecoin trading higher as Pump.fun volumes rebound and speculative activity returns.
+META article:published_time 2026-07-07T16:30:30+00:00
+META article:modified_time 2026-07-07T10:51:11+00:00
+ANSEM soars 299% and brings Solana’s memecoin trenches back to life - but do we need it now? News
+Directory Browse Companies
+01 ANSEM is up about 299% in seven days, lifting Solana memecoin trading and Pump.fun volumes.
+02 The rally matters because memecoins now make up over 20% of Solana weekly volume, showing a broader risk rebound.
+03 The unresolved question is whether renewed activity brings real growth, or just more sniper bots, bundled wallets, and late buyers losing out.
+The Black Bull (ANSEM) is up roughly 299% over seven days, trading with $64.9 million in 24-hour volume and a market cap near $173 million, per CoinGecko.
+That size puts ANSEM in a category that traders treat as a read on Solana's broader risk appetite. Traders are calling the move a sign the trenches are back, and DefiLlama shows Pump.fun volume at $5.33 billion in weekly DEX volume and $18.22 billion over 30 days.
+July 4 was the first day Pump.fun and PumpSwap crossed $1 billion in daily volume since April 8, and the week of June 29 to July 5 was the first above $5 billion since late March.
+On July 1, Solana's memecoin factory hit its highest daily numbers for token launches and graduations in 80 days, driven largely by ANSEM . The token has already spawned competing variants, and copycat dilution is usually one of the first signs that a trench cycle is picking back up.
+Phemex's July 1 note added that Pump.fun had regained roughly 62% of its Solana launchpad revenue and about 55% of its trading volume over the prior two weeks.
+That pickup is showing up in the wider market too, with Blockworks data putting memecoins at over 20% of Solana's weekly trading volume, the first time since mid-May.
+Galaxy's research from October 2025 showed Solana memecoins accounting for as much as 50% of weekly volume in the fourth quarter of 2024, so 20% reads as a recovery well short of that old peak.
+Galaxy's research also explains that memecoins pull retail users into wallets, decentralized exchanges , bridges, and token launchpads faster than more “serious” crypto products usually manage. They're fast, social, and permissionless, turning attention itself into a tradable asset.
+The trenches only become a problem when the trading game becomes fast and asymmetric enough that ordinary users end up supplying exit liquidity for the fastest players. That's the tension ANSEM's rally reopens: the same mechanics that bring users in let a small group extract value from everyone who arrives late.
+Galaxy's data shows that the median memecoin holding time is now around 100 seconds , down from roughly 300 seconds. Snipers and bundlers capture large portions of a token's supply in its first moments, then sell it once real demand emerges.
+A 2026 ACM Web Conference paper, “Resisting Manipulative Bots in Meme Coin Copy Trading,” lays out the mechanism behind that speed in a market where copy trading has become a major entry strategy.
+The paper found sniper bots buying within the first one to five blocks of a token's launch, faster than any human can react, and traced those bots to the majority of the 6,000 memecoin projects it studied.
+MELT, also known as MemeTrans, covers over 41,000 Solana memecoin launches and over 200 million transactions. It found coordinated accounts holding an average of 36.5% of the token supply, obscuring true ownership concentration, and labeled 84.13% of the launches it studied as high risk.
+What’s moving crypto. Why it matters.
+Get CryptoSlate’s essential stories and what to watch next.
+Seven days a week. Unsubscribe anytime.
+Your signup request was sent. If confirmation is required, follow the email from Substack.
+Look in spam or promotions if you don’t see it.
+A separate cross-chain study, “A Midsummer Meme's Dream,” examined 34,988 memecoins and found that among the highest-return tokens, 82.8% exhibited signs of artificial growth, such as wash trading or liquidity-pool price inflation, and that more than 17,000 addresses showed realized losses exceeding $9.3 million.
+Median hold time fell to roughly 100 seconds , down from about 300 seconds
+Shows trench trading has become faster and more PvP
+ACM Web Conference paper, 2026
+Sniper bots bought within the first 1–5 blocks and appeared in the majority of projects studied
+The game can begin before ordinary traders can react
+41,000+ Solana launches and 200M+ transactions
+Coordinated accounts held an average 36.5% of supply; 84.13% of launches labeled high risk
+Ownership can look more distributed than it really is
+A Midsummer Meme’s Dream, 2025/2026
+34,988 cross-chain memecoins
+82.8% of high-return tokens showed artificial-growth signs; 17,000+ addresses had realized losses above $9.3M
+Biggest winners can be the most manipulation-prone
+That pattern is specific to the biggest winners: manipulation is common among memecoins that post the largest gains.
+The bull case has Pump's daily volume repeatedly clearing $1 billion and Solana's memecoin share of weekly volume pushing toward 30%.
+ANSEM-style tokens would need to continue producing secondary winners along that path, with user growth, launch speed, and attention feeding into each other, more closely resembling an early memecoin season.
+The bear case has ANSEM's own copycat variants siphoning attention, Pump's weekly volume dropping back under $3 billion, and memecoin share slipping to 15%-18% of Solana's total. Along that path, ANSEM becomes a one-off cultural moment, and traders drift back toward SOL, majors, and more-liquid alts.
+Bull case: trenches revive cleanly
+ANSEM-style tokens create secondary winners without major blowups
+Daily volume repeatedly clears $1B
+Memecoins become a broader user-growth and attention cycle
+Base case: selective revival
+ANSEM stays liquid, but most launches remain short-lived
+Weekly volume holds near $4B–$5B
+Trenches are active again, but leadership stays narrow
+Bear case: one-off cultural flare
+Copycats dilute attention and liquidity fragments
+Weekly volume drops below $3B
+Traders rotate back to SOL, majors, and more liquid alts
+Risk case: predatory cycle returns
+Snipers, bundled wallets, fake volume, or a major rug dominate the narrative
+Volume may spike first, then fade
+Activity returns, but trust deteriorates
+Solana's trenches have already proven they can attract users, volume, and attention that many “serious” crypto products struggle to generate.
+The next part is whether the revival can happen without rebuilding the sniper-heavy, bundle-heavy market that measured success in hold times of seconds, made the last cycle profitable for the fastest traders, and cost everyone who showed up later.
+Gino Matos is a law school graduate and a seasoned journalist with six years of experience in the crypto industry. His expertise primarily focuses on the Brazilian blockchain…
+Also known as "Akiba," Liam Wright is a reporter, podcast producer, and Editor-in-Chief at CryptoSlate. He believes that decentralized technology has the potential to make…
+Bitwise is closing the lowest-fee Dogecoin ETF after rivals captured nearly all the capital
+Memecoin degens are providing the spark for Wall Street to turn stock tokens into real capital
+Hunter Biden launched LAPTOP to cure memecoin grift and created a whole new batch of losers
+Hunter Biden’s new “LAPTOP” memecoin targets traders who lost money on TRUMP
+CryptoSlate may use AI tools to support research, editing, and production workflows. Our journalism remains human-led, with our editorial team responsible for every published article. Read our full AI usage disclaimer .
+Our writers' opinions are solely their own and do not reflect the opinion of CryptoSlate. None of the information you read on CryptoSlate should be taken as investment advice, nor does CryptoSlate endorse any project that may be mentioned or linked to in this article.
+Buying and trading cryptocurrencies should be considered a high-risk activity. Please do your own due diligence before taking any action related to content within this article. Finally, CryptoSlate takes no responsibility should you lose money trading cryptocurrencies. For more information, see our company disclaimers .
+We use cookies to improve your experience on our site. By using our site, you consent to cookies.
+Manage your cookie preferences below:
+Essential cookies enable basic functions and are necessary for the proper function of the website.
+CloudFlare provides web performance and security solutions, enhancing site speed and protecting against threats.
+Service URL: developers.cloudflare.com (opens in a new window)
+Google Analytics is a powerful tool that tracks and analyzes website traffic for informed marketing decisions.
+Service URL: policies.google.com (opens in a new window)
+Statistics cookies collect information anonymously. This information helps us understand how visitors use our website.
+Clarity is a web analytics service that tracks and reports website traffic.
+Service URL: clarity.microsoft.com (opens in a new window)
+You can find more information in our Privacy Policy and .
+This image could not be loaded.
+The Catalyst by CryptoSlate
+Understand what’s moving crypto.
+The stories that matter, the context behind them, and what to watch next.
+Seven days a week. Unsubscribe anytime.
+The Catalyst by CryptoSlate
+Your signup request was sent. If confirmation is required, follow the email from Substack.
+Look in spam or promotions if you don’t see it.
+By subscribing, you agree to our Terms and Privacy Policy .
+The Catalyst by CryptoSlate
+Understand what’s moving crypto.
+The stories that matter, the context behind them, and what to watch next.
+Subscribe to The Catalyst by CryptoSlate through Substack.
+Look in spam or promotions if you don’t see it.
+[len 9698 ]

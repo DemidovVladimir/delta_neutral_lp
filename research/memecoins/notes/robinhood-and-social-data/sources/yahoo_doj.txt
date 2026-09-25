@@ -1,0 +1,18 @@
+TITLE: Robinhood Engineers Charged in Hyperliquid Insider Trading Case
+META og:description Two Robinhood engineers face fraud charges for trading Hyperliquid futures before token listings, prosecutors said.
+Robinhood Engineers Charged in Hyperliquid Insider Trading Case Oops, something went wrong Skip to navigation Skip to main content Skip to right column U.S. markets open in 2h 15m US Markets US Markets Europe Markets Asia Markets Cryptocurrencies Rates Commodities Currencies U.S. markets open in 2h 15m S&P Futures 7,786.50 +19.50 +0.25% Dow Futures 51,818.00 +101.00 +0.20% Nasdaq Futures 30,925.50 +158.75 +0.52% Russell 2000 Futures 2,863.60 +6.80 +0.24% VIX 15.29 -0.38 -2.42% Gold 4,346.10 +48.10 +1.12% Bitcoin USD 85,248.66 +1,780.77 +2.13% Crude Oil Nov 26 92.97 -1.64 -1.73% ADVERTISEMENT Robinhood Engineers Charged in Hyperliquid Insider Trading Case Lockridge Okoth September 15, 2026 2 min read HOOD35566-USD
+Two former Robinhood engineers were charged with fraud on Tuesday in a Hyperliquid insider trading case, accused of buying futures contracts before their employer announced new token listings.
+Hefu Chai, 36, and Huaisong Xiang, 30, each face one count of violating the Commodity Exchange Act and one count of wire fraud. Prosecutors say the pair made more than $50,000 apiece.
+"Robinhood takes market integrity seriously and has zero tolerance for insider trading. We have robust insider trading policies and procedures in place, including for new crypto listings. We immediately investigated and reported this matter to law enforcement and regulators, and will continue to cooperate with the investigations," a Robinhood spokesperson told BeInCrypto.
+Follow us on X to get the latest news as it happens
+How the Alleged Trades Worked
+Hyperliquid runs a decentralized exchange built around perpetual futures. These are leveraged bets on a token's price that never expire, so a trader can hold the position indefinitely.
+The U.S. Attorney's Office for the Southern District of New York says the two engineers traded between 2025 and 2026. They knew which tokens Robinhood Crypto planned to list, then bought futures on those tokens first.
+A listing on a large broker usually lifts a token's price. Selling into that move turns advance knowledge into profit.
+"Misappropriating confidential information to trade in the derivatives markets for personal benefit is illegal," U.S. Attorney Jamie McDonald said in the statement.
+Hyperliquid Has Faced Insider Trading Claims Before
+The exchange handled similar accusations in December 2025. Traders flagged a wallet shorting HYPE during a token unlock, and Hyperliquid denied insider trading by its staff.
+The company said that wallet belonged to a former employee dismissed in early 2024. It also said team members are barred from trading HYPE derivatives.
+The case lands as Robinhood expands its crypto business with its own blockchain, perpetual futures in Europe and tokenized stock trading. Robinhood has not issued a public response.
+Read the Original story Robinhood Engineers Charged in Hyperliquid Insider Trading Case by Lockridge Okoth at beincrypto.com
+[len 2928 ]

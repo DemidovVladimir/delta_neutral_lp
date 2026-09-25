@@ -1,0 +1,28 @@
+TITLE: Kaito to sunset ‘Yaps’ after X bans incentivized posting apps
+META og:description The crypto analytics firm is replacing its reward-driven social product with a more selective creator marketing platform after X revised its API policies to curb spam.
+Kaito to sunset ‘Yaps’ after X bans incentivized posting apps Finance Kaito to sunset 'Yaps' as X cracks down on InfoFi apps, token falls 17% The crypto analytics firm is replacing its reward-driven social product with a more selective creator marketing platform after X revised its API policies to curb spam. By Oliver Knight , AI Boost | Edited by Sheldon Reback Jan 15, 2026, 12:43 p.m. EST 2 min read Make preferred on Share Share this article Copy link X (Twitter) LinkedIn Facebook Email Make preferred on Kaito to sunset "Yaps" (Patrick Fore/Unsplash modified by CoinDesk) Summary Show X head of product Nikita Bier said the platform will no longer allow apps that pay users to post, citing a surge in AI-generated spam, and confirmed programmatic access has already been revoked for affected developers.
+Kaito’s Yaps product rewarded users for tweeting about projects, but founder Yu Hu said the permissionless, incentive-driven model is no longer viable following discussions with X.
+The Kaito Yapper community, which had about 157,000 members, was banned on X, and the $KAITO token fell roughly 17% after the announcement, according to blockchain investigator ZachXBT.
+Crypto analytics platform Kaito said it will sunset its Yaps product and incentivized leaderboards, marking a strategic shift after X moved to ban applications that reward users for posting on the social media platform. The $KAITO token fell around 17% on the news.
+The announcement came shortly after X’s head of product, Nikita Bier, said the company had revised its policies to prohibit apps that financially incentivize posting, citing a surge in “AI slop & reply spam.” Bier said programmatic access had already been revoked from affected apps, and that terminated developers could explore migrating to platforms like Threads and Bluesky.
+The fallout was immediate. According to blockchain investigator ZachXBT , the Kaito Yapper community on X, which had roughly 157,000 members, was banned following the policy change.
+Yaps was essentially a product where users could earn rewards for tweeting about brands or projects, although it led to a rise AI-generated content despite the movement attracting hundreds of thousands of users with a large following in Korea. It was part of an industry labeled InfoFi, for Information Finance, in which users are rewarded for generating information and insights.
+Kaito founder Yu Hu said the decision followed discussions with X and acknowledged that fully permissionless, incentive-driven distribution models are “no longer viable” under current platform constraints.
+Kaito will replace Yaps with “Kaito Studio,” a more traditional, tier-based creator marketing platform focused on selective brand–creator partnerships, analytics, and cross-platform distribution beyond X, including YouTube and TikTok.
+Kaito said the transition will not affect its other products, including Kaito Pro, API, Launchpad, or its upcoming Markets product, and that $KAITO will continue to play a role in the new Studio model, with details to be announced.
+1 Altcoins rally across the board as bitcoin consolidates near $84,000 53 minutes ago
+2 Bitcoin ETFs have erased a $5.8 billion hole 1 hour ago
+3 KelpDAO sues LayerZero for the largest exploit 2026 has seen so far 1 hour ago
+4 Live updates: Bitcoin steadies near $84,000 as the bond selloff pauses 3 hours ago
+5 Bitget's $352 million hack happened via spoofed transfers, not private keys, CEO Gracy Chen says 6 hours ago
+6 New York sues Polymarket, alleging it is running an illegal gambling operation 12 hours ago
+7 U.S. Federal Reserve moves on proposals to implement GENIUS Act for stablecoins 12 hours ago
+8 Crypto exchange Bitget says $352 million affected in a hack, claims user funds are 'safe' 12 hours ago
+9 Someone was trying to sell Ondo Finance after founder Nathan Allman's death 14 hours ago
+10 Bullish, Alpaca and Apex Fintech form coalition to push issuer-backed tokenized stocks 14 hours ago
+The Definitive Stablecoin Landscape Series: Asia Pacific
+The Definitive Stablecoin Landscape Series: Asia Pacific
+As stablecoins move into regulated finance, APAC is becoming a key proving ground. This report maps the region’s rules, use cases, and RLUSD’s role.
+As stablecoins move into regulated finance, APAC is becoming a key proving ground. This report maps the region’s rules, use cases, and RLUSD’s role.
+As stablecoins move into regulated finance, APAC is becoming a key proving ground. This report maps the region’s rules, use cases, and RLUSD’s role.
+[len 4528 ]

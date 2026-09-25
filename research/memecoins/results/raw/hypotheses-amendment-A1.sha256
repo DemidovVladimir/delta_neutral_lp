@@ -1,0 +1,7 @@
+HYPOTHESES.md after appending Amendment A1: 2f1572da467b09f52521bbfb212e22446e9552d3e2ccfca38374a0b7d0a7bd7e
+Amendment A1 block alone (from '### Amendment A1 (2026-09-25)' to EOF): 2b5ea4a3b2e76e13de621baf60c139016dba2bd99d68005b0405966af1c9ae6e
+HYPOTHESES.md before the append: 0d3c564cc521a46d084e26cf5d8e5c272adb31f79602648f450d6a3b6bd3b54f
+recorded at 2026-09-25T12:51:29Z; memecoins.db had 0 trades and 0 tokens with ts < 2026-09-25T00:00:00Z at 12:51:21Z (no backfill data present)
+HYPOTHESES.md after appending Amendment A1.1 (erratum): 14c445342a000dc588e9db34ec0a87658c7ffd92ea734c4da7952b195134427c; A1.1 block alone: 4af55a0c0e6264b57fd35daf84a1e652cdc142bc8e437fc69ce4cff38a5cfcee; recorded 2026-09-25T12:52:09Z; memecoins.db still had 0 trades / 0 tokens before 2026-09-25T00:00:00Z
+HYPOTHESES.md after appending Amendment A1.2 (operator-ordered early look): c1e922f240316ebd5b05062fb96a596fe4a2b0a6892cd0ab631bfe504776887a; A1.2 block alone: 247aaac38c75e8f5edf452e72c4e23fb639c03208edecf337809ffce109dae19; recorded 2026-09-25T14:40:29Z; no C1 result on collector data existed (results/raw/c1-look*.json absent)
+HYPOTHESES.md after appending A1.3 (C1 result record): 5957f05be826631b4eaae5ef2323d0886895c62170be8f35182dcf37c9d05e63; A1.3 block: 7e630139e7c04fbf6a53ca24a0482332a4912d000dbe21c14dc8edac99295142; recorded 2026-09-25T14:46:44Z

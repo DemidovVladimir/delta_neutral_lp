@@ -1,0 +1,57 @@
+TITLE: Robinhood Chain’s memecoin boom is already imploding
+META og:description Two weeks after Robinhood Chain pitched its layer 2 as RWA infrastructure, it&#039;s overrun with dying memecoins.
+META article:published_time 2026-07-16T18:22:15+00:00
+META article:modified_time 2026-07-16T18:22:19+00:00
+Dyslexic Font Typeface against dyslexia News
+Robinhood’s newsroom called its new blockchain, Robinhood Chain, “AI-native and purpose-built for real-world assets.” By the end of week one, those assets — mostly memecoins — tota l ed roughly $13 million. But those memecoins keep dying.
+By midday Thursday, a memecoin called MIZUKARA had gone to zero on Robinhood Chain, on roughly $67 million of trading volume.
+It was one of dozens of MIZUKARA pools deployed in under a day. Each fresh incarnation stepped over the corpse of the last.
+None of this was in the pitch. Robinhood launched the chain at a London event on July 1, pitching it for tokenized stocks for customers in more than 120 countries.
+The next morning, CEO Vlad Tenev told CNBC, “If an asset is not tied to an underlying utility, it’s not a productive asset. What’s the benefit of making a million different memecoins?”
+The market then spent a few days actually using it. On July 7, Tenev posted his revision: “While we’re building robinhood chain to be the best chain for RWA … it works great for memes too.”
+Memecoin promoters showed up, and he couldn’t stop them.
+While we’re building robinhood chain to be the best chain for RWA … it works great for memes too — Vlad Tenev (@vladtenev) July 8, 2026
+Two days later he declared , “Robinhood Summer is here,” boosting a colleague’s tally of 17 million transactions and more than $1 billion in DEX volume.
+Robinhood Summer lasted two days
+The boom in Robinhood Chain memecoins ran through NOXA, a launchpad responsible for some 60,000 tokens, more than three-quarters of everything deployed on the chain.
+NOXA collected more than $12 million in fees in two weeks.
+Yet that same Saturday morning, NOXA complained that bots were “spamming and copying new tokens every hour” and switched off its own token deployer.
+Two days later, its website went dark; NOXA blamed a Cloudflare issue. It also burned 40% of its own token supply.
+By July 14 it had resurfaced as a bare-bones page, announcing , “People loved the cat, it has been liberated,” and handed 100% of ongoing trading fees to token creators.
+Some traders called the exit a soft rug, crypto slang for a team that walks away without formally stealing anything. A Binance Square message board user posted a post-mortem, finding no direct evidence of the revenue-split dispute rumored to be behind it.
+NOXA’s own explanation reads , “DeFi summer is still happening.” It probably isn’t.
+Robinhood Chain scams are already costing users dearly
+Read more: OpenAI to Robinhood: That’s not our stock, bro
+Robinhood Chain launchpad pauses
+Vlad.fun, a launchpad that borrowed the Robinhood CEO’s first name, soon arrived and then, just as quickly, pulled the plug. On Wednesday, it announced , “We’re pausing VladFun” after discovering what it described as “a serious internal integrity issue at launch involving members of our team.”
+In plain English, the launchpad is investigating its own people, and its legal team is involved.
+Pons, a rival launchpad two days old, spent the same afternoon batting away reports of a front-end token-approval bug.
+The team insisted the damage was tiny, saying, “As of right now, 0.60 NOXA tokens were impacted worth roughly $0.66 USD.”
+Its proprietary token price fell by about a third over the following day anyway.
+Hacked accounts and poisoned tickers
+Robinhood Chain token casualties are stacking up faster than most people can catalog.
+When hackers hijacked SpaceX-affiliated X accounts to shill a token called SCATMAN, it spiked to a roughly $2 million market cap before the creators pulled the liquidity.
+Another token simply named 1 ran from $800,000 to about $15 million on a rumor that a wallet linked to Tenev was buying.
+It collapsed 93% when traders worked out that the wallet was a long-compromised demo address. A livestream had exposed most of its seed phrase a year earlier.
+Even CASHCAT, the chain’s flagship memecoin and NOXA’s liberated cat, has lost more than half its value since July 11.
+Protos has already documented memecoins making up more than three-quarters of two days’ trading on the chain, a CASHCAT holder losing $56,000 to a hacked smart contract, and a scam coin that emptied $600 from one buyer in seconds.
+A spokesman previously told Protos, “Robinhood Chain is permissionless. This is a common issue across permissionless chains.”
+Which is a longer way of saying that graveyards join new neighborhoods.
+To be fair, the chain itself is thriving by the numbers Robinhood prefers to publish. Total value locked has climbed steadily to nearly $200 million, and daily DEX volume peaked near $880 million last Saturday.
+Still, the RWA infrastructure this chain was purpose-built for are still worth a meager $13 million, nowhere close to the tens of billions of dollars on competing blockchains.
+NOXA collected nearly that much in memecoin fees in two weeks, and even NOXA quit to focus elsewhere.
+Got a tip? Send us an email securely via Protos Leaks . For more informed news and investigations, follow us on X , Bluesky , and Google News , or subscribe to our YouTube channel.
+7:01 PM • Sep 18, 2026 TRON Inc.’s TRX came from HTX after UK sanctions
+1:49 PM • Sep 18, 2026 Amazon’s $190B Anthropic stake has links to SBF
+12:21 PM • Sep 17, 2026 Celsius sues BitMEX over trades Alex Mashinsky said never happened
+4:25 PM • Sep 16, 2026 Strategy still can’t get STRC back to parity
+12:13 PM • Sep 16, 2026 US 20-year bond auction just had its worst showing ever
+6:10 PM • Sep 15, 2026 Manifund hires Caroline Ellison while fighting FTX over $1.5M
+1:32 PM • Sep 15, 2026 Strategy copycat Satsuma crashed 99%, liquidated treasury
+7:22 PM • Sep 14, 2026 Leopold Aschenbrenner is back to losing money in AI stocks
+6:52 PM • Jul 09, 2026 — by Protos Staff CHART: Value of Tesla’s BTC holdings have fallen by two-thirds
+5:53 PM • Mar 26, 2026 — by Protos Staff CHART: Which US president was best for bitcoin?
+7:23 PM • Mar 17, 2026 — by Protos Staff CHART: Solana survived six years of near-death experiences
+1:14 PM • Mar 11, 2026 — by Protos Staff How bombing Iran shifted oil and bitcoin prices
+8:10 PM • Jan 20, 2026 — by Protos Staff CHART: BTC underperforms in Trump’s first year in office
+[len 6212 ]

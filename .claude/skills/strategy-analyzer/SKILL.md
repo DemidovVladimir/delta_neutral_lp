@@ -124,12 +124,17 @@ net, fees/|IL| per `<15min` / `15-45min` / `>45min` bucket).
 1. **Fees/day ∝ 1/width** — fees accrue only in the active bin,
    proportionally to our share of it (valid while our liquidity ≪ pool's,
    e.g. 100 USD vs 2.7M USD).
-2. **IL(gamma)/day is width-independent** — IL per range traversal
-   ≈ V×w/8 (V = position value, w = fractional width), traversals/day
-   ∝ 1/w; the product depends only on the price path, not the grid.
-   Sanity-check: avg IL per closed position should ≈ V×w/8 (measured
-   2026-07-05: −0.081 USD avg vs 0.10 USD theoretical on 20 bins × 4bps — ✓).
-3. Therefore **narrower = strictly better fee/IL ratio**, bounded only by
+2. ⚠ **REFUTED 2026-09-25 (BACKLOG A26):** traversals/day follow
+   diffusion ≈ 4σ²/w² (measured on Binance AND Coinbase 1m paths:
+   w 0.56 % → 139.6/day, 1.12 % → 37.3, 2.24 % → 8.6), so IL/day ≈
+   V×σ²/(2w) ∝ 1/w — the SAME scaling as fees. Fee/IL ratio (R) is
+   width-free; width only changes recenter overhead (∝ 1/w²). Law 3
+   below is therefore wrong too: narrowing cannot turn R < 1 positive.
+   Original text kept for history: "IL(gamma)/day is width-independent —
+   IL per range traversal ≈ V×w/8, traversals/day ∝ 1/w".
+   (The per-traversal part V×w/8 still holds — measured 2026-07-05:
+   −0.081 USD avg vs 0.10 USD theoretical on 20 bins × 4bps.)
+3. (Superseded by the correction above.) Therefore **narrower = strictly better fee/IL ratio**, bounded only by
    (a) per-recenter tx costs — negligible since ADR-019 decoupled the hedge
    from recenters, and (b) the **trend tax**: the `<15min` bucket, recenters
    into a still-moving price (measured −0.22 USD/day). The trend tax is fixed

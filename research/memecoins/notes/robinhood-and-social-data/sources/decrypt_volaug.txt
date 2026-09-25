@@ -1,0 +1,20 @@
+TITLE: Robinhood Crypto Trading Volume Jumps 61% in August - Decrypt
+META og:description Robinhood&#x27;s crypto trading bounced back, but the company&#x27;s fastest-growing business these days isn&#x27;t traditional trading at all.
+META article:published_time 2026-09-11T17:22:39
+META article:modified_time 2026-09-11T17:22:39
+Robinhood Crypto Trading Volume Jumps 61% in August - Decrypt In brief Robinhood's crypto trading volume rose 61% month over month to $17.5 billion in August, according to new operating data.
+The figure remains 38% below last August's total.
+Event contracts, Robinhood's prediction market bets, traded 4.7 billion times in August, roughly 15 times the volume from a year earlier, even as Congress moves to rein in the products.
+Robinhood's notional crypto trading volume—the total dollar value of all crypto assets bought and sold on the platform—rose 61% in August to $17.5 billion, according to operating data the company released Thursday.
+The rebound followed a slow July, when volume sat at $10.9 billion. Even with the jump, August's total came in 38% below the $28.1 billion Robinhood processed in the same month last year.
+The Robinhood app handled $7.4 billion of that volume, up 72% from July but down 46% from a year ago. Bitstamp, the exchange Robinhood bought in 2025, contributed the larger share at $10.1 billion, up 53% month over month. Together, the two platforms averaged $565 million a day in trading.
+Crypto is a small slice of a much bigger balance sheet. Total platform assets reached $384 billion, up 26% year over year, while funded customers (users that have completed at least one transaction in the last 45 days) grew to 28.6 million. Margin loans—money Robinhood lends customers to trade with borrowed cash—climbed to $21.5 billion, up 72% from a year ago.
+The number that stands out, though, isn't crypto at all. Event contracts, Robinhood's prediction market bets on things like Federal Reserve decisions or football games, traded 4.7 billion times in August. That's down 23% from July, but up roughly 15-fold from the 300 million contracts traded in August 2025.
+Each contract works like a simple yes-or-no wager: buy a "yes" for a few cents, and it pays out $1 if you're right, or nothing if you're wrong.
+That growth has made prediction markets Robinhood's breakout business. The company's record quarter in July showed event contract revenue surging more than tenfold year over year to $156 million, overtaking crypto as a source of transaction income.
+Robinhood runs the products through partner exchanges Kalshi and ForecastEx, plus its own joint venture Rothera, which had processed more than 3.5 billion contracts since launching in June, as of that report.
+The growth hasn't gone unnoticed on Capitol Hill. Lawmakers have introduced more than 10 bills since January targeting prediction markets, including the PREDICT Act , which would bar members of Congress, the president, and other senior officials from trading contracts tied to political events. Critics argue that stacking sports and political wagers next to retirement accounts blurs the line between investing and gambling, a tension regulators are still sorting out.
+Robinhood's other big bet, its own blockchain, is growing just as fast. Robinhood Chain , the company's Ethereum layer 2—a secondary network that processes transactions faster and cheaper before settling back to Ethereum—logged $1.6 billion in daily trading volume on decentralized exchanges as of September 1, up 61% in just four days.
+None of that stopped Robinhood shares from slipping after Thursday's release. HOOD fell 0.83% on the day, even as analysts at Mizuho and StoneX raised their price targets this week on the strength of the company's broader growth.
+Robinhood's next quarterly earnings report is expected November 4.
+[len 3500 ]

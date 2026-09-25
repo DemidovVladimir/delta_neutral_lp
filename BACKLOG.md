@@ -525,6 +525,147 @@ recenter > daily income. Plus Raydium CLMM ≠ Meteora DLMM (program
 `CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK`) — a new venue adapter for
 ~⅓ цента/день. REJECTED on data; niche verdict unchanged.
 
+### A27. Memecoin trading-pattern research campaign (operator 2026-09-25: «давай запустим компанию по изучению… шаблонов… торговли мем коинами», plus «кошелёк Робингуда» and Twitter signals) — CLOSED 2026-09-25: NOTHING SHOWS THROUGH on unselected data
+
+**Result (research/memecoins/results/collected-data-2d.md, operator ordered analysis on the ≈2 days already collected: 63,263 coins, 6.35M curve trades, 2026-09-23 04:22Z → 09-25 13:48Z):** C1 (H17-small, frozen before the data was seen) KILLED — 3,480 fills, mean −2.99 %/trade, win 5.0 %, 1-h-block CI [−3.55, −2.45] at 2 s (also negative at 0.4 s and 10 s); the tape's +11.5 % was selection bias (tape kept active coins: median 43 trades in 30 min vs 9 on ours; creators +35.6 % on tape vs −3.1 % on ours). Exploratory scan: 0 of 266 variants with CI > 0 (≈6.7 expected by chance), every "wait for visible buying" family negative again, only avoid-filters replicate (bundled launch −1.8…−5.8 pp, rings −2.1…−3.8 pp, holder concentration −5…−12 pp) and none turns positive. Untested: H13 ML ceiling (needs 14 days), post-migration families (PumpSwap backfill not done). Verdict: hand-rule memecoin trading has no edge for us; campaign closed unless the operator reopens it.
+
+Baseline already measured in A26 (do not redo): retail pump.fun buyers SOL-weighted −20 %/position (23 % profitable), first-slot snipers −29…−51 %, copying top-PnL wallets −10…−13 % at 0.4–30 s latency, median graduated coin −88 % in SOL, insiders/bundlers ≈5 % of volume, retail round trip ≈4–5 % in fees.
+What was NOT tested and is the point of A27: a pre-registered FILTER/SIGNAL strategy built from first-minutes on-chain features (unique buyers, bundle/cluster share, dev behavior, volume velocity, KOL wallet buys, social signals), evaluated with exact curve slippage, current pump.fun/PumpSwap fees, 0.4/2/10 s latency, time-split train/validate/untouched test, multiple-testing control, bankroll Monte Carlo for ≈430 USD.
+Interim results 2026-09-25: (a) `research/memecoins/HYPOTHESES.md` + `PROTOCOL.md` frozen v1 — 19 hypotheses + 8 avoid-filters, own-bot round trip ≈2.7 % (curve 1.25 %/side, FeeConfig `8Wf5TiAheLUqBrKXeYg2JtAFFMWtKdG2BSFgqUcPVwTt`), ≥60 days of data needed (futility stop day 28, then ≥14 days paper), literature: no out-of-sample net-positive result anywhere (graduation models AUROC 0.859 → 0.464 two weeks later; buying near graduation negative even at zero cost). (b) `research/memecoins/notes/robinhood-and-social.md` — «Robinhood wallet» = Robinhood Chain memecoin boom + Robinhood Wallet app + the `$WALLET` token (−80 % in 7 min after the disclaimer) + the DOJ insider case; no copyable wallet. Listing pops fade for anyone a minute late (median −3.1 % after 1 h). KOL copying killed: next-slot follower pays +12.1 % over the KOL, 30-min result −57…−58 %, win 10–12 %; social data only as veto filters (X API ≈90 USD/month for 30 accounts, arrives after the on-chain move). (c) Early futility check on public pump.fun tapes (Zenodo 22306254, 21923106) launched → `research/memecoins/results/futility-public-tapes.md`.
+Public-tape futility check 2026-09-25 (`research/memecoins/results/futility-public-tapes.md`; van de Wouw tape 28.7M trades Apr 28–Jul 13 2026, pre-BOOST, fails G1, winner-biased: graduation 2.51 % vs ~0.6–1 % real): H02 organic breadth, H05 near-graduation run-up, H09 copycat wave operationally KILLED; every entry that waits for visible buying loses at 2 s latency; controls all negative (simulator sane). Only launch-time entries survive: H17-small (creator first buy 0.05–0.2 SOL, bracket exit) +11.5 % per trade [+7.7, +16.9] at 2 s, +4.9 % at 10 s — possibly selection bias; H13 ML ceiling positive but uninterpretable. Variants used 335/662. H17-small being frozen as confirmatory candidate C1 for a single pre-registered test on our own collector data (early look day 14, main look day 28). Collector live since 2026-09-25 (`research/memecoins/collector/ctl.sh`), free mainnet-beta websockets, 100 % completeness vs Helius; being slimmed to pump.fun + PumpSwap-for-graduated-coins only (was ~6.3 GB/day disk, ~6.5 GB/h download).
+⚠ 2026-09-25 ~14:15Z: **Helius monthly credits EXHAUSTED by the pump7d backfill** (RPC answers HTTP 429 "max usage reached" — BUG-014 class; the plan had only ≈1M credits left, not checked before launch). Backfill stopped at 287/1074 chunks (968,290 credits): Sep 24 full, Sep 23 ~83 %, Sep 25 partial, Sep 18–22 sample chunks only → C1 Look 1 not runnable (<5 usable days), data kept unseen. Live collector stopped on operator order. Resume with `ctl.sh bf-start --job=pump7d ...` after the credit reset / plan change (≈2.6M credits for the rest). LESSON: before any Helius-heavy job, ask the operator for the plan size and remaining credits (dashboard) — projections alone are not enough.
+Stages: (1) trade-level collector under `research/memecoins/` (SQLite, gitignored data) — collect days of complete data; (2) `research/memecoins/HYPOTHESES.md` + `PROTOCOL.md`; (3) `research/memecoins/notes/robinhood-and-social.md` (what «Robinhood wallet» is, social data sources, measured KOL-follow results); (4) backtests only after enough data; (5) forward paper trading; (6) real money only on operator approval after (4)+(5) pass. Prior: low (published best filter +3 %/coin in simulation before selection costs), but the question is answerable cheaply.
+
+### A26. «≥1 %/day net» sweep across every strategy class (operator 2026-09-24) — MEASURED, NOTHING SUSTAINED; entry criterion replaced by R
+
+Full report (Russian): `docs/reports/2026-09-25-1pct-day-strategy-sweep.md`.
+4 workflows, ~60 agents, every lane adversarially re-measured.
+
+**The decisive LP metric is R, not pool density.** R = (pool LP fee flow
+per day ÷ D) ÷ (σ_d²/2), where D = USD depth per unit ln-price near the
+price (DLMM: USD in ±k bins ÷ ((2k+1)·binStep/1e4); full-range CPMM:
+D = TVL/4 → hedged net = f − σ²/8). Fees and traversal loss both scale
+with 1/W, so R is width-free: R < 1 loses at ANY width. Best-width net ≈
+(R−1)²σ²/(64c), c = cost per recenter. +1 %/day on total capital needs
+R ≥ 1.62 at σ_d 3.3 % (≥ 2.0 at σ 2 %). Measured 2026-09-24: old pool
+`5rCf1DM8LjKTw4YqhnoLcngyZYeNnQqztScTogYHAS6` 0.73–1.00, campaign
+`BGm1tav58oGcsQJehL9WXBFXF7D27vZsKefj4xJKD5Y` 0.71–0.80 (while PASSING
+the 0.15 density gate at 0.266 → the density gate does not predict net),
+step-20 `BVRbyLjjfSBcoyiYFuxbgKYnWuiFaF9CSXEa5vdSZ9Hh` 0.97–1.06, Raydium
+`3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv` 0.77–0.93, Orca
+`Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE` 0.40–0.74, cbBTC/USDC
+`7ubS3GccjhQY99AYNKXjNJqnXjaokEdfdV915xnCb96r` 1.05–1.53. July realized
+fees ÷ traversal 0.92–0.96. **New entry rule:** R ≥ 1.3 on two consecutive
+7-day windows, σ reported at 5m/15m/1h/1d (hourly σ can overstate R up to
+1.8× on trending assets), LP share 0.90 (DLMM) / 0.80 (DAMM v2) — datapi
+`pool_config.protocol_fee_pct = 5` is WRONG, on-chain protocolShare = 10 %.
+
+**Sim (678 configs × 7/14/30d, fresh path):** 0 reach 1 %/day; honest
+−0.5 … +0.15 %/day. 24 historical windows May–Sep: best config (20 bins,
+confirm 60) mean −0.05 USD/day, positive 11/24; fees/|IL| 1.21 at 1m-σ
+1.96 % → 0.73 at 4.25 % (corr −0.81). **Sim artifact found:** after a
+recenter the sim redeposits principal only (`strategy.rs`, `let mut
+deposit = principal;`), the bot redeposits deposit + claimed fees → sim LP
+shrinks to 125–237 of 300 over 30d; add a COMPOUND / FIXED_DEPOSIT flag
+(draft patch in session scratchpad `verify-sim/simx`).
+
+**Solana-wide R-screen (799 DLMM + 673 DAMM v2):** no hedged sustained ≥1 %.
+Only persistent R > 1: cbBTC/SOL `HDhWhQCBrSh9xNWmNtsTi86eWj3yCoEiaRodjgNydo1b`
+(1.0–2.1, worth 0–1.4 USD/day). Memes: −39…−67 % in 7d; PumpSwap LP from
+migration median −88 % in SOL; DAMM v2 launch pools median lifetime fees
+0.31–0.40 USD. **Sep 5–9 cluster = memecoin launchpads quoting in non-SOL
+assets:** StonkFun (Raydium LaunchLab config
+`6BwHHDg3u1854jC8PDLXvR4spTcLNaoBxLJNGC4nTESt`) + pump.fun QuoteControl
+`6z6GDdfb2AjR9ZhJmAUQ5cipJCVxQvLJhB2H8mCwTFBP` (93 mints added 2026-09-09
+19:40–20:34Z). Forward hedged (HL) estimates: SPCX
+`7nVQtYQipN564E9oBi6yZFGox4WL6CR4zsLyYipqgTWu` 0–0.4 %/day, wXMR DAMM v2
+`GgB61FHx6PbuCixFnVat2KrDMDA3kCKLjep9rGKUN2Wd` 0.4–0.65 median (single-key
+bridge `Ds4prSZNwyxTz4PZmHXoHDXFzLZ1c8MkfhUwGtqvAvpK`), DOGE Raydium
+`7s9GwyhHTmszPpzYtLaUDFW3LYfuS6XCnFWrGqUk5X4n` ≈0.6 median, JTO/SOL
+`JVoPtWWDsRcLvQosu5fWc2CaNF6jEtJzbxdPtcEuvZo` ≈0. One correlated fad bet.
+Orca/Raydium full R-screen agent stalled — only partially covered.
+
+**Other 16 classes:** sustained ≥1 %/day risk-adjusted: none. Realistic
+ceilings: sustained 0.01–0.10 %/day; best episodic 0.1–0.4 time-averaged.
+Kelly bound: 1 %/day compounded needs out-of-sample Sharpe ≥ 2.7.
+Parking default: JupSOL 5.52 % + Jupiter Lend USDC 4.91 % (or Kamino
+Sentora PYUSD 6.61 %). Hedge venue for any restart: Pacifica (shorts
+received +4.3 % APR 30d / +9.9 % 7d) instead of Jupiter Perps (−5.6 %).
+Only stack-fit engineering idea: Jupiter Lend liquidation bot — measure
+the 90-day liquidation pie read-only first; build only if calm months pay
+≥ ~1k USD/day to all liquidators.
+
+**Side findings (CLOSED 2026-09-25 — operator confirmed he deleted the server and made the 5 USDC transfer):** Hetzner project has NO servers
+(2026-09-24); `167.233.105.131` now presents ED25519
+`SHA256:IRtgWHZBHknscbZPGGeb37RERacJO5bBCV79UFtoL+A` (pinned:
+`SHA256:IIiAZHmL8TaJIWeBfQDRudktclZ+NNWFikuC55uJRXo`). 2026-09-02 wallet-
+signed 5 USDC → `5EqfmTh7yMuDeTjTmYaqi7M38ZYvLTNifJn2hQJZMGtL` (tx
+`4dFRNu3Jio4Luiuk68Jt6EvdcqUTgM7CA5uNVDjs8HrgwZqqfuKoP7EtxPMvTq9qk4E2BNTS3menH9EfBQ9tHnrg`).
+Flash Trade shut down 2026-09-16 and force-returned dust. Meteora S2:
+wallet claimed ≈173 USD of fees in the window (0.624223109 SOL +
+88.469132 USDC, 309 positions) ≈ 5.6 MET < 10 MET minimum — check the
+official claim page before 2026-10-21 10:00 UTC anyway.
+
+### A25. Kamino JUP/SOL vault + «correlated pair, little hedge» (operator 2026-08-27) — MEASURED, BOTH REJECTED; SOL/USDC venue revived (spike, second-week gate pending)
+
+**Kamino `CVCsJFoYjN4gxABhuw71buKhGALRbBm5KvVJQcaodVpt`** = Meteora pool
+`C8Gr6AUuq9hEdSYJzoEpNcdjpojPZwqG5MtQbeouNNwg` (step 80 / 0.15 %, protocol
+share 10 % on-chain), position 51 bins −16.1 %/+26.0 %, rule
+PricePercentageWithReset 1820/2200/7500 (reset at −11.7 %/+19.1 %),
+1 rebalance/30d. Kamino fees: 9.5 % of fees in kind at every harvest, 0.10 %
+withdraw, 0 deposit; API counters/APR are already NET of the 9.5 %. Fee
+density on vault TVL (net): 7d 0.21–0.25 %/д, 30d 0.084–0.092, quiet
+Jul 28–Aug 19 0.040 = all-time-low regime; long-run rolling-30d median
+0.1136 (41 % net APR), p25 0.087, p75 0.142. Pool-wide: 7d 0.1672 (11 %
+margin, 4/7 days) → not a pass; 30d 0.0607. Depositor: 30d +34.1 % USD but
+≈0…+2 % vs holding own tokens (fees +2.6 % ≈ IL from JUP/SOL −16.6 %); 7d
++1.4 %; lifetime since Feb 2024 −15.5 % vs hold. 400 USD model: fees
+10 USD/mo @d30, 26 @d7; ±25 % ratio = IL 17–32; BE 0.16–0.24 %/д. JUP leg
+unhedgeable in-machine (Jupiter: SOL/wETH/wBTC); Flash JUP-short 45 % APR
+borrow + ~188 USDC free capacity; Hyperliquid/CEX manual. Full 400 + hedge
+does not fit the wallet (needs 493; ceiling 325). Protocol: upgradeable
+program, Squads 4/7 + 24 h timelock, redeploy 2026-08-24, no audit after
+2023, Kamino Liquidity TVL −70 % YoY. **REJECT under mandate.** Recipe for
+this class: `/v2/strategies/{S}/history` (sharePrice, holdings, fee
+counters), `/strategies/{S}/ranges/history`, strategy account decode with
+`@kamino-finance/kliquidity-sdk` (feesFee, withdrawFee, rebalanceRaw).
+
+**Correlated pair (X/SOL) screen, CoinGecko 90d + GT densities + sim
+Aug 13–27:** no liquid pair has a stable ratio — ratio vol / SOL-USD vol:
+cbBTC/SOL 0.58× (0.72× hourly), ETH/SOL 0.67×, RENDER 0.75×, JUP 0.95×,
+HYPE 1.19×, MET 1.56×, PUMP 2.94×; 30d ratio drift vs SOL: JUP −17.6 %,
+JTO −32.8, BONK −28.9, RENDER −25.3, BTC −13.4, ETH −9.9, TRUMP +23,
+PUMP +72; LSTs stable (1–2 %) but density 0.001–0.002 %/д (fees < carry).
+Hedge truth: single SOL short h = 0.5(β+1) = 0.80–1.06 × deposit (SOL/USDC
+0.50), carry ×1.5–1.75, residual vol 2–3× ours (JUP 30 %, ETH 16 %, BTC
+11 % vs 15–17 %), ratio IL uncovered by fees (JUP 56 % @d30); the bot cannot
+compute it (`computeLpHedgeDelta` receives tokenX as "sol"); in SOL-metric
+the idea = unhedged (A23 lost). Venues (7d/30d/pre %/д): cbBTC/SOL
+`HDhWhQCBrSh9xNWmNtsTi86eWj3yCoEiaRodjgNydo1b` 1.05/0.39/0.15 (±1 % conc
+2.2×, sim −0.28, 92.5 % out); ETH/SOL
+`3potGhhaNyzvCNq1CGh2wLbZLLMjpdPtG1Hpj8q2DDVR` 0.66/0.24/0.10 (decaying;
+sim +8.5 bins28 / −4.25 bins20 = noise); RENDER/SOL
+`B5dL1cPzmzhz3F4ucoUzKnTNSnpybEoHrC4McTYMHkef` 1.46/0.74/0.45 but TVL 27k;
+JUP/SOL 0.19/0.068/0.025 (sim +2.2/+2.7, bins20 −4/−9). Dead: RAY, ORCA,
+WIF, PYTH, TRUMP, BONK, JTO/SOL. **REJECT the proposal.** Watch-list only:
+cbBTC/SOL, ETH/SOL — revisit if pre-spike base ≥ 0.15 two weeks running on
+on-chain TVL AND a two-leg (BTC/ETH + SOL) hedge is coded/tested.
+
+**SOL/USDC venue revived (measured 2026-08-27/28, GT volume × base fee ÷
+ON-CHAIN TVL):** old pool `5rCf1DM8LjKTw4YqhnoLcngyZYeNnQqztScTogYHAS6` 7d
+(Aug 21–27) **0.585–0.611 %/д**, 30d 0.226–0.236, pre-spike Jul 29–Aug 18
+0.10–0.12 → spike-only (d30/d7 0.39); campaign
+`BGm1tav58oGcsQJehL9WXBFXF7D27vZsKefj4xJKD5Y` 0.45/0.16; turnover ratio
+3.75× > 2.5× handicap → old pool stays the venue. ⚠️ GeckoTerminal
+`reserve_in_usd` was a stale 20 %-low outlier (4.69M vs on-chain 5.6–5.9M)
+— use on-chain (`@meteora-ag/dlmm`) or `dlmm.datapi.meteora.ag/pools/<addr>`
+TVL for density. Concentration ±0.5 %: 18.2× (Aug 27 15:30Z) → 6.6× (Aug 28
+10:50Z). Sim Aug 13–27 (SOL +37 %): old pool hedged band0.25 EvP +0.17 abs
++8.59 (82.9 % out), campaign +10.96. **Gate: second consecutive 7-day pass
+(Aug 28–Sep 3 ≥ 0.1725) before any re-entry**; then pool-activity, fresh
+concentration read, sim at bins 20+28, `pnpm hodl --init`, container
+recreate, fix Pyth Hermes 401 (jupiter:read single-sourced).
+
 ### A24. Raydium SOL/USDC venue check (operator 2026-07-20: «прогони на симуляторе usdc sol на raydium») — MEASURED, REJECTED
 
 Answer in one line: Raydium's best SOL/USDC concentrated pool pays **31%

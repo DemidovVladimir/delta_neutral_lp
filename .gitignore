@@ -135,3 +135,6 @@ chaos-obsidian-vault/
 # Rust simulator build artifacts and cached market data (tasks #6-8)
 simulator/target/
 simulator/data/
+
+# Memecoin research dataset (large SQLite + logs)
+research/memecoins/data/

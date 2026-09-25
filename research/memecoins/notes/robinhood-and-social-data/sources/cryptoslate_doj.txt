@@ -1,0 +1,67 @@
+TITLE: Robinhood engineers face up to 30 years over $50,000 alleged Hyperliquid profits
+META og:description Two Robinhood employees face commodities-fraud and wire-fraud charges over Hyperliquid trades tied to confidential token listings.
+META article:published_time 2026-09-16T17:40:32+00:00
+META article:modified_time 2026-09-16T12:08:01+00:00
+Robinhood engineers face up to 30 years over $50,000 alleged Hyperliquid profits News
+Directory Browse Companies
+01 Two Robinhood employees allegedly used advance knowledge of token listings to make more than $50,000 each trading Hyperliquid perpetuals.
+02 The alleged scheme exploited the narrow window between tokens going live on Robinhood and the company publicly announcing them.
+03 The case could test how federal fraud laws apply when confidential corporate information is used to trade decentralized crypto derivatives.
+Two Robinhood engineers were charged with using confidential token-listing information to place profitable crypto derivatives trades on Hyperliquid.
+On Sept. 15, the Federal prosecutors accused Hefu Chai and Huaisong “Jerry” Xiang of trading perpetual futures tied to tokens they allegedly knew Robinhood Crypto planned to list, earning more than $50,000 each.
+These charges extend insider-information enforcement into a part of crypto markets where confidential information held at one company can be monetized through derivatives traded on a separate decentralized platform .
+Both men face one count of commodities fraud and one count of wire fraud. The charges carry statutory maximum sentences of 10 years and 20 years, respectively.
+Chai worked at Robinhood from about 2021 until May 2026 and served as a technical lead involved in new digital-asset listings, prosecutors said. Xiang worked as a software engineer from about 2024 through September 2026.
+Their positions allegedly gave them access to a private Slack channel containing upcoming listing plans. Both were designated “Coin Aware Individuals,” employees permitted to receive information about whether and when Robinhood Crypto would make new tokens available.
+Robinhood’s policies barred those employees from trading while holding material nonpublic information and restricted them from trading affected assets on any platform before an announcement and for 24 hours afterward.
+US Attorney Jamie McDonald said:
+“Misappropriating confidential information to trade in the derivatives markets for personal benefit is illegal. Today’s charges make clear that corporate insiders cannot evade the securities and commodities laws by trading based on misappropriated information in derivatives like perpetual futures, tokenized securities, or other similar financial instruments.”
+Prosecutors said Chai traded on at least 10 occasions between 2025 and January 2026. Xiang allegedly traded around a March 2025 POPCAT listing and on at least 10 other occasions through February 2026.
+What’s moving crypto. Why it matters.
+Get CryptoSlate’s essential stories and what to watch next.
+Seven days a week. Unsubscribe anytime.
+Your signup request was sent. If confirmation is required, follow the email from Substack.
+Look in spam or promotions if you don’t see it.
+Prosecutors focus on the window before Robinhood's public announcements
+The government’s case centers on the gap between when a token became tradable on Robinhood and when the company publicly announced the listing.
+Robinhood tokens could begin trading as much as an hour before an announcement, prosecutors said, creating a window in which employees with advance knowledge could potentially exit positions before the broader market received the news.
+In one example, Xiang allegedly learned around Jan. 23, 2026, that Robinhood planned to list RENDER on Jan. 29. Prosecutors said he opened long RENDER perpetual-futures positions around the listing date and closed them at a profit after the token became available on Robinhood but before the public announcement.
+Chai allegedly used a similar strategy involving HYPE . Prosecutors said he learned around Oct. 16, 2025, that Robinhood planned to list the token the following week, then opened HYPE perpetual positions around Oct. 23 and exited profitably after trading began on Robinhood but before the announcement.
+Those trades were placed on Hyperliquid, a decentralized derivatives venue where perpetual futures allow traders to speculate on token prices without holding the underlying assets.
+US rule rewrite looms for $200B on-chain venue Hyperliquid as Trump signals onshore approval
+The case now puts the alleged use of confidential listing information in decentralized derivatives markets before a federal court, potentially testing how prosecutors apply commodities-fraud statutes when the information source and trading venue are separate.
+Robinhood cooperated with the investigation, the Justice Department said. The company may also face pressure to reassess how it segments listing information internally and monitors employee trading restrictions across external crypto venues as prosecutors pursue the case.
+Oluwapelumi values Bitcoin's potential. He imparts insights on a range of topics like DeFi, hacks, mining and culture, underlining transformative power.
+Strategy and Robinhood now lead a $4.5 billion large-cap ETF that was not built for crypto
+Hyperliquid opens native lending as HYPE hits new ATH above $90
+New York sues Polymarket, seeks triple gains and $100,000 penalties over prediction markets
+Robinhood rejects AMC CEO’s demand to halt AMC tokenized ‘meme stock’ which offers no shareholder rights
+CryptoSlate may use AI tools to support research, editing, and production workflows. Our journalism remains human-led, with our editorial team responsible for every published article. Read our full AI usage disclaimer .
+Our writers' opinions are solely their own and do not reflect the opinion of CryptoSlate. None of the information you read on CryptoSlate should be taken as investment advice, nor does CryptoSlate endorse any project that may be mentioned or linked to in this article.
+Buying and trading cryptocurrencies should be considered a high-risk activity. Please do your own due diligence before taking any action related to content within this article. Finally, CryptoSlate takes no responsibility should you lose money trading cryptocurrencies. For more information, see our company disclaimers .
+We use cookies to improve your experience on our site. By using our site, you consent to cookies.
+Manage your cookie preferences below:
+Essential cookies enable basic functions and are necessary for the proper function of the website.
+CloudFlare provides web performance and security solutions, enhancing site speed and protecting against threats.
+Service URL: developers.cloudflare.com (opens in a new window)
+Google Analytics is a powerful tool that tracks and analyzes website traffic for informed marketing decisions.
+Service URL: policies.google.com (opens in a new window)
+Statistics cookies collect information anonymously. This information helps us understand how visitors use our website.
+Clarity is a web analytics service that tracks and reports website traffic.
+Service URL: clarity.microsoft.com (opens in a new window)
+You can find more information in our Privacy Policy and .
+This image could not be loaded.
+The Catalyst by CryptoSlate
+Understand what’s moving crypto.
+The stories that matter, the context behind them, and what to watch next.
+Seven days a week. Unsubscribe anytime.
+The Catalyst by CryptoSlate
+Your signup request was sent. If confirmation is required, follow the email from Substack.
+Look in spam or promotions if you don’t see it.
+By subscribing, you agree to our Terms and Privacy Policy .
+The Catalyst by CryptoSlate
+Understand what’s moving crypto.
+The stories that matter, the context behind them, and what to watch next.
+Subscribe to The Catalyst by CryptoSlate through Substack.
+Look in spam or promotions if you don’t see it.
+[len 7603 ]

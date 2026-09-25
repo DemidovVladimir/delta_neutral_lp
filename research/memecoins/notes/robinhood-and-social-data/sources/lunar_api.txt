@@ -1,0 +1,13 @@
+TITLE: API Keys & Authentication | LunarCrush Developers
+META og:description Generate, rotate, and scope keys. Includes rate-limit guidance and security best practices.
+META og:description Generate, rotate, and scope keys. Includes rate-limit guidance and security best practices.
+Manage your LunarCrush API keys
+Every request to the LunarCrush API v4 must include an Authorization header with the value Bearer <API_KEY> . Keep these tokens secret. If you suspect one has been leaked, delete it and generate a new one.
+You can hold up to five active access tokens at once. Label each one to organize and track usage; all usage across every token is associated with your account. Generate, rename, reveal, copy, and delete keys from this page once you are signed in.
+curl -H "Authorization: Bearer <API_KEY>" \ "https://lunarcrush.com/api4/public/coins/list/v1" Rate limits and plan gating Every request counts against your plan's per-minute and daily quota. Limits and endpoint access are set by your subscription tier and match the plans on the pricing page :
+Market data endpoints, 4 requests/min, 100 per day
+Limited endpoints, 10 requests/min, 2,000/day
+All endpoints, 100 requests/min, 20,000/day
+All endpoints, 500 requests/min, 100,000/day
+The free Hobby tier is limited to market-data endpoints; social, creator, and AI endpoints unlock on paid plans. Enterprise limits are custom — talk to sales .
+[len 1125 ]
